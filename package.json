@@ -1,26 +1,25 @@
 {
-  "name": "justnotes",
+  "name": "justnotes-monorepo",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
-  },
-  "dependencies": {
-    "next": "16.2.6",
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "dev": "pnpm --filter @justnotes/web dev",
+    "dev:api": "pnpm --filter @justnotes/api dev",
+    "dev:marketing": "pnpm --filter @justnotes/marketing dev",
+    "build": "pnpm -r --parallel build",
+    "lint": "pnpm -r --parallel lint",
+    "tauri": "tauri",
+    "tauri:dev": "cross-env WEBKIT_DISABLE_DMABUF_RENDERER=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 WEBKIT_FORCE_SANDBOX=0 LIBGL_ALWAYS_SOFTWARE=1 tauri dev",
+    "tauri:build": "tauri build"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.2.6",
-    "tailwindcss": "^4",
-    "typescript": "^5"
+    "@tauri-apps/cli": "^2.11.2",
+    "cross-env": "^10.1.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@types/react": "19.2.14",
+      "@types/react-dom": "19.2.3"
+    }
   }
 }

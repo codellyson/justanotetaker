@@ -1,9 +1,24 @@
+@import "tailwindcss";
+
+/* Self-hosted fonts (replaces next/font/google) */
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource-variable/newsreader";
+
+:root {
+  --font-jn-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-jn-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-jn-serif: "Newsreader Variable", "Iowan Old Style", Georgia, serif;
+}
+
 *, *::before, *::after { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; overflow: hidden; }
 body {
   background: #0a0d12;
   color: rgba(255,255,255,0.78);
-  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-family: var(--font-jn-sans);
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
