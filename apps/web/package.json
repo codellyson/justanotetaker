@@ -13,6 +13,8 @@
     "@fontsource-variable/newsreader": "^5.2.0",
     "@fontsource/ibm-plex-mono": "^5.2.0",
     "@fontsource/ibm-plex-sans": "^5.2.0",
+    "@justnotes/api-client": "workspace:*",
+    "better-auth": "^1.2.0",
     "react": "19.2.5",
     "react-dom": "19.2.5"
   },

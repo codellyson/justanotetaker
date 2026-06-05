@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "justnotes-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "justnotes-dev",
+      // Replace after running: wrangler d1 create justnotes-dev
+      // For `wrangler dev --local` (miniflare in-memory SQLite) the value
+      // is not validated, so this placeholder is fine until a real D1
+      // exists.
+      "database_id": "REPLACE_ME_RUN_wrangler_d1_create",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "vars": {
+    "BETTER_AUTH_URL": "http://localhost:8787"
+  }
+  // Secrets (NOT vars) live in .dev.vars locally and `wrangler secret put` in prod:
+  //   BETTER_AUTH_SECRET   — random 32-byte hex; required by Better Auth
+}

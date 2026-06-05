@@ -1,0 +1,6 @@
+# Copy to .dev.vars and fill in. .dev.vars is gitignored and loaded by
+# `wrangler dev` as the local secret store. In production, set via:
+#   wrangler secret put BETTER_AUTH_SECRET
+
+# 32-byte hex string. Generate with: openssl rand -hex 32
+BETTER_AUTH_SECRET=replace_me_with_a_32_byte_hex_string

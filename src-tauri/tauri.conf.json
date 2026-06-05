@@ -1,0 +1,37 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "JustNotes",
+  "version": "0.1.0",
+  "identifier": "com.kreativekorna.justnotes",
+  "build": {
+    "frontendDist": "../apps/web/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "pnpm --filter @justnotes/web dev",
+    "beforeBuildCommand": "pnpm --filter @justnotes/web build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "JustNotes",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 500,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "backgroundColor": "#0a0d12"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png"
+    ]
+  }
+}
