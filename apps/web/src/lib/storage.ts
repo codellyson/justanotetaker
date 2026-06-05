@@ -8,6 +8,8 @@ import { api } from "./api-client";
 
 export type StoredNote = Note & { updatedAt: number };
 
+export type SearchMatch = StoredNote & { snippet: string };
+
 export type StoredSettings = {
   tweaks: Tweaks | null;
   seeded: boolean;
@@ -18,6 +20,7 @@ export interface Storage {
   create(input: { id?: string; x: number; y: number; t: number; text?: string }): Promise<StoredNote>;
   update(id: string, patch: Partial<Pick<Note, "x" | "y" | "t" | "text">>): Promise<StoredNote | null>;
   remove(id: string): Promise<void>;
+  search(q: string, opts?: { limit?: number; signal?: AbortSignal }): Promise<SearchMatch[]>;
   getSettings(): Promise<StoredSettings>;
   putSettings(input: { tweaks?: Tweaks | null; seeded?: boolean }): Promise<StoredSettings>;
 }
@@ -69,6 +72,26 @@ export const remoteStorage: Storage = {
   async remove(id) {
     const res = await api.api.notes[":id"].$delete({ param: { id } });
     if (!res.ok && res.status !== 404) throw new Error(`delete note: ${res.status}`);
+  },
+
+  async search(q, opts) {
+    const res = await api.api.notes.search.$get(
+      {
+        query: { q, ...(opts?.limit !== undefined ? { limit: opts.limit } : {}) },
+      },
+      { init: { signal: opts?.signal } },
+    );
+    if (!res.ok) throw new Error(`search: ${res.status}`);
+    const { matches } = await res.json();
+    return matches.map((m) => ({
+      id: m.id,
+      x: m.x,
+      y: m.y,
+      t: m.t,
+      text: m.text,
+      updatedAt: m.updatedAt,
+      snippet: m.snippet,
+    }));
   },
 
   async getSettings() {

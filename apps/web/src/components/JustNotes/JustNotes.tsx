@@ -24,6 +24,7 @@ import {
 import { renderBody, renderHeadline } from "./markdown";
 import { AmbientBar, Compass, InkUnderline, TimeScrub } from "./cherries";
 import { TweaksUI } from "./tweaks";
+import { remoteStorage } from "../../lib/storage";
 
 type Persist = {
   onCreate: (note: Note) => void | Promise<void>;
@@ -350,14 +351,40 @@ export default function JustNotes(props: JustNotesProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingId, ambientOpen]);
 
-  // ── Ambient recall matches ─────────────────────────────────────────
-  const matchIds = useMemo(() => {
-    if (!ambientOpen) return null;
-    const q = recallQuery.toLowerCase().trim();
-    if (!q) return null;
-    return notes.filter((n) => n.text.toLowerCase().includes(q)).map((n) => n.id);
-  }, [notes, ambientOpen, recallQuery]);
-  const matchSet = useMemo(() => matchIds ? new Set(matchIds) : null, [matchIds]);
+  // ── Ambient recall matches (server-side FTS5) ──────────────────────
+  // Phase 2: debounced storage.search() replaces the in-memory filter.
+  // Local fallback for the just-opened state means the first keystroke
+  // still feels instant — server result arrives ~80ms later and replaces
+  // the fallback. Pending searches are cancelled on every new keystroke.
+  const [matchIds, setMatchIds] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!ambientOpen) { setMatchIds(null); return; }
+    const q = recallQuery.trim();
+    if (!q) { setMatchIds(null); return; }
+
+    // Optimistic local filter so matches appear immediately while the
+    // server query is in flight. Server result wins when it arrives.
+    const lower = q.toLowerCase();
+    setMatchIds(notesRef.current.filter((n) => n.text.toLowerCase().includes(lower)).map((n) => n.id));
+
+    const ac = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const matches = await remoteStorage.search(q, { limit: 100, signal: ac.signal });
+        setMatchIds(matches.map((m) => m.id));
+      } catch (err) {
+        if ((err as Error).name !== "AbortError") {
+          console.error("[ambient] search failed", err);
+        }
+      }
+    }, 80);
+
+    return () => {
+      window.clearTimeout(timer);
+      ac.abort();
+    };
+  }, [recallQuery, ambientOpen]);
+  const matchSet = useMemo(() => (matchIds ? new Set(matchIds) : null), [matchIds]);
 
   const prevMatchCountRef = useRef(0);
   useEffect(() => {

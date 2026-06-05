@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, lte } from "drizzle-orm";
 import { createDb } from "../db/client";
 import { notes } from "../db/schema";
 import type { Env } from "../env";
@@ -21,8 +21,29 @@ const patchSchema = z.object({
   text: z.string().optional(),
 });
 
-const listQuery = z.object({ since: z.coerce.number().optional() });
+const listQuery = z.object({
+  since: z.coerce.number().optional(),
+  before: z.coerce.number().optional(),
+});
 const idParam = z.object({ id: z.string() });
+
+const searchQuery = z.object({
+  q: z.string().min(1),
+  limit: z.coerce.number().int().positive().max(200).optional(),
+});
+
+// Tokenize the user's input into FTS5 prefix-matched literals. Wrapping
+// each token in double quotes neutralizes FTS5 operators (`*`, `OR`,
+// `NEAR`, `:`) and the trailing `*` re-enables prefix match per token —
+// so "rec" matches "recall", "recent", etc. Multiple tokens implicit-AND.
+function toFtsQuery(raw: string): string {
+  return raw
+    .trim()
+    .split(/\s+/)
+    .filter((t) => t.length > 0)
+    .map((t) => `"${t.replace(/"/g, '""')}"*`)
+    .join(" ");
+}
 
 export const notesRoutes = new Hono<Env>()
   // List the caller's notes. ?since=<ms> returns only rows with updated_at > since
@@ -31,19 +52,68 @@ export const notesRoutes = new Hono<Env>()
   .get("/", zValidator("query", listQuery), async (c) => {
     const db = createDb(c.env.DB);
     const userId = c.get("userId");
-    const { since } = c.req.valid("query");
+    const { since, before } = c.req.valid("query");
 
-    const rows = since != null
-      ? await db
-          .select()
-          .from(notes)
-          .where(and(eq(notes.userId, userId), gt(notes.updatedAt, since)))
-      : await db
-          .select()
-          .from(notes)
-          .where(and(eq(notes.userId, userId), isNull(notes.deletedAt)));
+    const conds = [eq(notes.userId, userId)];
+    if (since != null) {
+      // Delta sync — include soft-deletes so clients can reconcile.
+      conds.push(gt(notes.updatedAt, since));
+    } else {
+      conds.push(isNull(notes.deletedAt));
+    }
+    if (before != null) conds.push(lte(notes.t, before));
 
+    const rows = await db.select().from(notes).where(and(...conds));
     return c.json({ notes: rows, serverTime: Date.now() });
+  })
+  // FTS5-backed text search. Filters to the caller's notes + non-deleted
+  // at query time (the FTS index itself is ownership-agnostic). bm25
+  // ranks results; snippet() returns a 20-token excerpt with <mark> tags
+  // around the matched terms.
+  .get("/search", zValidator("query", searchQuery), async (c) => {
+    // Drizzle's query builder doesn't model FTS5 — fall through to D1's
+    // raw prepared statement for the MATCH + JOIN + rank ORDER BY.
+    const userId = c.get("userId");
+    const { q, limit } = c.req.valid("query");
+    const ftsQuery = toFtsQuery(q);
+    if (!ftsQuery) return c.json({ matches: [], serverTime: Date.now() });
+
+    type Row = {
+      id: string;
+      x: number;
+      y: number;
+      t: number;
+      text: string;
+      updated_at: number;
+      snippet: string;
+    };
+
+    const { results } = await c.env.DB.prepare(
+      `SELECT notes.id, notes.x, notes.y, notes.t, notes.text, notes.updated_at,
+              snippet(notes_fts, 0, '<mark>', '</mark>', '…', 20) AS snippet
+       FROM notes_fts
+       JOIN notes ON notes.rowid = notes_fts.rowid
+       WHERE notes_fts MATCH ?
+         AND notes.user_id = ?
+         AND notes.deleted_at IS NULL
+       ORDER BY rank
+       LIMIT ?`,
+    )
+      .bind(ftsQuery, userId, limit ?? 50)
+      .all<Row>();
+
+    return c.json({
+      matches: (results ?? []).map((r) => ({
+        id: r.id,
+        x: r.x,
+        y: r.y,
+        t: r.t,
+        text: r.text,
+        updatedAt: r.updated_at,
+        snippet: r.snippet,
+      })),
+      serverTime: Date.now(),
+    });
   })
   .post("/", zValidator("json", createSchema), async (c) => {
     const db = createDb(c.env.DB);

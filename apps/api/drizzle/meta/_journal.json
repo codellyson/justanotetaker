@@ -15,6 +15,13 @@
       "when": 1780653689040,
       "tag": "0001_calm_moondragon",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1780661500000,
+      "tag": "0002_notes_fts",
+      "breakpoints": true
     }
   ]
 }
