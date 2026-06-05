@@ -23,9 +23,11 @@
   },
   "dependencies": {
     "@cloudflare/workers-types": "^4.20250101.0",
+    "@hono/zod-validator": "^0.7.0",
     "better-auth": "^1.6.0",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.6.0"
+    "hono": "^4.6.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/node": "^20",

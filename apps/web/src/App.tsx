@@ -1,10 +1,10 @@
-import JustNotes from "./components/JustNotes/JustNotes";
+import { JustNotesLoader } from "./components/JustNotesLoader";
 import { AuthBootstrap } from "./components/AuthBootstrap";
 
 export default function App() {
   return (
     <AuthBootstrap>
-      <JustNotes />
+      <JustNotesLoader />
     </AuthBootstrap>
   );
 }

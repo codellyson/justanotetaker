@@ -12,8 +12,6 @@ import {
   GRID,
   INK_MS,
   PALETTES,
-  SEED,
-  TWEAK_DEFAULTS,
   WARM_MS,
   firstNonEmpty,
   recencyOf,
@@ -25,7 +23,19 @@ import {
 } from "./lib";
 import { renderBody, renderHeadline } from "./markdown";
 import { AmbientBar, Compass, InkUnderline, TimeScrub } from "./cherries";
-import { TweaksUI, useTweaks } from "./tweaks";
+import { TweaksUI } from "./tweaks";
+
+type Persist = {
+  onCreate: (note: Note) => void | Promise<void>;
+  onUpdate: (id: string, patch: Partial<Pick<Note, "x" | "y" | "t" | "text">>) => void;
+  onDelete: (id: string) => void;
+};
+
+export type JustNotesProps = Persist & {
+  initialNotes: Note[];
+  tweaks: Tweaks;
+  setTweak: <K extends keyof Tweaks>(key: K, val: Tweaks[K]) => void;
+};
 
 type View = { pan: { x: number; y: number }; zoom: number };
 
@@ -36,13 +46,11 @@ type UndoOp =
   | { type: "move"; id: string; prevX: number; prevY: number };
 
 // ── App ────────────────────────────────────────────────────────────────
-export default function JustNotes() {
-  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+export default function JustNotes(props: JustNotesProps) {
+  const { initialNotes, tweaks: t, setTweak, onCreate, onUpdate, onDelete } = props;
   const [tweaksOpen, setTweaksOpen] = useState(false);
 
-  const [notes, setNotes] = useState<Note[]>(() =>
-    SEED.map((s) => ({ id: uid(), x: s.x, y: s.y, t: s.t, text: s.text })),
-  );
+  const [notes, setNotes] = useState<Note[]>(initialNotes);
   const notesRef = useRef(notes);
   useEffect(() => { notesRef.current = notes; }, [notes]);
 
@@ -173,10 +181,20 @@ export default function JustNotes() {
     if (isEmpty) {
       if (cur && snap && !snap.isNew) pushOp({ type: "delete", note: { ...cur } });
       setNotes((ns) => ns.filter((n) => n.id !== id));
+      // Empty-commit on a previously-synced note → soft-delete on server.
+      // No-op if never synced (spawned then never given text).
+      if (!snap?.isNew) onDelete(id);
     } else {
+      const now = Date.now();
       if (snap?.isNew) pushOp({ type: "create", id });
       else if (snap && (snap.prevText !== cur.text)) pushOp({ type: "edit", id, prevText: snap.prevText, prevT: snap.prevT });
-      setNotes((ns) => ns.map((n) => n.id === id ? { ...n, t: Date.now() } : n));
+      setNotes((ns) => ns.map((n) => n.id === id ? { ...n, t: now } : n));
+      // First commit on a new note → persist create. Subsequent edits → patch.
+      if (snap?.isNew) {
+        void onCreate({ ...cur, t: now });
+      } else {
+        onUpdate(id, { text: cur.text, t: now });
+      }
       if (tweakRef.current.glow) {
         setGlowingId(id);
         setSavedTickId(id);
@@ -323,6 +341,8 @@ export default function JustNotes() {
       } else {
         pushOp({ type: "move", id, prevX: startX, prevY: startY });
         if (tweakRef.current.warmTrail) markWarm(id);
+        const cur = notesRef.current.find((n) => n.id === id);
+        if (cur) onUpdate(id, { x: cur.x, y: cur.y });
       }
     };
     window.addEventListener("mousemove", onMove);

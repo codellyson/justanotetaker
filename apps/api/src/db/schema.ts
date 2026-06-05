@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index } from "drizzle-orm/sqlite-core";
 
 // Better Auth core tables for SQLite/D1.
 // These match the shape Better Auth's CLI would generate for a Drizzle
@@ -58,4 +58,42 @@ export const verification = sqliteTable("verification", {
   updatedAt: integer("updatedAt", { mode: "timestamp" }),
 });
 
-export const schema = { user, session, account, verification };
+// ── justnotes domain tables ─────────────────────────────────────────────
+
+// One row per note. user_id partitions the table for multi-tenant safety.
+// `t` is the note's "moment" (recency/scrub axis). `updated_at` is the
+// LWW sync key — server-assigned on every write. Soft delete via
+// `deleted_at`; clients filter, server keeps until a future cleanup job.
+export const notes = sqliteTable(
+  "notes",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    x: real("x").notNull(),
+    y: real("y").notNull(),
+    t: integer("t").notNull(),
+    text: text("text").notNull().default(""),
+    updatedAt: integer("updated_at").notNull(),
+    deletedAt: integer("deleted_at"),
+  },
+  (table) => ({
+    userUpdated: index("notes_user_updated").on(table.userId, table.updatedAt),
+  }),
+);
+
+// One row per user. `tweaks` is a JSON-serialized Tweaks object — kept
+// as TEXT to avoid migration pain when individual tweak fields evolve.
+// `seeded` flags whether SEED has been written to this user's notes —
+// flipped true on first successful seed so re-empty doesn't re-seed.
+export const settings = sqliteTable("settings", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  tweaks: text("tweaks"),
+  seeded: integer("seeded", { mode: "boolean" }).notNull().default(false),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const schema = { user, session, account, verification, notes, settings };
