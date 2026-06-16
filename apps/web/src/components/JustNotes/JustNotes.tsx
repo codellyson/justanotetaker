@@ -25,6 +25,9 @@ import { renderBody, renderHeadline } from "./markdown";
 import { AmbientBar, Compass, InkUnderline, TimeScrub } from "./cherries";
 import { TweaksUI } from "./tweaks";
 import { remoteStorage } from "../../lib/storage";
+import { authClient } from "../../lib/auth-client";
+import { API_BASE_URL } from "../../lib/runtime";
+import { AuthPanel } from "../AuthPanel";
 
 type Persist = {
   onCreate: (note: Note) => void | Promise<void>;
@@ -77,7 +80,44 @@ export default function JustNotes(props: JustNotesProps) {
   const [, setWarmTick] = useState(0);
 
   const [helpOpen, setHelpOpen] = useState(false);
+  const [authPanelOpen, setAuthPanelOpen] = useState(false);
+  const [hasGoogle, setHasGoogle] = useState(false);
   const [interacted, setInteracted] = useState(false);
+
+  // Auth state. Better Auth's useSession is live; AuthBootstrap guarantees
+  // a session exists by the time this component mounts, so session is
+  // typically non-null (anonymous user). When the user signs in for real,
+  // useSession re-renders and isAnonymous flips false.
+  const { data: session } = authClient.useSession();
+  type UserShape = { id: string; name?: string; email?: string; isAnonymous?: boolean };
+  const user = (session?.user ?? null) as UserShape | null;
+  const isAnonymous = !user || user.isAnonymous === true;
+  const identityLabel = user?.name?.trim() || user?.email || "";
+
+  useEffect(() => {
+    // One-shot fetch of /api/me to learn whether Google is configured.
+    // The endpoint also returns user, but useSession is fresher.
+    let cancelled = false;
+    fetch(API_BASE_URL + "/api/me", { credentials: "include" })
+      .then((r) => r.json())
+      .then((d: { providers?: { google?: boolean } }) => {
+        if (!cancelled) setHasGoogle(!!d.providers?.google);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function onSignOut() {
+    try {
+      await authClient.signOut();
+    } catch (err) {
+      console.error("[auth] sign out failed", err);
+    }
+    // Re-bootstrap an anonymous session so the canvas keeps working.
+    window.location.reload();
+  }
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const historyRef = useRef<UndoOp[]>([]);
@@ -605,6 +645,16 @@ export default function JustNotes(props: JustNotesProps) {
         showRecencyKey={t.showRecencyKey}
         palette={palette}
         overviewLabel={inOverview ? "overview · z to return" : null}
+        isAnonymous={isAnonymous}
+        identityLabel={identityLabel}
+        onSignIn={() => setAuthPanelOpen(true)}
+        onSignOut={onSignOut}
+      />
+
+      <AuthPanel
+        open={authPanelOpen}
+        onClose={() => setAuthPanelOpen(false)}
+        hasGoogle={hasGoogle}
       />
 
       {ambientOpen && (
@@ -791,6 +841,7 @@ function NoteCard({
 // ── Chrome ─────────────────────────────────────────────────────────────
 function Chrome({
   count, folderPath, hintVisible, showRecencyKey, palette, overviewLabel,
+  isAnonymous, identityLabel, onSignIn, onSignOut,
 }: {
   count: number;
   folderPath: string;
@@ -798,6 +849,10 @@ function Chrome({
   showRecencyKey: boolean;
   palette: Palette;
   overviewLabel: string | null;
+  isAnonymous: boolean;
+  identityLabel: string;
+  onSignIn: () => void;
+  onSignOut: () => void;
 }) {
   return (
     <>
@@ -805,15 +860,28 @@ function Chrome({
         <span className="dot" />
         <span className="wordmark">justnotes</span>
       </div>
-      <div className="chrome chrome-tr">
-        <span className="count-num">{count}</span>
-        <span className="count-lbl">notes</span>
-      </div>
+      {isAnonymous ? (
+        <div className="chrome chrome-tr">
+          <span className="count-num">{count}</span>
+          <span className="count-lbl">notes</span>
+        </div>
+      ) : (
+        <div className="chrome chrome-id">
+          <span className="id-name">{identityLabel}</span>
+          <button onClick={onSignOut} aria-label="sign out">sign out</button>
+        </div>
+      )}
       <div className="chrome chrome-br">{folderPath}</div>
       <div className={"chrome chrome-bl" + (hintVisible ? "" : " faded")}>
-        <span className="hint">
-          <kbd>click</kbd> to write &nbsp;·&nbsp; <kbd>drag</kbd> to pan &nbsp;·&nbsp; <kbd>/</kbd> search &nbsp;·&nbsp; <kbd>z</kbd> overview &nbsp;·&nbsp; <kbd>?</kbd> help
-        </span>
+        {isAnonymous ? (
+          <span className="hint">
+            <button className="signin-cta" onClick={onSignIn}>sign in</button> to sync across devices
+          </span>
+        ) : (
+          <span className="hint">
+            <kbd>click</kbd> to write &nbsp;·&nbsp; <kbd>drag</kbd> to pan &nbsp;·&nbsp; <kbd>/</kbd> search &nbsp;·&nbsp; <kbd>z</kbd> overview &nbsp;·&nbsp; <kbd>?</kbd> help
+          </span>
+        )}
       </div>
       {overviewLabel && <div className="chrome chrome-mode">{overviewLabel}</div>}
       {showRecencyKey && (

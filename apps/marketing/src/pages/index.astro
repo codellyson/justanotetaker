@@ -1,5 +1,10 @@
 ---
 import "../styles/global.css";
+
+// Dev defaults point at the local vite + tauri release stub. Both
+// override-able via Astro env vars when this ships.
+const webUrl = import.meta.env.PUBLIC_WEB_URL ?? "http://localhost:5173";
+const desktopUrl = import.meta.env.PUBLIC_DESKTOP_URL ?? "#desktop";
 ---
 
 <!doctype html>
@@ -12,10 +17,33 @@ import "../styles/global.css";
   </head>
   <body>
     <main class="mx-auto max-w-2xl px-6 py-24">
-      <h1 class="text-3xl font-medium tracking-tight">justnotes</h1>
-      <p class="mt-2 text-[color:var(--muted)]">Spatial notes on a dark canvas.</p>
-      <p class="mt-12 text-sm text-[color:var(--muted)]">
-        Phase 0 placeholder. Real landing copy lands later.
+      <div class="flex items-center gap-3">
+        <span class="inline-block h-2 w-2 rounded-full bg-[color:var(--amber)]"></span>
+        <span class="text-xs uppercase tracking-[0.08em] text-[color:var(--muted)]">justnotes</span>
+      </div>
+      <h1 class="mt-10 text-4xl font-medium tracking-tight">Spatial notes on a dark canvas.</h1>
+      <p class="mt-4 max-w-lg text-[color:var(--muted)]">
+        Just write. Drag to place. Type to recall. Your canvas, syncing across every device.
+      </p>
+
+      <div class="mt-12 flex flex-wrap gap-3">
+        <a
+          href={webUrl}
+          class="inline-flex items-center gap-2 rounded-md bg-[color:var(--amber)] px-4 py-2 text-sm font-medium text-[#1a1611] transition hover:brightness-110"
+        >
+          Try in browser
+          <span aria-hidden>→</span>
+        </a>
+        <a
+          href={desktopUrl}
+          class="inline-flex items-center gap-2 rounded-md border border-white/15 bg-white/5 px-4 py-2 text-sm text-[color:var(--fg)] transition hover:border-white/25 hover:bg-white/10"
+        >
+          Get justnotes for desktop
+        </a>
+      </div>
+
+      <p class="mt-10 text-xs text-[color:var(--muted)]">
+        Local-first sketch. Free to use, free to leave. Open the canvas, close the tab — it's still there next time.
       </p>
     </main>
   </body>

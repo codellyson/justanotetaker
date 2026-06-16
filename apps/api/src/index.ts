@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { createAuth } from "./auth";
+import { createAuth, hasGoogleProvider } from "./auth";
 import type { Env } from "./env";
 import { notesRoutes } from "./routes/notes";
 import { settingsRoutes } from "./routes/settings";
@@ -37,7 +37,10 @@ app.get("/api/health", (c) => c.json({ ok: true, time: Date.now() }));
 
 app.get("/api/me", (c) => {
   const user = c.get("user");
-  return c.json({ user });
+  return c.json({
+    user,
+    providers: { google: hasGoogleProvider(c.env) },
+  });
 });
 
 // Auth gate for the domain routes. Anonymous sessions count — we only
