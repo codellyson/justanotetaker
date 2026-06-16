@@ -112,11 +112,12 @@ export default function JustNotes(props: JustNotesProps) {
   async function onSignOut() {
     try {
       await authClient.signOut();
+      // useSession transitions to null → AuthBootstrap creates a fresh
+      // anonymous session → JustNotesLoader sees the new user_id and
+      // remounts the Session with empty initial state. No reload needed.
     } catch (err) {
       console.error("[auth] sign out failed", err);
     }
-    // Re-bootstrap an anonymous session so the canvas keeps working.
-    window.location.reload();
   }
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -479,6 +480,7 @@ export default function JustNotes(props: JustNotesProps) {
       const isInput = !!target && (target.tagName === "TEXTAREA" || target.tagName === "INPUT");
 
       if (e.key === "Escape") {
+        if (authPanelOpen) { setAuthPanelOpen(false); return; }
         if (tweaksOpen) { setTweaksOpen(false); return; }
         if (helpOpen) { setHelpOpen(false); return; }
         if (ambientOpen) { closeAmbient(); return; }
@@ -487,6 +489,11 @@ export default function JustNotes(props: JustNotesProps) {
           animateView(prevViewRef.current); prevViewRef.current = null; return;
         }
       }
+
+      // When the auth panel is open, every key belongs to the form
+      // (typed in inputs) or to closing the panel. Don't let canvas
+      // shortcuts (z, /, ?, character→ambient) leak through.
+      if (authPanelOpen) return;
 
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         if (editingId) { e.preventDefault(); commitEditing(); return; }
@@ -555,7 +562,7 @@ export default function JustNotes(props: JustNotesProps) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingId, ambientOpen, helpOpen, tweaksOpen, recallQuery, recallIdx, matchIds]);
+  }, [editingId, ambientOpen, helpOpen, tweaksOpen, authPanelOpen, recallQuery, recallIdx, matchIds]);
 
   // ── Render ─────────────────────────────────────────────────────────
   const palette = PALETTES[t.palette] || PALETTES.warm;
@@ -872,7 +879,11 @@ function Chrome({
         </div>
       )}
       <div className="chrome chrome-br">{folderPath}</div>
-      <div className={"chrome chrome-bl" + (hintVisible ? "" : " faded")}>
+      <div className={
+        "chrome chrome-bl"
+        + (hintVisible || isAnonymous ? "" : " faded")
+        + (isAnonymous ? " persistent" : "")
+      }>
         {isAnonymous ? (
           <span className="hint">
             <button className="signin-cta" onClick={onSignIn}>sign in</button> to sync across devices

@@ -944,13 +944,26 @@ body {
 .chrome-id button:hover { color: rgba(232,161,63,0.9); }
 
 /* ── Sign-in CTA (bottom-left replacement when anon) ───────────── */
+/* .chrome base has pointer-events:none so the canvas under it stays
+   interactive; we restore them on this button so the CTA is clickable. */
 .chrome-bl .signin-cta {
   background: transparent;
   border: 0;
-  padding: 0;
-  color: inherit;
+  padding: 0 2px;
+  color: rgba(232,161,63,0.9);
   font: inherit;
   cursor: pointer;
+  pointer-events: auto;
+  text-decoration: underline;
+  text-decoration-color: rgba(232,161,63,0.35);
+  text-underline-offset: 3px;
 }
-.chrome-bl .signin-cta:hover { color: rgba(232,161,63,0.9); }
+.chrome-bl .signin-cta:hover {
+  color: #e8a13f;
+  text-decoration-color: rgba(232,161,63,0.7);
+}
+/* When the bottom-left holds the sign-in CTA (anon mode), keep it
+   visible regardless of the post-interaction fade — the CTA isn't a
+   keyboard hint, it's the only way to upgrade the session. */
+.chrome-bl.persistent { opacity: 1 !important; }
 

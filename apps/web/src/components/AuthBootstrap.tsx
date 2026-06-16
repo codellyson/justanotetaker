@@ -1,35 +1,28 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { authClient } from "../lib/auth-client";
 
-// Ensures every visitor — browser or Tauri — has a Better Auth session
-// before the canvas renders. If no session exists, we sign in
-// anonymously, which gives the user a real user_id and session under
-// the hood. When they later sign in for real, Better Auth's anonymous
-// plugin auto-links the rows. See docs/migration.md → "Auth posture".
+// Guarantees a session exists whenever children render. On first mount
+// and any time the session transitions to null (e.g. after sign-out),
+// we kick off an anonymous sign-in. useSession's store updates as soon
+// as the cookie lands, so children unblock as soon as a session exists
+// — anon or real, the canvas doesn't care.
 export function AuthBootstrap({ children }: { children: ReactNode }) {
-  const [ready, setReady] = useState(false);
+  const { data: session, isPending } = authClient.useSession();
+  const creatingRef = useRef(false);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data: session } = await authClient.getSession();
-        if (!session && !cancelled) {
-          await authClient.signIn.anonymous();
-        }
-      } catch (err) {
-        // Fail open — the canvas still works without auth in Phase 0
-        // because notes are still in-memory. Phase 1 will gate writes.
-        console.error("[auth] bootstrap failed", err);
-      } finally {
-        if (!cancelled) setReady(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (isPending) return;
+    if (session) return;
+    if (creatingRef.current) return;
+    creatingRef.current = true;
+    authClient.signIn
+      .anonymous()
+      .catch((err) => console.error("[auth] anonymous sign-in failed", err))
+      .finally(() => {
+        creatingRef.current = false;
+      });
+  }, [session, isPending]);
 
-  if (!ready) return null;
+  if (isPending || !session) return null;
   return <>{children}</>;
 }
