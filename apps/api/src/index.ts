@@ -52,23 +52,53 @@ app.get("/api/me", (c) => {
   });
 });
 
-// Tauri OAuth handoff.
+// Tauri OAuth handoff — start.
 //
-// The desktop client opens the system browser to /api/auth/sign-in/social
-// with callbackURL pointing here. Better Auth runs the full OAuth dance
-// in the system browser, sets a session cookie *on the browser*, then
-// 302s here. We read the session (which is now real), pull out the
+// System-browser navigations are GET, but Better Auth's
+// /api/auth/sign-in/social is POST-only (it returns { url, redirect }
+// for the React client to redirect to). So the desktop client can't
+// hit Better Auth directly — we proxy: read provider from the query,
+// POST to Better Auth ourselves, forward its Set-Cookie (the state
+// cookie required for callback validation), then 302 the browser to
+// the Google auth URL Better Auth returned.
+app.get("/api/desktop-oauth-start", async (c) => {
+  const provider = c.req.query("provider") ?? "google";
+  const callbackURL = `${c.env.BETTER_AUTH_URL}/api/desktop-callback`;
+  const auth = createAuth(c.env);
+
+  const upstream = await auth.handler(
+    new Request(`${c.env.BETTER_AUTH_URL}/api/auth/sign-in/social`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider, callbackURL }),
+    }),
+  );
+  if (!upstream.ok) {
+    return c.text(`sign-in/social failed (${upstream.status})`, 500);
+  }
+  const data = (await upstream.json()) as { url?: string };
+  if (!data.url) return c.text("no OAuth url returned", 500);
+
+  // Forward Better Auth's state cookie so /api/auth/callback/google
+  // can validate when Google bounces the user back.
+  const setCookie = upstream.headers.get("set-cookie");
+  if (setCookie) c.header("Set-Cookie", setCookie);
+
+  return c.redirect(data.url, 302);
+});
+
+// Tauri OAuth handoff — finish.
+//
+// Hit by Better Auth's /api/auth/callback/<provider> at the end of the
+// OAuth dance via the callbackURL we set above. We read the session
+// that's now active (cookie set in the system browser), pull out the
 // session token, and return HTML that navigates to a justnotes:// URL
 // the OS hands back to the Tauri app. The Tauri side stores the token
 // in OS keychain and reloads its webview; the bearer-mode auth client
 // then carries it on every subsequent request.
 //
-// Lives at /api/desktop-callback (not /api/auth/desktop-callback) so the
-// specific route doesn't break Hono's trie matching for the /api/auth/**
-// wildcard that Better Auth needs for /sign-in/anonymous etc.
-//
-// The HTML escaping is paranoid because session.token, while not
-// user-controlled, ends up in both attribute and script contexts.
+// Lives outside /api/auth so the specific route doesn't break Hono's
+// trie matching for the /api/auth/** wildcard.
 app.get("/api/desktop-callback", (c) => {
   const session = c.get("session") as { token?: string } | null;
   const token = session?.token;
