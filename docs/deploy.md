@@ -147,14 +147,7 @@ pnpm --filter @justnotes/web build
 pnpm --filter @justnotes/web exec wrangler pages deploy dist --project-name justnotes-web
 ```
 
-> Note: `apps/web/src/lib/runtime.ts` currently hardcodes the API URL with an `import.meta.env.PROD` check. To honor `VITE_API_BASE_URL`, change that file to:
-> ```ts
-> export const API_BASE_URL =
->   import.meta.env.VITE_API_BASE_URL ??
->   (import.meta.env.PROD
->     ? "https://api.justnotes.kreativekorna.com"
->     : "http://localhost:8787");
-> ```
+`VITE_API_BASE_URL` is honored by `apps/web/src/lib/runtime.ts` — set it to override the prod default for staging/preview builds.
 
 Web app domain: `app.justnotes.kreativekorna.com` (or the bare apex — your call). Update `TRUSTED_ORIGINS` in the Worker's prod env to match before deploying the Worker, or sign-in will 403.
 
