@@ -204,100 +204,97 @@ def main():
 
 
 # ─────────────────────────────────────────────────────────────────────
-# OG composer. PIL is overkill for this — we composite the mark + draw
-# a few characters of the wordmark with primitive shapes. The result is
-# enough for a 1200×630 social card; replace with a proper SVG-rendered
-# version when the brand direction is final.
+# OG composer. Pillow + a system TTF give us proper kerned text;
+# without that the wordmark looks like 8-bit-era pixel art and that
+# undermines the whole brand. SF (San Francisco) is the cleanest sans
+# always present on macOS; Helvetica is the fallback. Both are close
+# enough to Geist (geometric humanist sans) that the card stays on-
+# brand.
 # ─────────────────────────────────────────────────────────────────────
 
 OG_W, OG_H = 1200, 630
 
+# Candidate TTF/TTC paths in priority order. macOS only — Linux/Windows
+# would need their own list (or just bring-your-own via env var).
+FONT_CANDIDATES = [
+    "/System/Library/Fonts/SFNS.ttf",
+    "/System/Library/Fonts/SFCompact.ttf",
+    "/System/Library/Fonts/HelveticaNeue.ttc",
+    "/System/Library/Fonts/Helvetica.ttc",
+    "/Library/Fonts/Arial.ttf",
+]
+
+
+def find_font():
+    for p in FONT_CANDIDATES:
+        if os.path.exists(p):
+            return p
+    return None
+
 
 def render_og():
-    rows = [[(*BG, 255) for _ in range(OG_W)] for _ in range(OG_H)]
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        print("  ! Pillow not installed; OG image will be skipped. Run `pip3 install Pillow`.")
+        # Return a flat dark canvas so the build still produces a file.
+        return [[(*BG, 255) for _ in range(OG_W)] for _ in range(OG_H)]
 
-    # Left half: mark
-    mark_size = 360
-    mark = render_mark(mark_size, transparent_bg=True)
-    mx = 180
-    my = (OG_H - mark_size) // 2
-    for j, mrow in enumerate(mark):
-        for i, (r, g, b, a) in enumerate(mrow):
-            if a == 0:
-                continue
-            base = rows[my + j][mx + i]
-            br, bg, bb, _ = base
-            alpha = a / 255.0
-            rows[my + j][mx + i] = (
-                int(br * (1 - alpha) + r * alpha),
-                int(bg * (1 - alpha) + g * alpha),
-                int(bb * (1 - alpha) + b * alpha),
-                255,
-            )
+    font_path = find_font()
+    if not font_path:
+        print("  ! no system TTF found; skipping OG text")
+        return [[(*BG, 255) for _ in range(OG_W)] for _ in range(OG_H)]
 
-    # Right half: word + tagline as colored bars (placeholder for proper
-    # type rendering). The intent is "you'll see this is the justnotes
-    # social card" — refinement requires a font renderer.
-    x0 = 620
-    y0 = 235
-    draw_bar(rows, x0, y0, 380, 8, ACCENT)            # accent underline
-    draw_text(rows, x0, y0 + 20, "justnotes", 64, TEXT)
-    draw_text(rows, x0, y0 + 130, "spatial notes on a dark canvas.", 28, blend(TEXT, BG, 0.4))
-    return rows
+    img = Image.new("RGBA", (OG_W, OG_H), (*BG, 255))
 
+    # Mark on the left — composited from our radial-gradient renderer
+    # so the halo blends correctly against the OG bg.
+    mark_size = 340
+    mark_rows = render_mark(mark_size, transparent_bg=False)
+    mark_img = Image.new("RGBA", (mark_size, mark_size))
+    mark_img.putdata(
+        [tuple(px) for row in mark_rows for px in row]
+    )
+    mark_x = 180
+    mark_y = (OG_H - mark_size) // 2
+    img.paste(mark_img, (mark_x, mark_y), mark_img)
 
-def draw_bar(rows, x, y, w, h, color):
-    for yy in range(y, y + h):
-        for xx in range(x, x + w):
-            if 0 <= yy < OG_H and 0 <= xx < OG_W:
-                rows[yy][xx] = (*color, 255)
+    draw = ImageDraw.Draw(img)
+
+    # Right side: wordmark + tagline. Sized so the tagline fits the
+    # 1200px width with comfortable right padding (~80px).
+    text_x = 620
+    word = ImageFont.truetype(font_path, 110)
+    tagline = ImageFont.truetype(font_path, 32)
+
+    # Accent underline above the wordmark — same width as "justnotes"
+    # so it reads as part of the same composition.
+    word_bbox = draw.textbbox((text_x, 0), "justnotes", font=word)
+    word_w = word_bbox[2] - word_bbox[0]
+    underline_y = 235
+    draw.rectangle(
+        (text_x, underline_y, text_x + min(word_w, 460), underline_y + 6),
+        fill=(*ACCENT, 255),
+    )
+
+    draw.text((text_x, underline_y + 22), "justnotes", font=word, fill=(*TEXT, 255))
+
+    # Muted tagline
+    tagline_color = (*blend(TEXT, BG, 0.45), 255)
+    draw.text(
+        (text_x, underline_y + 22 + word.size + 14),
+        "spatial notes on a dark canvas.",
+        font=tagline,
+        fill=tagline_color,
+    )
+
+    # Pillow → row-of-rows for the write_png path
+    pixels = list(img.getdata())
+    return [pixels[y * OG_W : (y + 1) * OG_W] for y in range(OG_H)]
 
 
 def blend(c1, c2, t):
     return tuple(int(c1[i] * (1 - t) + c2[i] * t) for i in range(3))
-
-
-# Minimal 5×7 bitmap font for the letters we actually use. Caller scales.
-GLYPHS = {
-    " ": [],
-    "j": ["..xx.", "....", ".xxx.", "...x.", "...x.", "...x.", "xxx.."],
-    "u": ["x...x", "x...x", "x...x", "x...x", "x...x", "x...x", ".xxx."],
-    "s": [".xxx.", "x....", "x....", ".xx..", "...x.", "...x.", ".xxx."],
-    "t": [".x...", ".x...", "xxxxx", ".x...", ".x...", ".x...", "..xxx"],
-    "n": ["xxxx.", "x...x", "x...x", "x...x", "x...x", "x...x", "x...x"],
-    "o": [".xxx.", "x...x", "x...x", "x...x", "x...x", "x...x", ".xxx."],
-    "e": [".xxx.", "x...x", "x...x", "xxxxx", "x....", "x....", ".xxx."],
-    "p": ["xxxx.", "x...x", "x...x", "xxxx.", "x....", "x....", "x...."],
-    "a": [".xxx.", "x...x", "....x", ".xxxx", "x...x", "x...x", ".xxxx"],
-    "i": [".....", "..x..", ".....", "..x..", "..x..", "..x..", "..x.."],
-    "l": [".x...", ".x...", ".x...", ".x...", ".x...", ".x...", "..x.."],
-    "r": ["xxxx.", "x...x", "x...x", "xxxx.", "x.x..", "x..x.", "x...x"],
-    "c": [".xxx.", "x...x", "x....", "x....", "x....", "x...x", ".xxx."],
-    "d": ["xxxx.", "x...x", "x...x", "x...x", "x...x", "x...x", "xxxx."],
-    "v": ["x...x", "x...x", "x...x", "x...x", "x...x", ".x.x.", "..x.."],
-    "k": ["x..x.", "x.x..", "xx...", "xx...", "x.x..", "x..x.", "x...x"],
-    "h": ["x....", "x....", "x....", "xxxx.", "x...x", "x...x", "x...x"],
-    ".": [".....", ".....", ".....", ".....", ".....", "..x..", "..x.."],
-}
-
-
-def draw_text(rows, x, y, text, size, color):
-    # 5×7 glyphs scaled by `size // 7`. Spacing = 1 col.
-    px = max(1, size // 7)
-    cx = x
-    for ch in text:
-        glyph = GLYPHS.get(ch, GLYPHS[" "])
-        for j, line in enumerate(glyph):
-            for i, c in enumerate(line):
-                if c != "x":
-                    continue
-                for dy in range(px):
-                    for dx in range(px):
-                        yy = y + j * px + dy
-                        xx = cx + i * px + dx
-                        if 0 <= yy < OG_H and 0 <= xx < OG_W:
-                            rows[yy][xx] = (*color, 255)
-        cx += 6 * px
 
 
 if __name__ == "__main__":
