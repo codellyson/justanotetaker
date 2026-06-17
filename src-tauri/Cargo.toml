@@ -22,6 +22,11 @@ log = "0.4"
 tauri = { version = "2.11.2", features = [] }
 tauri-plugin-log = "2"
 
+# Auto-update. Endpoint + pubkey live in tauri.conf.json; the user supplies
+# both when they have a signing key + a signed latest.json feed.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+
 # Bearer-token storage in the OS keychain. Used to persist the Better Auth
 # session token across Tauri launches without a cookie store.
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }

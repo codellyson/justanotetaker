@@ -155,20 +155,67 @@ Web app domain: `app.justnotes.kreativekorna.com` (or the bare apex — your cal
 
 ## 6 · Desktop release (Tauri)
 
-Deferred. The shell compiles and `tauri:dev` opens a window today, but production binaries require:
+The shell compiles, `tauri:dev` opens a window, the updater plugin and `tauri-plugin-process` are wired in, and the icon set covers the sizes Tauri's macro requires. What you'll do when you're ready to ship binaries:
 
-- macOS: Apple Developer ID certificate + notarization (paid Apple account)
-- Windows: code-signing certificate (paid CA)
-- Linux: optional AppImage signing
-- Auto-update: a signed `latest.json` feed (commonly on GitHub Releases) + `tauri-plugin-updater` wiring
+### 6a · Generate a signing key (one-time)
 
-When ready:
-1. Enable `bundle.active: true` in `src-tauri/tauri.conf.json` and supply real icons (use `pnpm tauri icon path/to/source-1024.png` to generate the set)
-2. Add the updater plugin + endpoint to `tauri.conf.json#plugins.updater`
-3. Configure signing identities in env (Tauri's docs cover `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, etc.)
-4. `pnpm tauri:build` per platform; ship the artifacts to GitHub Releases
+```sh
+# Creates ~/.tauri/justnotes.key (private) and prints the public key.
+pnpm --filter root exec tauri signer generate -w ~/.tauri/justnotes.key
+```
 
-OAuth-in-Tauri is its own sub-phase (system-browser handoff + deep link). See `docs/migration.md#phase-3` for the design; not implemented yet.
+Open `src-tauri/tauri.conf.json` and paste the printed pubkey into `plugins.updater.pubkey` (replacing `REPLACE_ME_RUN_tauri_signer_generate`). Also update the `endpoints[0]` URL to point at your repo's releases — replace `REPLACE_ME_ORG` with your GitHub org.
+
+The private key is what signs each release's `latest.json`. Treat it like any other prod secret — never commit it. CI uses it via `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+
+### 6b · Replace placeholder icons
+
+The committed `src-tauri/icons/*.png` are a brand placeholder (amber dot on the canvas bg) — fine for dev, not what you want shipping in the dock.
+
+```sh
+# Drop your 1024×1024 master at icons/icon.png (or anywhere), then
+# regenerate the full platform set (PNGs + .icns + .ico):
+pnpm --filter root exec tauri icon path/to/your-1024.png
+```
+
+### 6c · Configure code-signing
+
+| Platform | Required env |
+| --- | --- |
+| macOS | `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD` (or app-specific password), `APPLE_TEAM_ID` |
+| Windows | `WINDOWS_CERTIFICATE` (base64) + `WINDOWS_CERTIFICATE_PASSWORD`, or `WINDOWS_CERTIFICATE_THUMBPRINT` for installed certs |
+| Linux | None — AppImage is unsigned by default |
+
+### 6d · Activate bundling + build
+
+```sh
+# Flip bundle.active to true in src-tauri/tauri.conf.json, then:
+pnpm tauri:build
+```
+
+Per platform: macOS produces `.dmg` + `.app.tar.gz`, Windows `.msi` + `.exe`, Linux `.AppImage` + `.deb`. The updater also writes `latest.json` next to them.
+
+### 6e · Ship + auto-update feed
+
+Upload the build artifacts + `latest.json` to a GitHub Release at the version tag matching `tauri.conf.json#version`. The updater endpoint in step 6a is shaped for GitHub Releases:
+
+```
+https://github.com/<org>/justnotes/releases/latest/download/latest.json
+```
+
+Subsequent launches of installed builds will hit this URL on startup (when you call `check()` from `@tauri-apps/plugin-updater` — wire that in `apps/web` when you're ready to prompt users to update; defer is fine until you've cut a 2nd release).
+
+### 6f · OAuth-in-Tauri (still deferred)
+
+The shell uses cookie sessions today, same as the browser. Email/password sign-in should work in Tauri without any extra code because Tauri's webview supports cookies for the API origin. Google sign-in is the gap: Google won't redirect to `tauri://` URLs, so we need the system-browser handoff + deep-link callback pattern.
+
+When you tackle this:
+1. Add `tauri-plugin-deep-link` + a `justnotes` URL scheme registration
+2. Add `tauri-plugin-shell` (or `tauri-plugin-opener`) so the React app can open the OAuth start URL in the system browser
+3. Server-side: a `/auth/start?desktop=1` route that runs the OAuth dance, captures the token, then 302s to `justnotes://auth/callback?token=…`
+4. Tauri: on receiving the deep link, store the token in OS keychain via the existing `store_bearer_token` command, then re-create the session
+
+See `docs/migration.md#phase-3` for the original sketch.
 
 ---
 

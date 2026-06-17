@@ -42,7 +42,9 @@ fn clear_bearer_token() -> Result<(), String> {
 pub fn run() {
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
-        .plugin(tauri_plugin_log::Builder::new().build());
+        .plugin(tauri_plugin_log::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
 
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {

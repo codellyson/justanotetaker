@@ -12,6 +12,8 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
     "core:window:allow-start-dragging",
-    "core:window:allow-set-background-color"
+    "core:window:allow-set-background-color",
+    "updater:default",
+    "process:default"
   ]
 }
