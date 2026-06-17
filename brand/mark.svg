@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  justnotes mark — a single amber dot with a soft halo, centered on the
+  canvas bg. Designed to read at 16px (favicon) up to 1024px (app icon)
+  without rendering changes; the halo is part of the same gradient.
+
+  Colors use CSS custom properties when inlined into an HTML document, so
+  the mark tints with the active JustUI theme. Standalone (favicon, og)
+  uses falls back to the espresso-dark hex values via the `--*-fallback`
+  pattern below.
+-->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 1024 1024"
+  width="1024"
+  height="1024"
+  role="img"
+  aria-label="justnotes"
+>
+  <style>
+    :root, svg {
+      --jn-bg: rgb(var(--bg, 22 20 18));
+      --jn-accent: rgb(var(--accent, 232 161 63));
+    }
+  </style>
+  <defs>
+    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="var(--jn-accent)" stop-opacity="0.55" />
+      <stop offset="45%" stop-color="var(--jn-accent)" stop-opacity="0.18" />
+      <stop offset="100%" stop-color="var(--jn-accent)" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="var(--jn-bg)" />
+  <circle cx="512" cy="512" r="380" fill="url(#halo)" />
+  <circle cx="512" cy="512" r="225" fill="var(--jn-accent)" />
+</svg>

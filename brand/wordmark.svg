@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  justnotes wordmark — small mark + "justnotes" set in Geist Medium.
+  Falls back to system sans if Geist isn't loaded (e.g. the OG renderer);
+  the visual stays close because Geist is a clean geometric sans.
+
+  Designed to sit on a transparent background so it can be dropped into
+  the marketing page header or any chrome that already has a bg.
+-->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 540 120"
+  width="540"
+  height="120"
+  role="img"
+  aria-label="justnotes"
+>
+  <style>
+    :root, svg { --jn-accent: rgb(var(--accent, 232 161 63)); }
+    .jn-word {
+      fill: rgb(var(--text-primary, 232 222 210));
+      font: 500 64px/1 "Geist Variable", -apple-system, "Segoe UI", system-ui, sans-serif;
+      letter-spacing: -0.02em;
+    }
+  </style>
+  <defs>
+    <radialGradient id="halo-sm" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="var(--jn-accent)" stop-opacity="0.5" />
+      <stop offset="100%" stop-color="var(--jn-accent)" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <!-- mark -->
+  <circle cx="58" cy="60" r="42" fill="url(#halo-sm)" />
+  <circle cx="58" cy="60" r="22" fill="var(--jn-accent)" />
+  <!-- wordmark -->
+  <text x="118" y="82" class="jn-word">justnotes</text>
+</svg>

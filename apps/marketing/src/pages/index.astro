@@ -16,6 +16,21 @@ const desktopUrl = import.meta.env.PUBLIC_DESKTOP_URL ?? "#desktop";
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>justnotes</title>
     <meta name="description" content="Spatial notes on a dark canvas." />
+
+    <!-- Favicon set generated from brand/mark.svg via `python3 brand/build.py`. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="alternate icon" type="image/x-icon" href="/favicon.ico" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="justnotes" />
+    <meta property="og:description" content="Spatial notes on a dark canvas." />
+    <meta property="og:image" content="/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="justnotes" />
+    <meta name="twitter:description" content="Spatial notes on a dark canvas." />
+    <meta name="twitter:image" content="/og.png" />
+
     <script>
       // Run before <body> renders so the right palette paints first.
       import { bootTheme } from "@codellyson/justui/boot";
@@ -23,30 +38,46 @@ const desktopUrl = import.meta.env.PUBLIC_DESKTOP_URL ?? "#desktop";
     </script>
   </head>
   <body>
-    <main class="mx-auto max-w-2xl px-6 py-24">
+    <main class="mx-auto max-w-5xl px-6 py-20">
       <div class="flex items-center gap-3">
         <span class="inline-block h-2 w-2 rounded-full bg-accent shadow-[0_0_8px_0_rgb(var(--accent)/0.55)]"></span>
         <span class="font-mono text-xs uppercase tracking-[0.08em] text-muted">justnotes</span>
       </div>
-      <h1 class="mt-10 text-4xl font-medium tracking-tight text-primary">
-        Spatial notes on a dark canvas.
-      </h1>
-      <p class="mt-4 max-w-lg text-secondary">
-        Just write. Drag to place. Type to recall. Your canvas, syncing across every device.
-      </p>
 
-      <div class="mt-12 flex flex-wrap gap-3">
-        <Button href={webUrl}>
-          Try in browser →
-        </Button>
-        <Button variant="secondary" href={desktopUrl}>
-          Get justnotes for desktop
-        </Button>
+      <div class="mt-12 grid items-center gap-12 lg:grid-cols-[1fr_1.2fr]">
+        <div>
+          <h1 class="text-4xl font-medium tracking-tight text-primary lg:text-5xl">
+            Spatial notes on a dark canvas.
+          </h1>
+          <p class="mt-5 max-w-md text-secondary">
+            Just write. Drag to place. Type to recall. Your canvas, syncing across every device.
+          </p>
+
+          <div class="mt-10 flex flex-wrap gap-3">
+            <Button href={webUrl}>
+              Try in browser →
+            </Button>
+            <Button variant="secondary" href={desktopUrl}>
+              Get for desktop
+            </Button>
+          </div>
+
+          <p class="mt-10 text-xs text-muted">
+            Local-first sketch. Free to use, free to leave. Open the canvas, close the tab — it's still there next time.
+          </p>
+        </div>
+
+        <div class="overflow-hidden rounded-lg border border-border">
+          <!-- Hero illustration. SVG, theme-responsive — recolors with
+               the active JustUI palette. Sourced from brand/canvas-hero.svg. -->
+          <img
+            src="/canvas-hero.svg"
+            alt="A spatial canvas of scattered paper notes"
+            class="block h-auto w-full"
+            loading="eager"
+          />
+        </div>
       </div>
-
-      <p class="mt-10 text-xs text-muted">
-        Local-first sketch. Free to use, free to leave. Open the canvas, close the tab — it's still there next time.
-      </p>
     </main>
 
     <ThemeToggle />

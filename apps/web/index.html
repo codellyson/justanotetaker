@@ -2,10 +2,26 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-    <title>JustNotes</title>
+    <title>justnotes</title>
     <meta name="description" content="Spatial notes on a dark canvas." />
+
+    <!-- Modern browsers prefer the SVG; .ico is the Safari + legacy
+         fallback; PNG covers the rest. Sources live in brand/, generated
+         by `python3 brand/build.py`. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="alternate icon" type="image/x-icon" href="/favicon.ico" />
+
+    <!-- Open Graph + Twitter card -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="justnotes" />
+    <meta property="og:description" content="Spatial notes on a dark canvas." />
+    <meta property="og:image" content="/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="justnotes" />
+    <meta name="twitter:description" content="Spatial notes on a dark canvas." />
+    <meta name="twitter:image" content="/og.png" />
   </head>
   <body>
     <div id="root"></div>

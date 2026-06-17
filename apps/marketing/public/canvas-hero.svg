@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Marketing hero illustration. Shows the canvas as the user sees it:
+  a handful of paper notes scattered at organic angles on the dark
+  dotted bg, fading older toward the corners. Theme-responsive via the
+  JustUI tokens — drop into any marketing page that boots JustUI and
+  it tints with the active theme.
+
+  Dimensions match the spatial-canvas feel: 1000×600 viewbox, designed
+  to crop gracefully at 16:9 / 4:3 / square via `preserveAspectRatio`.
+-->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 1000 600"
+  width="1000"
+  height="600"
+  role="img"
+  aria-label="A spatial canvas of scattered paper notes"
+  preserveAspectRatio="xMidYMid slice"
+>
+  <style>
+    :root, svg {
+      --jn-bg: rgb(var(--bg, 22 20 18));
+      --jn-paper: rgb(var(--bg-secondary, 37 33 30));
+      --jn-text: rgb(var(--text-primary, 232 222 210));
+      --jn-text-muted: rgb(var(--text-muted, 124 114 102));
+      --jn-accent: rgb(var(--accent, 232 161 63));
+    }
+    .note { fill: var(--jn-paper); stroke: rgba(0,0,0,0.25); stroke-width: 1; }
+    .head { fill: var(--jn-text); }
+    .line { fill: var(--jn-text-muted); }
+    .accent-dot { fill: var(--jn-accent); }
+  </style>
+
+  <defs>
+    <!-- Faint dot grid, identical math to the canvas's "dots" mode -->
+    <pattern id="dot-grid" x="0" y="0" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="14" cy="14" r="1" fill="var(--jn-text-muted)" opacity="0.18" />
+    </pattern>
+  </defs>
+
+  <!-- Canvas backdrop + dotted grid -->
+  <rect width="1000" height="600" fill="var(--jn-bg)" />
+  <rect width="1000" height="600" fill="url(#dot-grid)" />
+
+  <!-- Five notes at varying recency. The opacity steps match RECENCY_ALPHA
+       in apps/web/src/components/JustNotes/lib.ts so the illustration
+       reads like the live canvas. -->
+
+  <!-- Note 1: top-left, fresh, slight CCW tilt -->
+  <g transform="translate(80,90) rotate(-3)" opacity="1.0">
+    <rect class="note" width="220" height="130" rx="3" />
+    <rect class="head" x="16" y="22" width="160" height="14" rx="2" />
+    <rect class="line" x="16" y="50" width="180" height="6" rx="2" opacity="0.85" />
+    <rect class="line" x="16" y="64" width="140" height="6" rx="2" opacity="0.85" />
+    <rect class="line" x="16" y="78" width="170" height="6" rx="2" opacity="0.85" />
+    <rect class="line" x="16" y="92" width="90" height="6" rx="2" opacity="0.85" />
+  </g>
+
+  <!-- Note 2: center-left-down, recent, slight CW tilt -->
+  <g transform="translate(170,310) rotate(2)" opacity="0.92">
+    <rect class="note" width="220" height="110" rx="3" />
+    <rect class="head" x="16" y="22" width="120" height="14" rx="2" />
+    <rect class="line" x="16" y="50" width="160" height="6" rx="2" opacity="0.85" />
+    <rect class="line" x="16" y="64" width="180" height="6" rx="2" opacity="0.85" />
+    <rect class="line" x="16" y="78" width="80" height="6" rx="2" opacity="0.85" />
+  </g>
+
+  <!-- Note 3: center-right, recent -->
+  <g transform="translate(420,80) rotate(1.5)" opacity="0.92">
+    <rect class="note" width="240" height="160" rx="3" />
+    <rect class="head" x="16" y="22" width="180" height="14" rx="2" />
+    <rect class="line" x="16" y="50" width="200" height="6" rx="2" opacity="0.85" />
+    <rect class="line" x="16" y="64" width="160" height="6" rx="2" opacity="0.85" />
+    <rect class="line" x="16" y="78" width="190" height="6" rx="2" opacity="0.85" />
+    <rect class="line" x="16" y="92" width="120" height="6" rx="2" opacity="0.85" />
+    <rect class="line" x="16" y="106" width="170" height="6" rx="2" opacity="0.85" />
+    <rect class="line" x="16" y="120" width="100" height="6" rx="2" opacity="0.85" />
+  </g>
+
+  <!-- Note 4: bottom-right, older, slight CCW tilt -->
+  <g transform="translate(640,330) rotate(-2.5)" opacity="0.78">
+    <rect class="note" width="200" height="120" rx="3" />
+    <rect class="head" x="16" y="22" width="100" height="14" rx="2" />
+    <rect class="line" x="16" y="50" width="160" height="6" rx="2" opacity="0.85" />
+    <rect class="line" x="16" y="64" width="140" height="6" rx="2" opacity="0.85" />
+    <rect class="line" x="16" y="78" width="100" height="6" rx="2" opacity="0.85" />
+  </g>
+
+  <!-- Note 5: far-right, ancient (faded), strong CCW tilt -->
+  <g transform="translate(770,130) rotate(-5)" opacity="0.55">
+    <rect class="note" width="180" height="100" rx="3" />
+    <rect class="head" x="14" y="20" width="120" height="12" rx="2" />
+    <rect class="line" x="14" y="44" width="140" height="5" rx="2" opacity="0.85" />
+    <rect class="line" x="14" y="56" width="100" height="5" rx="2" opacity="0.85" />
+    <rect class="line" x="14" y="68" width="120" height="5" rx="2" opacity="0.85" />
+  </g>
+
+  <!-- An amber recall halo on the center note, suggesting the ambient
+       search / time scrub focus state -->
+  <g transform="translate(420,80) rotate(1.5)" opacity="0.85">
+    <rect
+      x="-3" y="-3" width="246" height="166" rx="6"
+      fill="none" stroke="var(--jn-accent)" stroke-width="1.5"
+    />
+  </g>
+</svg>
