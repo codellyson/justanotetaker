@@ -59,6 +59,15 @@ importers:
 
   apps/marketing:
     dependencies:
+      '@codellyson/justui':
+        specifier: link:../../../justui
+        version: link:../../../justui
+      '@fontsource-variable/geist':
+        specifier: ^5.2.0
+        version: 5.2.9
+      '@fontsource-variable/geist-mono':
+        specifier: ^5.2.0
+        version: 5.2.8
       astro:
         specifier: ^5.0.0
         version: 5.18.2(@types/node@20.19.41)(jiti@2.7.0)(lightningcss@1.32.0)(rollup@4.61.1)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.9.0)

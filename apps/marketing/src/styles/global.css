@@ -1,17 +1,17 @@
 @import "tailwindcss";
+@config "../../tailwind.config.cjs";
 
-:root {
-  color-scheme: dark;
-  --bg: #0a0d12;
-  --fg: rgba(255, 255, 255, 0.82);
-  --muted: rgba(255, 255, 255, 0.45);
-  --amber: #e8a13f;
-}
+/* JustUI design tokens + fallback values for first paint. bootTheme()
+   (called inline in Layout.astro) overrides these per the user's
+   stored choice. Same keyPrefix as the web app so themes follow them. */
+@import "@codellyson/justui/tokens.css";
+
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
 html, body {
   margin: 0;
-  background: var(--bg);
-  color: var(--fg);
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background: rgb(var(--bg));
+  color: rgb(var(--text-primary));
   -webkit-font-smoothing: antialiased;
 }

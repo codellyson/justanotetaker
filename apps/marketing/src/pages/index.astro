@@ -1,8 +1,10 @@
 ---
+import Button from "@codellyson/justui/astro/Button.astro";
+import ThemeToggle from "@codellyson/justui/astro/ThemeToggle.astro";
 import "../styles/global.css";
 
-// Dev defaults point at the local vite + tauri release stub. Both
-// override-able via Astro env vars when this ships.
+// Built-in env-driven CTAs. Override with PUBLIC_WEB_URL /
+// PUBLIC_DESKTOP_URL when shipping (see docs/deploy.md).
 const webUrl = import.meta.env.PUBLIC_WEB_URL ?? "http://localhost:5173";
 const desktopUrl = import.meta.env.PUBLIC_DESKTOP_URL ?? "#desktop";
 ---
@@ -14,37 +16,39 @@ const desktopUrl = import.meta.env.PUBLIC_DESKTOP_URL ?? "#desktop";
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>justnotes</title>
     <meta name="description" content="Spatial notes on a dark canvas." />
+    <script>
+      // Run before <body> renders so the right palette paints first.
+      import { bootTheme } from "@codellyson/justui/boot";
+      bootTheme({ keyPrefix: "justnotes" });
+    </script>
   </head>
   <body>
     <main class="mx-auto max-w-2xl px-6 py-24">
       <div class="flex items-center gap-3">
-        <span class="inline-block h-2 w-2 rounded-full bg-[color:var(--amber)]"></span>
-        <span class="text-xs uppercase tracking-[0.08em] text-[color:var(--muted)]">justnotes</span>
+        <span class="inline-block h-2 w-2 rounded-full bg-accent shadow-[0_0_8px_0_rgb(var(--accent)/0.55)]"></span>
+        <span class="font-mono text-xs uppercase tracking-[0.08em] text-muted">justnotes</span>
       </div>
-      <h1 class="mt-10 text-4xl font-medium tracking-tight">Spatial notes on a dark canvas.</h1>
-      <p class="mt-4 max-w-lg text-[color:var(--muted)]">
+      <h1 class="mt-10 text-4xl font-medium tracking-tight text-primary">
+        Spatial notes on a dark canvas.
+      </h1>
+      <p class="mt-4 max-w-lg text-secondary">
         Just write. Drag to place. Type to recall. Your canvas, syncing across every device.
       </p>
 
       <div class="mt-12 flex flex-wrap gap-3">
-        <a
-          href={webUrl}
-          class="inline-flex items-center gap-2 rounded-md bg-[color:var(--amber)] px-4 py-2 text-sm font-medium text-[#1a1611] transition hover:brightness-110"
-        >
-          Try in browser
-          <span aria-hidden>→</span>
-        </a>
-        <a
-          href={desktopUrl}
-          class="inline-flex items-center gap-2 rounded-md border border-white/15 bg-white/5 px-4 py-2 text-sm text-[color:var(--fg)] transition hover:border-white/25 hover:bg-white/10"
-        >
+        <Button href={webUrl}>
+          Try in browser →
+        </Button>
+        <Button variant="secondary" href={desktopUrl}>
           Get justnotes for desktop
-        </a>
+        </Button>
       </div>
 
-      <p class="mt-10 text-xs text-[color:var(--muted)]">
+      <p class="mt-10 text-xs text-muted">
         Local-first sketch. Free to use, free to leave. Open the canvas, close the tab — it's still there next time.
       </p>
     </main>
+
+    <ThemeToggle />
   </body>
 </html>
