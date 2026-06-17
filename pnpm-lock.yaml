@@ -60,8 +60,8 @@ importers:
   apps/marketing:
     dependencies:
       '@codellyson/justui':
-        specifier: link:../../../justui
-        version: link:../../../justui
+        specifier: ^0.2.0
+        version: 0.2.0(astro@5.18.2(@types/node@20.19.41)(jiti@2.7.0)(lightningcss@1.32.0)(rollup@4.61.1)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.9.0))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(tailwindcss@4.3.0)
       '@fontsource-variable/geist':
         specifier: ^5.2.0
         version: 5.2.9
@@ -88,8 +88,8 @@ importers:
   apps/web:
     dependencies:
       '@codellyson/justui':
-        specifier: link:../../../justui
-        version: link:../../../justui
+        specifier: ^0.2.0
+        version: 0.2.0(astro@5.18.2(@types/node@20.19.41)(jiti@2.7.0)(lightningcss@1.32.0)(rollup@4.61.1)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.9.0))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(tailwindcss@4.3.0)
       '@fontsource-variable/geist':
         specifier: ^5.2.0
         version: 5.2.9
@@ -407,6 +407,23 @@ packages:
 
   '@cloudflare/workers-types@4.20260605.1':
     resolution: {integrity: sha512-9YJaGPQwuQYFHoElVhJP40ZmUO/Z2OiBon58sKpHjgwq5btC/B2BZLC45AQ14k+1I+hjcY2z2t2R6uUxU9AqwQ==}
+
+  '@codellyson/justui@0.2.0':
+    resolution: {integrity: sha512-cNsnUJQvXOkZy6qDoVYCJmeXbgG13Zen9oYmZBEiPZs9VpnRKVbf3AEr3xPGLqci+2te7p7SirvdmpikASZIMg==}
+    peerDependencies:
+      astro: ^5.0.0
+      react: ^18.0.0 || ^19.0.0
+      react-dom: ^18.0.0 || ^19.0.0
+      tailwindcss: ^3.4.0 || ^4.0.0
+    peerDependenciesMeta:
+      astro:
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+      tailwindcss:
+        optional: true
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -4018,6 +4035,13 @@ snapshots:
     optional: true
 
   '@cloudflare/workers-types@4.20260605.1': {}
+
+  '@codellyson/justui@0.2.0(astro@5.18.2(@types/node@20.19.41)(jiti@2.7.0)(lightningcss@1.32.0)(rollup@4.61.1)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.9.0))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(tailwindcss@4.3.0)':
+    optionalDependencies:
+      astro: 5.18.2(@types/node@20.19.41)(jiti@2.7.0)(lightningcss@1.32.0)(rollup@4.61.1)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.9.0)
+      react: 19.2.5
+      react-dom: 19.2.5(react@19.2.5)
+      tailwindcss: 4.3.0
 
   '@cspotcode/source-map-support@0.8.1':
     dependencies:

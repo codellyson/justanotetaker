@@ -10,7 +10,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@codellyson/justui": "link:../../../justui",
+    "@codellyson/justui": "^0.2.0",
     "@fontsource-variable/geist": "^5.2.0",
     "@fontsource-variable/geist-mono": "^5.2.0",
     "@justnotes/api-client": "workspace:*",
