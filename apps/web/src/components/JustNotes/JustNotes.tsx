@@ -25,8 +25,8 @@ import { renderBody, renderHeadline } from "./markdown";
 import { AmbientBar, Compass, InkUnderline, TimeScrub } from "./cherries";
 import { TweaksUI } from "./tweaks";
 import { remoteStorage } from "../../lib/storage";
-import { authClient } from "../../lib/auth-client";
-import { API_BASE_URL } from "../../lib/runtime";
+import { authClient, clearKeychainToken } from "../../lib/auth-client";
+import { API_BASE_URL, isTauri } from "../../lib/runtime";
 import { AuthPanel } from "../AuthPanel";
 
 type Persist = {
@@ -112,6 +112,10 @@ export default function JustNotes(props: JustNotesProps) {
   async function onSignOut() {
     try {
       await authClient.signOut();
+      // In Tauri the bearer token sits in OS keychain. Clear it so the
+      // post-signout anonymous bootstrap mints a fresh token rather than
+      // resurrecting the just-signed-out one.
+      if (isTauri) await clearKeychainToken();
       // useSession transitions to null → AuthBootstrap creates a fresh
       // anonymous session → JustNotesLoader sees the new user_id and
       // remounts the Session with empty initial state. No reload needed.

@@ -52,6 +52,45 @@ app.get("/api/me", (c) => {
   });
 });
 
+// Tauri OAuth handoff.
+//
+// The desktop client opens the system browser to /api/auth/sign-in/social
+// with callbackURL pointing here. Better Auth runs the full OAuth dance
+// in the system browser, sets a session cookie *on the browser*, then
+// 302s here. We read the session (which is now real), pull out the
+// session token, and return HTML that navigates to a justnotes:// URL
+// the OS hands back to the Tauri app. The Tauri side stores the token
+// in OS keychain and reloads its webview; the bearer-mode auth client
+// then carries it on every subsequent request.
+//
+// The HTML escaping is paranoid because session.token, while not
+// user-controlled, ends up in both attribute and script contexts.
+app.get("/api/auth/desktop-callback", (c) => {
+  const session = c.get("session") as { token?: string } | null;
+  const token = session?.token;
+  if (!token) {
+    return c.html(
+      `<!doctype html><meta charset="utf-8"><title>Sign-in failed</title>
+       <body style="background:#0a0d12;color:#e8a13f;font:13px ui-monospace,monospace;padding:24px">
+       <p>No session after OAuth callback. Close this window and try again.</p></body>`,
+      401,
+    );
+  }
+  const safe = encodeURIComponent(token);
+  return c.html(`<!doctype html>
+<meta charset="utf-8"><title>Signed in</title>
+<body style="background:#0a0d12;color:rgba(255,255,255,0.7);font:13px ui-sans-serif,system-ui;padding:24px;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">
+  <div style="text-align:center">
+    <p>signed in. you can close this tab.</p>
+    <p style="opacity:0.6;font-size:11.5px">returning you to justnotes…</p>
+    <p style="opacity:0.4;font-size:11px;margin-top:24px">
+      didn't auto-return? <a href="justnotes://auth/callback?token=${safe}" style="color:#e8a13f">click here</a>
+    </p>
+  </div>
+  <script>setTimeout(function(){window.location.href='justnotes://auth/callback?token=${safe}';},150);</script>
+</body>`);
+});
+
 // Auth gate for the domain routes. Anonymous sessions count — we only
 // block when there's no session at all. Middleware is path-prefixed via
 // .use("/path/*", mw) so the route types stay fully typed for the RPC

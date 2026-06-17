@@ -14,6 +14,9 @@
     "@fontsource/ibm-plex-mono": "^5.2.0",
     "@fontsource/ibm-plex-sans": "^5.2.0",
     "@justnotes/api-client": "workspace:*",
+    "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-deep-link": "^2.4.0",
+    "@tauri-apps/plugin-opener": "^2.5.0",
     "better-auth": "^1.2.0",
     "react": "19.2.5",
     "react-dom": "19.2.5"

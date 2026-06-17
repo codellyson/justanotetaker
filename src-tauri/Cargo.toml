@@ -27,12 +27,21 @@ tauri-plugin-log = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 
+# Open URLs in the system browser (used to kick off OAuth) + receive
+# justnotes:// deep links back from the post-OAuth server callback.
+tauri-plugin-opener = "2"
+tauri-plugin-deep-link = "2"
+
 # Bearer-token storage in the OS keychain. Used to persist the Better Auth
 # session token across Tauri launches without a cookie store.
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
 
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
-tauri-plugin-single-instance = { version = "2" }
+# On Win/Linux the deep-link plugin needs the single-instance plugin so a
+# second launch (triggered by the OS handing us a justnotes:// URL while
+# the first instance is already running) forwards the URL into the running
+# process instead of spawning a duplicate.
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 [profile.release]
 lto = true

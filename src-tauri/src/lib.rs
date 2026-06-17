@@ -44,11 +44,18 @@ pub fn run() {
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init());
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_deep_link::init());
 
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {}));
+        // Forward justnotes:// URLs from a would-be second instance into
+        // the running first instance so the deep-link plugin sees them.
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            use tauri_plugin_deep_link::DeepLinkExt;
+            let _ = app.deep_link().handle_cli_arguments(argv);
+        }));
     }
 
     builder

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { authClient } from "../lib/auth-client";
+import { isTauri } from "../lib/runtime";
+import { buildDesktopOAuthUrl, openInSystemBrowser } from "../lib/tauri-deep-link";
 
 type Mode = "sign-in" | "sign-up";
 
@@ -59,11 +61,18 @@ export function AuthPanel({
     setBusy(true);
     setError(null);
     try {
-      await authClient.signIn.social({
-        provider: "google",
-        callbackURL: window.location.origin + "/",
-      });
-      // signIn.social redirects to Google; nothing else to do.
+      if (isTauri) {
+        // System browser handles the redirect dance; we'll be back via
+        // the justnotes:// deep link the desktop-callback emits. Leave
+        // the panel open and busy until then so the user has feedback.
+        await openInSystemBrowser(buildDesktopOAuthUrl("google"));
+      } else {
+        await authClient.signIn.social({
+          provider: "google",
+          callbackURL: window.location.origin + "/",
+        });
+        // signIn.social redirects to Google; nothing else to do.
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setBusy(false);
