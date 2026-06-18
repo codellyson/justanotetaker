@@ -44,7 +44,7 @@
         {
           "binding": "DB",
           "database_name": "justnotes-prod",
-          "database_id": "REPLACE_ME_RUN_wrangler_d1_create_PROD",
+          "database_id": "b2878772-14a9-432d-9f52-abdb330a670b",
           "migrations_dir": "drizzle"
         }
       ],
