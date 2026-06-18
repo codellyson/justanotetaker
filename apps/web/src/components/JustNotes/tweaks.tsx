@@ -5,6 +5,7 @@ import React, {
   useState,
   type PropsWithChildren,
 } from "react";
+import { useTheme } from "@codellyson/justui/react";
 import type { Tweaks } from "./lib";
 
 const TWEAKS_STYLE = `
@@ -68,6 +69,12 @@ const TWEAKS_STYLE = `
   .twk-toggle[data-on="1"] i{transform:translateX(14px)}
 
   .twk-hint{font-size:10px;color:rgba(41,38,27,.42);padding:4px 0 0;text-align:center}
+
+  .twk-select{appearance:none;width:100%;margin:2px 0 0;padding:5px 8px;
+    background:rgba(0,0,0,.06);border:.5px solid rgba(0,0,0,.08);
+    border-radius:6px;color:inherit;font:11.5px ui-sans-serif,system-ui,sans-serif;
+    cursor:default;outline:none}
+  .twk-select:focus{border-color:rgba(0,0,0,.18)}
   .twk-hint kbd{font-family:ui-monospace,monospace;font-size:9.5px;padding:1px 5px;
     border-radius:3px;background:rgba(0,0,0,.06);color:rgba(41,38,27,.65);margin:0 1px}
 `;
@@ -333,6 +340,9 @@ export function TweaksUI({
 }) {
   return (
     <TweaksPanel open={open} onClose={onClose} title="Tweaks">
+      <TweakSection label="Appearance" />
+      <ThemeRow />
+
       <TweakSection label="Canvas" />
       <TweakRadio
         label="Grid"
@@ -350,8 +360,8 @@ export function TweaksUI({
 
       <TweakSection label="Paper" />
       {/* Tone + Body removed in the v2 design — color comes from the
-          active JustUI theme (palette swatch in the bottom-right) and
-          all body text is Geist. */}
+          active JustUI theme (Appearance section above) and all body
+          text is Geist. */}
       <TweakSlider
         label="Corner"
         value={t.radius}
@@ -387,5 +397,43 @@ export function TweaksUI({
         <kbd>⌘</kbd><kbd>,</kbd> to toggle
       </div>
     </TweaksPanel>
+  );
+}
+
+// ── Appearance row — picks one of @codellyson/justui's six themes
+//    plus the light/dark toggle. Embedded here (vs the standalone
+//    floating ThemeToggle widget) so the Tweaks panel is the single
+//    home for every setting and there's no corner widget collision.
+function ThemeRow() {
+  const { themeId, mode, themes, setThemeId, toggleMode } = useTheme();
+  return (
+    <>
+      <div className="twk-row twk-row-h">
+        <div className="twk-lbl"><span>Mode</span><span className="twk-val">{mode}</span></div>
+        <button
+          type="button"
+          className="twk-toggle"
+          data-on={mode === "dark" ? "1" : "0"}
+          role="switch"
+          aria-checked={mode === "dark"}
+          aria-label={`switch to ${mode === "dark" ? "light" : "dark"} mode`}
+          onClick={toggleMode}
+        >
+          <i />
+        </button>
+      </div>
+      <div className="twk-row">
+        <div className="twk-lbl"><span>Theme</span></div>
+        <select
+          className="twk-select"
+          value={themeId}
+          onChange={(e) => setThemeId(e.target.value)}
+        >
+          {themes.map((t) => (
+            <option key={t.id} value={t.id}>{t.label}</option>
+          ))}
+        </select>
+      </div>
+    </>
   );
 }

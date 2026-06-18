@@ -15,11 +15,7 @@
 
 :root {
   --font-jn-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-jn-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
-  /* Kept for any leftover serif rule in the canvas; safe to delete once
-     no .body-serif class survives the chrome rewrite. */
-  --font-jn-serif: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
-}
+  --font-jn-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;}
 
 @keyframes justui-fade { from { opacity: 0 } to { opacity: 1 } }
 
@@ -97,14 +93,6 @@ body {
   pointer-events: none;
 }
 
-.note.body-serif {
-  font-family: var(--font-jn-serif), "Iowan Old Style", Georgia, serif;
-  font-feature-settings: "kern", "liga", "onum";
-}
-.note.body-sans {
-  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
-}
-
 .note-first {
   font-size: 14.5px;
   line-height: 1.34;
@@ -132,8 +120,6 @@ body {
   -webkit-mask-image: linear-gradient(to bottom, #000 60%, rgba(0,0,0,0.35) 100%);
           mask-image: linear-gradient(to bottom, #000 60%, rgba(0,0,0,0.35) 100%);
 }
-.body-serif .note-first { font-size: 15.5px; line-height: 1.3; }
-.body-serif .note-rest  { font-size: 13.5px; line-height: 1.42; }
 
 .note-ta {
   width: 100%;
@@ -158,7 +144,6 @@ body {
 }
 .note-ta::-webkit-scrollbar { width: 6px; }
 .note-ta::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
-.body-serif .note-ta { font-size: 15.5px; line-height: 1.3; }
 .note-ta::placeholder { color: currentColor; opacity: 0.32; font-style: italic; }
 
 @keyframes jn-commit-glow {
@@ -502,13 +487,6 @@ body {
   from { opacity: 0; transform: translateY(8px) scale(0.97); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-.focus-note.body-serif {
-  font-family: var(--font-jn-serif), "Iowan Old Style", Georgia, serif;
-  font-feature-settings: "kern", "liga", "onum";
-}
-.focus-note.body-sans {
-  font-family: var(--font-jn-sans), ui-sans-serif, sans-serif;
-}
 .focus-ta {
   width: 100%;
   min-height: 240px;
@@ -530,7 +508,6 @@ body {
   scrollbar-width: thin;
   scrollbar-color: rgba(0,0,0,0.2) transparent;
 }
-.body-serif .focus-ta { font-size: 20px; line-height: 1.5; }
 .focus-ta::placeholder { color: currentColor; opacity: 0.3; font-style: italic; }
 .focus-ta::-webkit-scrollbar { width: 6px; }
 .focus-ta::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.18); border-radius: 3px; }
@@ -756,7 +733,6 @@ body {
   pointer-events: none;
   overflow: visible;
 }
-.body-serif .ink-svg { top: 30px; }
 .note.editing .ink-svg { display: none; }
 .ink-svg path {
   fill: none;

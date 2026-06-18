@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# justnotes
 
-## Getting Started
+Spatial notes on a dark canvas — click anywhere to write, drag to place, type to recall. Notes age visually (fresh → ancient) and sync across devices.
 
-First, run the development server:
+## Stack
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **apps/web** — Vite 6 + React 19 + Tailwind 4 + [@codellyson/justui](https://www.npmjs.com/package/@codellyson/justui) design system
+- **apps/api** — Hono on Cloudflare Workers + Drizzle ORM + Better Auth (anonymous + email/password + Google OAuth) + D1 with FTS5 for ambient search
+- **apps/marketing** — Astro 5 (static, deployed to Pages)
+- **packages/api-client** — shared Hono RPC client (end-to-end types)
+- **src-tauri** — Tauri 2 desktop shell (same Vite frontend, bearer-token sessions in OS keychain, localhost-listener OAuth)
+
+Monorepo managed by pnpm workspaces.
+
+## Run locally
+
+You need two (or three) terminals.
+
+```sh
+# Terminal 1 — API (Worker + local D1)
+pnpm --filter @justnotes/api dev          # → :8787
+
+# Terminal 2 — Web app
+pnpm --filter @justnotes/web dev          # → :5173
+# or marketing:
+pnpm --filter @justnotes/marketing dev    # → :4321
+
+# Terminal 3 (optional) — desktop shell
+pnpm tauri:dev                            # spawns vite as a subprocess
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+First time only — apply local D1 migrations:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```sh
+pnpm --filter @justnotes/api db:migrate:local
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+You'll also need `apps/api/.dev.vars`:
 
-## Learn More
+```sh
+BETTER_AUTH_SECRET=$(openssl rand -hex 32)
+# Optional — light up the Google sign-in button:
+# GOOGLE_CLIENT_ID=...
+# GOOGLE_CLIENT_SECRET=...
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Brand assets
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Canonical sources live in `brand/`. Regenerate raster derivatives (Tauri icons, favicons, OG image, marketing hero):
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```sh
+python3 brand/build.py
+```
 
-## Deploy on Vercel
+Details: [`brand/README.md`](brand/README.md).
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Deploying
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The Cloudflare-side runbook is in [`docs/deploy.md`](docs/deploy.md). A self-hosted (VPS) variant lives in [`docs/deploy-vps.md`](docs/deploy-vps.md) for when you'd rather run the Hono server on your own infrastructure.
+
+## Migration history
+
+`docs/migration.md` captures the phase-by-phase rewrite from the original Next.js scaffold to the current stack. Mostly historical at this point — interesting if you're following why the architecture looks the way it does.
