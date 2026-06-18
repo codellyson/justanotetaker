@@ -15,7 +15,6 @@
     "core:window:allow-set-background-color",
     "updater:default",
     "process:default",
-    "opener:default",
-    "deep-link:default"
+    "opener:default"
   ]
 }

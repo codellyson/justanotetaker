@@ -1,13 +1,29 @@
 // JustNotes desktop shell.
 //
-// Phase 0 scope: open a window pointing at the Vite frontend, expose
-// commands for storing/reading the Better Auth bearer token in the
-// OS keychain. The keychain commands let the React app persist its
-// session without a cookie store (Tauri's custom-protocol context
-// doesn't cleanly share cookies with the Workers API).
+// Exposes:
+//   - {store,get,clear}_bearer_token — OS keychain access for the Better
+//     Auth bearer token, so the webview can persist its session without
+//     a cookie store (Tauri's custom-protocol context doesn't cleanly
+//     share cookies with the Workers API).
+//   - start_oauth_listener — spins up an ephemeral localhost HTTP server
+//     used as the OAuth bounce-back target. The system browser is sent
+//     to /api/desktop-oauth-start, completes the Google dance, and the
+//     server redirects to http://localhost:<port>/?token=…  The plugin
+//     emits an "oauth://callback" event with the full URL; the JS side
+//     extracts the token, stores it in keychain, and reloads.
+//
+// We use a localhost listener instead of a justnotes:// custom scheme
+// because macOS only registers custom schemes for bundled .app
+// installs — dev iteration with `tauri:dev` would otherwise need a
+// full bundle + drag-to-Applications cycle every time we change Rust.
+
+use tauri::{AppHandle, Emitter};
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+use tauri::Manager;
 
 const KEYCHAIN_SERVICE: &str = "com.kreativekorna.justnotes";
 const KEYCHAIN_ACCOUNT: &str = "bearer";
+const OAUTH_CALLBACK_EVENT: &str = "oauth://callback";
 
 #[tauri::command]
 fn store_bearer_token(token: String) -> Result<(), String> {
@@ -38,6 +54,18 @@ fn clear_bearer_token() -> Result<(), String> {
     }
 }
 
+#[tauri::command]
+async fn start_oauth_listener(app: AppHandle) -> Result<u16, String> {
+    let handle = app.clone();
+    tauri_plugin_oauth::start(move |url| {
+        // Forward the full callback URL into the webview. JS parses
+        // `?token=…` and persists. The listener stops after the first
+        // request via the plugin's default behavior.
+        let _ = handle.emit(OAUTH_CALLBACK_EVENT, url);
+    })
+    .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[allow(unused_mut)]
@@ -46,15 +74,15 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_deep_link::init());
+        .plugin(tauri_plugin_oauth::init());
 
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
-        // Forward justnotes:// URLs from a would-be second instance into
-        // the running first instance so the deep-link plugin sees them.
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            use tauri_plugin_deep_link::DeepLinkExt;
-            let _ = app.deep_link().handle_cli_arguments(argv);
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
         }));
     }
 
@@ -63,6 +91,7 @@ pub fn run() {
             store_bearer_token,
             get_bearer_token,
             clear_bearer_token,
+            start_oauth_listener,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

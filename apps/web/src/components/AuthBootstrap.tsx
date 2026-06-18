@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { authClient } from "../lib/auth-client";
 import { API_BASE_URL } from "../lib/runtime";
-import { attachDeepLinkListener } from "../lib/tauri-deep-link";
 
 // Guarantees a session exists whenever children render. On first mount
 // and any time the session transitions to null (e.g. after sign-out),
@@ -37,20 +36,6 @@ export function AuthBootstrap({ children }: { children: ReactNode }) {
         creatingRef.current = false;
       });
   }, [session, isPending]);
-
-  // Tauri: listen for the justnotes:// deep link that wraps the OAuth
-  // bearer token from the system browser. No-op in the browser build.
-  useEffect(() => {
-    let detach: (() => void) | null = null;
-    attachDeepLinkListener()
-      .then((fn) => {
-        detach = fn;
-      })
-      .catch((err) => console.error("[auth] deep-link setup failed", err));
-    return () => {
-      if (detach) detach();
-    };
-  }, []);
 
   if (isPending) return <BootScreen message="checking session…" />;
   if (!session) {

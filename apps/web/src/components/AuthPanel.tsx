@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Button, Field, Modal } from "@codellyson/justui/react";
 import { authClient } from "../lib/auth-client";
 import { isTauri } from "../lib/runtime";
-import { buildDesktopOAuthUrl, openInSystemBrowser } from "../lib/tauri-deep-link";
+import { signInWithProviderInTauri } from "../lib/tauri-oauth";
 
 type Mode = "sign-in" | "sign-up";
 
@@ -53,7 +53,10 @@ export function AuthPanel({
     setError(null);
     try {
       if (isTauri) {
-        await openInSystemBrowser(buildDesktopOAuthUrl("google"));
+        // Resolves when the localhost listener has the token + we've
+        // persisted it. The reload follows immediately, so any code
+        // after this awaits won't run.
+        await signInWithProviderInTauri("google");
       } else {
         await authClient.signIn.social({
           provider: "google",

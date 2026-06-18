@@ -54,16 +54,18 @@ app.get("/api/me", (c) => {
 
 // Tauri OAuth handoff — start.
 //
-// System-browser navigations are GET, but Better Auth's
-// /api/auth/sign-in/social is POST-only (it returns { url, redirect }
-// for the React client to redirect to). So the desktop client can't
-// hit Better Auth directly — we proxy: read provider from the query,
-// POST to Better Auth ourselves, forward its Set-Cookie (the state
-// cookie required for callback validation), then 302 the browser to
-// the Google auth URL Better Auth returned.
+// The Tauri shell spins up an ephemeral localhost listener (via
+// tauri-plugin-oauth) before kicking off the OAuth flow and passes
+// the resulting port here as `?listener=…`. We POST to Better Auth's
+// social sign-in (POST-only), forward its state cookie, and 302 the
+// system browser to Google. The listener port travels with us via the
+// callbackURL → eventually back to the localhost listener after the
+// OAuth dance completes.
 app.get("/api/desktop-oauth-start", async (c) => {
   const provider = c.req.query("provider") ?? "google";
-  const callbackURL = `${c.env.BETTER_AUTH_URL}/api/desktop-callback`;
+  const listener = c.req.query("listener") ?? "";
+  const callbackParams = listener ? `?listener=${encodeURIComponent(listener)}` : "";
+  const callbackURL = `${c.env.BETTER_AUTH_URL}/api/desktop-callback${callbackParams}`;
   const auth = createAuth(c.env);
 
   const upstream = await auth.handler(
@@ -79,8 +81,6 @@ app.get("/api/desktop-oauth-start", async (c) => {
   const data = (await upstream.json()) as { url?: string };
   if (!data.url) return c.text("no OAuth url returned", 500);
 
-  // Forward Better Auth's state cookie so /api/auth/callback/google
-  // can validate when Google bounces the user back.
   const setCookie = upstream.headers.get("set-cookie");
   if (setCookie) c.header("Set-Cookie", setCookie);
 
@@ -89,16 +89,14 @@ app.get("/api/desktop-oauth-start", async (c) => {
 
 // Tauri OAuth handoff — finish.
 //
-// Hit by Better Auth's /api/auth/callback/<provider> at the end of the
-// OAuth dance via the callbackURL we set above. We read the session
-// that's now active (cookie set in the system browser), pull out the
-// session token, and return HTML that navigates to a justnotes:// URL
-// the OS hands back to the Tauri app. The Tauri side stores the token
-// in OS keychain and reloads its webview; the bearer-mode auth client
-// then carries it on every subsequent request.
+// Better Auth bounces here at the tail of /api/auth/callback/<provider>;
+// session is real and live in the system browser's cookie jar. We pull
+// the bearer token and 302 to the Tauri-side localhost listener URL
+// (passed in via ?listener=… from the start endpoint).
 //
-// Lives outside /api/auth so the specific route doesn't break Hono's
-// trie matching for the /api/auth/** wildcard.
+// If ?listener= is missing the user landed here without the desktop
+// flow — fall back to a static "signed in" page so they at least see
+// something useful.
 app.get("/api/desktop-callback", (c) => {
   const session = c.get("session") as { token?: string } | null;
   const token = session?.token;
@@ -110,18 +108,17 @@ app.get("/api/desktop-callback", (c) => {
       401,
     );
   }
-  const safe = encodeURIComponent(token);
+  const listener = c.req.query("listener");
+  if (listener && /^\d+$/.test(listener)) {
+    const port = Number(listener);
+    if (port > 0 && port < 65536) {
+      return c.redirect(`http://localhost:${port}/?token=${encodeURIComponent(token)}`, 302);
+    }
+  }
   return c.html(`<!doctype html>
 <meta charset="utf-8"><title>Signed in</title>
 <body style="background:#0a0d12;color:rgba(255,255,255,0.7);font:13px ui-sans-serif,system-ui;padding:24px;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">
-  <div style="text-align:center">
-    <p>signed in. you can close this tab.</p>
-    <p style="opacity:0.6;font-size:11.5px">returning you to justnotes…</p>
-    <p style="opacity:0.4;font-size:11px;margin-top:24px">
-      didn't auto-return? <a href="justnotes://auth/callback?token=${safe}" style="color:#e8a13f">click here</a>
-    </p>
-  </div>
-  <script>setTimeout(function(){window.location.href='justnotes://auth/callback?token=${safe}';},150);</script>
+  <p>signed in. you can close this tab.</p>
 </body>`);
 });
 
