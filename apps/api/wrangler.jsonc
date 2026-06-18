@@ -38,7 +38,7 @@
       "vars": {
         "BETTER_AUTH_URL": "https://api.justnotes.kreativekorna.com",
         // Comma-separated. Add any extra origins (preview deploys, etc.).
-        "TRUSTED_ORIGINS": "https://justnotes.kreativekorna.com,tauri://localhost"
+        "TRUSTED_ORIGINS": "https://justnotes.kreativekorna.com,https://app.justnotes.kreativekorna.com,https://justnotes-marketing.pages.dev,https://justnotes-web.pages.dev,tauri://localhost"
       },
       "d1_databases": [
         {
