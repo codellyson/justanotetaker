@@ -132,6 +132,11 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Vite reads import.meta.env.VITE_API_BASE_URL at build time;
+          # tauri-action runs `pnpm --filter @justnotetaking/web build`
+          # as a subprocess so the env propagates. Source is the repo
+          # variable so swapping the API host doesn't need a code change.
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -145,12 +150,10 @@ jobs:
         with:
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           releaseName: "JustNoteTaking ${{ github.ref_name }}"
-          releaseBody: |
-            ## Downloads
-
-            - **macOS (universal)** — `JustNoteTaking_*_universal.dmg`
-            - **Windows** — `JustNoteTaking_*_x64-setup.exe` or `.msi`
-            - **Linux** — `justnotetaking_*_amd64.deb` or `justnotetaking_*_amd64.AppImage`
+          # Body intentionally short — same string ends up in latest.json's
+          # `notes` field, which the in-app updater shows as "what's new".
+          # The longer download table lives in the README + release page.
+          releaseBody: "JustNoteTaking ${{ github.ref_name }}"
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
@@ -160,6 +163,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # See the signed branch above for why this is here.
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
           # Updater signing is independent of code signing — always set.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -169,17 +174,9 @@ jobs:
         with:
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           releaseName: "JustNoteTaking ${{ github.ref_name }}"
-          releaseBody: |
-            ## Downloads
-
-            - **macOS (universal)** — `JustNoteTaking_*_universal.dmg`
-            - **Windows** — `JustNoteTaking_*_x64-setup.exe` or `.msi`
-            - **Linux** — `justnotetaking_*_amd64.deb` or `justnotetaking_*_amd64.AppImage`
-
-            > Builds are unsigned. macOS users may need to right-click → Open;
-            > Windows users may see a SmartScreen warning. Signing kicks in
-            > automatically when the corresponding repo secrets are set —
-            > see `.github/workflows/release.yml` for the list.
+          # Body intentionally short — same string ends up in latest.json's
+          # `notes` field, which the in-app updater shows as "what's new".
+          releaseBody: "JustNoteTaking ${{ github.ref_name }}"
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

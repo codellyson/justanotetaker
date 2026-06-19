@@ -1,6 +1,6 @@
 [package]
 name = "justnotetaking"
-version = "0.1.0"
+version = "0.1.1"
 description = "JustNoteTaking desktop"
 authors = ["KreativeKorna"]
 license = ""
