@@ -1,0 +1,69 @@
+# Build + deploy the Astro marketing site (apps/marketing/) to Cloudflare Pages.
+#
+# Triggers:
+#   - push to main with changes under apps/marketing/  -> production deploy
+#   - pull_request touching apps/marketing/            -> preview deploy
+#   - workflow_dispatch                                -> manual prod deploy
+#
+# Required repo secrets:
+#   CLOUDFLARE_API_TOKEN   - "Cloudflare Pages: Edit" permission
+#   CLOUDFLARE_ACCOUNT_ID  - account ID
+#
+# Required repo vars (Settings → Variables, not Secrets — non-sensitive):
+#   PUBLIC_WEB_URL         - https://app.justnotetaking.kreativekorna.com
+#   PUBLIC_DESKTOP_URL     - https://github.com/codellyson/justnotetaking/releases/latest
+
+name: deploy-marketing
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/marketing/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/deploy-marketing.yml"
+  pull_request:
+    paths:
+      - "apps/marketing/**"
+      - ".github/workflows/deploy-marketing.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+  pull-requests: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build marketing
+        env:
+          PUBLIC_WEB_URL: ${{ vars.PUBLIC_WEB_URL }}
+          PUBLIC_DESKTOP_URL: ${{ vars.PUBLIC_DESKTOP_URL }}
+        run: pnpm --filter @justnotetaking/marketing build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/marketing
+          command: >-
+            pages deploy dist
+            --project-name=justnotetaking-marketing
+            --branch=${{ github.head_ref || github.ref_name }}

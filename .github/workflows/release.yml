@@ -1,0 +1,168 @@
+# Cross-platform Tauri release matrix.
+#
+# Triggers on a tag push matching v*.*.* — e.g.:
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Builds the Vite frontend on each runner, then `cargo tauri build` for the
+# host platform, uploads the bundles to a GitHub Release.
+#
+# Today every artifact ships UNSIGNED:
+#   - macOS users see "JustNoteTaking can't be opened because Apple cannot
+#     check it for malicious software." Workaround: right-click → Open, or
+#     `xattr -dr com.apple.quarantine /Applications/JustNoteTaking.app`.
+#   - Windows users see SmartScreen warning the publisher is unverified.
+#   - Linux AppImages run as-is (never signed by convention).
+# To enable signing, add the secrets referenced below — the workflow auto-
+# detects them (action skips signing if absent) and no .yml changes are
+# needed.
+#
+# Optional repo secrets (signing kicks in when present):
+#   # Tauri auto-updater (signs latest.json so the in-app updater trusts it):
+#   TAURI_SIGNING_PRIVATE_KEY            - content of `tauri signer generate -w <key>`
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD   - passphrase you set on it
+#
+#   # macOS Developer ID code-signing + notarization:
+#   APPLE_CERTIFICATE                    - base64 of your .p12
+#   APPLE_CERTIFICATE_PASSWORD           - the .p12 password
+#   APPLE_SIGNING_IDENTITY               - "Developer ID Application: <name> (<TEAMID>)"
+#   APPLE_ID                             - your Apple ID email
+#   APPLE_PASSWORD                       - app-specific password (not your Apple ID password)
+#   APPLE_TEAM_ID                        - 10-char team id from developer.apple.com/account
+#
+#   # Windows code-signing:
+#   WINDOWS_CERTIFICATE                  - base64 of your .pfx
+#   WINDOWS_CERTIFICATE_PASSWORD         - the .pfx password
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # tauri-action creates the release + uploads assets
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS universal binary. We emit both .app (re-tarred + signed by
+          # tauri-action into the .app.tar.gz the updater consumes — only
+          # produced when the TAURI_SIGNING_PRIVATE_KEY is set) and .dmg
+          # (what users actually download for fresh installs).
+          - platform: macos-latest
+            args: "--target universal-apple-darwin --bundles app,dmg"
+            label: macos-universal
+          # Windows → NSIS (.exe installer) + WiX (.msi). Both come out of
+          # the same cargo build; --bundles picks which artifacts get
+          # emitted. The updater consumes the .nsis.zip variant.
+          - platform: windows-latest
+            args: "--bundles nsis,msi"
+            label: windows-x64
+          # Linux → .deb + .AppImage. AppImage is the more portable of the
+          # two (single self-contained binary, runs anywhere); .deb is for
+          # Ubuntu/Debian users who prefer apt-managed installs.
+          - platform: ubuntu-22.04
+            args: "--bundles deb,appimage"
+            label: linux-x64
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add macOS targets
+        if: matrix.platform == 'macos-latest'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+          key: ${{ matrix.label }}
+
+      # The .deb/.AppImage build chain needs GTK + webkit + libsoup + libayatana
+      # (system tray) for tauri to link. None of these are on the ubuntu-22.04
+      # base image by default.
+      - name: Install Linux build deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            patchelf \
+            libssl-dev
+
+      - name: Install JS deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build & publish bundles
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Updater artifact signing — only if both are present.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS code-signing + notarization — only if all are present.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows code-signing — only if both are present.
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        with:
+          # On tag pushes, tauri-action creates a draft release on the
+          # first runner (idempotently — subsequent runners attach assets
+          # to the same release), builds, and uploads. On workflow_dispatch
+          # tagName resolves to empty and the upload step is skipped.
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          releaseName: "JustNoteTaking ${{ github.ref_name }}"
+          releaseBody: |
+            ## Downloads
+
+            - **macOS (universal)** — `JustNoteTaking_*_universal.dmg`
+            - **Windows** — `JustNoteTaking_*_x64-setup.exe` or `.msi`
+            - **Linux** — `justnotetaking_*_amd64.deb` or `justnotetaking_*_amd64.AppImage`
+
+            > Builds are unsigned. macOS users may need to right-click → Open;
+            > Windows users may see a SmartScreen warning. Signing kicks in
+            > automatically when the corresponding repo secrets are set —
+            > see `.github/workflows/release.yml` for the list.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+      - name: Upload bundles as workflow artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundles-${{ matrix.label }}
+          if-no-files-found: error
+          path: |
+            src-tauri/target/**/release/bundle/dmg/*.dmg
+            src-tauri/target/**/release/bundle/nsis/*.exe
+            src-tauri/target/**/release/bundle/msi/*.msi
+            src-tauri/target/**/release/bundle/deb/*.deb
+            src-tauri/target/**/release/bundle/appimage/*.AppImage

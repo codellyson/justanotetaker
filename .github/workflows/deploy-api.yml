@@ -1,0 +1,65 @@
+# Deploy the Hono Worker (apps/api/) to Cloudflare Workers (env=production).
+#
+# Triggers:
+#   - push to main with changes under apps/api/  -> production deploy
+#   - workflow_dispatch                           -> manual production deploy
+#
+# Required repo secrets:
+#   CLOUDFLARE_API_TOKEN   - "Edit Cloudflare Workers" template
+#                            (or custom: Workers Scripts: Edit, D1: Edit,
+#                            Account Settings: Read).
+#   CLOUDFLARE_ACCOUNT_ID  - non-secret but easier to manage as one (your
+#                            account ID is a492d60371140dc0c1860389e31387d1).
+#
+# Worker secrets (BETTER_AUTH_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET)
+# are NOT touched by this workflow — manage them with `wrangler secret put`.
+
+name: deploy-api
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/api/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/deploy-api.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      # D1 schema is forward-only; running this before the code deploy means
+      # the new Worker version never sees a column it doesn't expect.
+      - name: Apply D1 migrations (production)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: d1 migrations apply justnotetaking-prod --remote --env production
+
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: deploy --env production

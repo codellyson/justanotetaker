@@ -1,0 +1,70 @@
+# Build + deploy the Vite SPA (apps/web/) to Cloudflare Pages.
+#
+# Triggers:
+#   - push to main with changes under apps/web/ or packages/api-client/
+#     (the web app's RPC types come from there) -> production deploy
+#   - pull_request touching the same paths      -> preview deploy with
+#     a comment posted by wrangler-action carrying the preview URL
+#   - workflow_dispatch                          -> manual prod deploy
+#
+# Required repo secrets:
+#   CLOUDFLARE_API_TOKEN   - "Cloudflare Pages: Edit" permission
+#   CLOUDFLARE_ACCOUNT_ID  - account ID
+
+name: deploy-web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "packages/api-client/**"
+      - "apps/api/src/**"  # AppType change → RPC client types shift
+      - "pnpm-lock.yaml"
+      - ".github/workflows/deploy-web.yml"
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "packages/api-client/**"
+      - "apps/api/src/**"
+      - ".github/workflows/deploy-web.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+  pull-requests: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+        run: pnpm --filter @justnotetaking/web build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/web
+          command: >-
+            pages deploy dist
+            --project-name=justnotetaking-web
+            --branch=${{ github.head_ref || github.ref_name }}

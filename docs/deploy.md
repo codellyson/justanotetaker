@@ -1,8 +1,46 @@
 # Deploy runbook
 
-Phase 4 lands the code/config so a deploy is mostly a matter of running the right `wrangler` commands against your own Cloudflare account. This file is the sequence — top to bottom on a fresh account, idempotent on subsequent runs.
+Day-to-day, you don't deploy by hand — GitHub Actions does it:
 
-Tauri release (code-signing, notarization, auto-update feed) is a separate sub-phase — covered at the bottom under "Desktop release."
+| Workflow | Trigger | What it does |
+| --- | --- | --- |
+| `deploy-api.yml`       | `apps/api/**` change on `main`        | Applies D1 migrations, deploys the Hono Worker (`--env production`) |
+| `deploy-web.yml`       | `apps/web/**`, `packages/api-client/**`, or `apps/api/src/**` change on `main` (or PR) | Builds + deploys to Pages project `justnotetaking-web`. PRs get a preview URL. |
+| `deploy-marketing.yml` | `apps/marketing/**` change on `main` (or PR) | Builds + deploys to Pages project `justnotetaking-marketing`. PRs get a preview URL. |
+| `release.yml`          | `git push origin v*.*.*`              | Cross-platform Tauri matrix (macOS universal, Windows, Linux). Creates a draft GitHub Release. Signs artifacts iff signing secrets exist. |
+| `ci.yml`               | every PR + push to `main`             | Typechecks + builds every app; `cargo check` the Tauri shell. Gate for the deploy workflows. |
+
+This file is two things:
+
+1. **First-time setup** — provisioning D1 + Pages projects + custom domains + GitHub repo secrets. One-time per Cloudflare account.
+2. **What to do when CI can't help you** — pushing prod secrets, manual Worker deploys, the desktop signing dance.
+
+Once setup is done, deploys collapse to `git push origin main`.
+
+---
+
+## GitHub repo secrets
+
+Required for CI to deploy at all:
+
+| Secret | Where to get it | Notes |
+| --- | --- | --- |
+| `CLOUDFLARE_API_TOKEN`  | `dash.cloudflare.com/profile/api-tokens` → "Create Custom Token" with: Workers Scripts: Edit, Account Settings: Read, Cloudflare Pages: Edit, D1: Edit | Least-privilege — no global account access. |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard right sidebar | Not actually a secret; stored as a secret for ergonomics. |
+
+GitHub repo vars (Settings → Variables and Secrets → Variables tab — non-sensitive, plain text):
+
+| Variable | Value (this repo) |
+| --- | --- |
+| `VITE_API_BASE_URL`   | `https://api.justnotetaking.kreativekorna.com` |
+| `PUBLIC_WEB_URL`      | `https://app.justnotetaking.kreativekorna.com` |
+| `PUBLIC_DESKTOP_URL`  | `https://github.com/codellyson/justnotetaking/releases/latest` |
+
+Optional secrets (signing — see [Desktop release](#desktop-release-tauri)):
+
+- `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+- `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`
+- `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_PASSWORD`
 
 ---
 

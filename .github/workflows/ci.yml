@@ -1,0 +1,85 @@
+# CI — verify every app + the Rust shell typecheck/compile cleanly on PR
+# into main. Catches breakage before merge so the deploy workflows on main
+# never run on broken code.
+#
+# Cheap: each step is a tsc / build / cargo check. No tests yet — when they
+# land, add them here.
+
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      # API typechecks. Build via Workers wrangler isn't needed for
+      # verification — the deploy workflow re-runs it on push.
+      - name: Typecheck @justnotetaking/api
+        run: pnpm --filter @justnotetaking/api lint
+
+      # Web: tsc -b + vite build to catch both type errors and bundling
+      # regressions (e.g. dynamic import paths breaking, tree-shaking).
+      - name: Build @justnotetaking/web
+        env:
+          VITE_API_BASE_URL: https://api.justnotetaking.kreativekorna.com
+        run: pnpm --filter @justnotetaking/web build
+
+      - name: Astro check + build @justnotetaking/marketing
+        env:
+          PUBLIC_WEB_URL: https://app.justnotetaking.kreativekorna.com
+          PUBLIC_DESKTOP_URL: https://github.com/codellyson/justnotetaking/releases/latest
+        run: |
+          pnpm --filter @justnotetaking/marketing lint
+          pnpm --filter @justnotetaking/marketing build
+
+  rust:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      # Tauri needs GTK + webkit + libsoup to compile on Linux even if we're
+      # only running `cargo check` (proc-macros for the plugins). Same deps
+      # list as the release workflow.
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            patchelf \
+            libssl-dev
+
+      - name: cargo check
+        working-directory: src-tauri
+        run: cargo check --locked
