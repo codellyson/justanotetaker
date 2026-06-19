@@ -12,9 +12,8 @@
 #     `xattr -dr com.apple.quarantine /Applications/JustNoteTaking.app`.
 #   - Windows users see SmartScreen warning the publisher is unverified.
 #   - Linux AppImages run as-is (never signed by convention).
-# To enable signing, add the secrets referenced below — the workflow auto-
-# detects them (action skips signing if absent) and no .yml changes are
-# needed.
+# To enable signing, add the secrets referenced below — the workflow
+# auto-detects them via job-level env vars and switches branch.
 #
 # Optional repo secrets (signing kicks in when present):
 #   # Tauri auto-updater (signs latest.json so the in-app updater trusts it):
@@ -72,6 +71,12 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
 
+    # Surface the secret-presence as a job-level env var. `if:` on steps
+    # can't read `secrets.*` directly but can read `env.*`. This is the
+    # standard workaround for "skip this step iff this secret is unset."
+    env:
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -115,37 +120,53 @@ jobs:
       - name: Install JS deps
         run: pnpm install --frozen-lockfile
 
-      - name: Build & publish bundles
+      # Two variants of the build step gated on HAS_APPLE_CERT. tauri-action's
+      # `security import` runs whenever APPLE_CERTIFICATE is defined in the
+      # env — including as the empty string — so we have to fully omit those
+      # vars when no cert exists. GitHub Actions doesn't support conditional
+      # `env:` keys per-step, so two steps + `if:` is the cleanest workaround.
+      # Both branches share everything else; only the Apple env block differs.
+
+      - name: Build & publish bundles (with macOS signing)
+        if: env.HAS_APPLE_CERT == 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Updater artifact signing — secrets are mandatory in the repo
-          # (we generated the keypair and pushed both halves), so this
-          # is always populated. The release will fail loudly if either
-          # is missing, which is what we want.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS code-signing + notarization. tauri-action's `security
-          # import` step treats an empty APPLE_CERTIFICATE as "try to
-          # import nothing" and bails, so we use a single all-or-nothing
-          # conditional: ALL six secrets present → enable signing; ANY
-          # missing → skip the entire env block so tauri-action treats
-          # macOS as unsigned. The unsigned binary still builds; users
-          # see Gatekeeper warnings until certs land.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_SIGNING_IDENTITY || '' }}
-          APPLE_ID: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_ID || '' }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_TEAM_ID || '' }}
-          # Windows code-signing — same all-or-nothing.
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE != '' && secrets.WINDOWS_CERTIFICATE || '' }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE != '' && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         with:
-          # On tag pushes, tauri-action creates a draft release on the
-          # first runner (idempotently — subsequent runners attach assets
-          # to the same release), builds, and uploads. On workflow_dispatch
-          # tagName resolves to empty and the upload step is skipped.
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          releaseName: "JustNoteTaking ${{ github.ref_name }}"
+          releaseBody: |
+            ## Downloads
+
+            - **macOS (universal)** — `JustNoteTaking_*_universal.dmg`
+            - **Windows** — `JustNoteTaking_*_x64-setup.exe` or `.msi`
+            - **Linux** — `justnotetaking_*_amd64.deb` or `justnotetaking_*_amd64.AppImage`
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+      - name: Build & publish bundles (no macOS signing)
+        if: env.HAS_APPLE_CERT != 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Updater signing is independent of code signing — always set.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Windows can sign independently of Apple — only attach when set.
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        with:
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           releaseName: "JustNoteTaking ${{ github.ref_name }}"
           releaseBody: |
