@@ -24,6 +24,8 @@ export function useNotes() {
           id: s.id,
           x: s.x,
           y: s.y,
+          w: s.w,
+          h: s.h,
           t: s.t,
           text: s.text,
         }));
@@ -47,6 +49,8 @@ export function useNotes() {
         id: note.id,
         x: note.x,
         y: note.y,
+        w: note.w,
+        h: note.h,
         t: note.t,
         text: note.text,
       });
@@ -60,7 +64,7 @@ export function useNotes() {
   // No-op for never-synced ids — the next create call will pick up the
   // current state from JustNotes' useState.
   const onUpdate = useCallback(
-    (id: string, patch: Partial<Pick<Note, "x" | "y" | "t" | "text">>) => {
+    (id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text">>) => {
       if (!syncedRef.current.has(id)) return;
       void remoteStorage.update(id, patch).catch((err) => console.error("[useNotes] update failed", err));
     },
@@ -74,26 +78,11 @@ export function useNotes() {
     syncedRef.current.delete(id);
   }, []);
 
-  // First-visit SEED dump. Persists each note in parallel and marks the
-  // ids as synced. Caller is responsible for also setting settings.seeded
-  // (so a partial failure here doesn't perma-block re-seeding).
-  const seedAndMarkSynced = useCallback(async (seed: Note[]) => {
-    await Promise.all(
-      seed.map((n) =>
-        remoteStorage
-          .create({ id: n.id, x: n.x, y: n.y, t: n.t, text: n.text })
-          .then(() => syncedRef.current.add(n.id))
-          .catch((err) => console.error("[useNotes] seed create failed", err)),
-      ),
-    );
-  }, []);
-
   return {
     initialNotes,
     ready: initialNotes !== null,
     onCreate,
     onUpdate,
     onDelete,
-    seedAndMarkSynced,
   };
 }

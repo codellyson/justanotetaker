@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Note } from "./lib";
+import type { Command } from "../../lib/commands";
 
-// Server-safe "are we on the client yet?" — used to defer rendering of
-// anything that depends on window dimensions until after hydration.
 function useIsClient() {
   return useSyncExternalStore(
     () => () => {},
@@ -11,8 +10,6 @@ function useIsClient() {
   );
 }
 
-// Subscribe to Date.now() ticks at ~1Hz, only when `active`. Pure during
-// render — the impure read happens in getSnapshot, which React handles.
 function useNow(active: boolean) {
   const subscribe = useCallback(
     (cb: () => void) => {
@@ -25,45 +22,76 @@ function useNow(active: boolean) {
   return useSyncExternalStore(subscribe, () => Date.now(), () => 0);
 }
 
-// ── AmbientBar ─────────────────────────────────────────────────────────
 export function AmbientBar({
   query,
+  mode,
   matchCount,
   recallIdx,
+  commandMatches,
 }: {
   query: string;
+  mode: "search" | "command";
   matchCount: number | null;
   recallIdx: number;
+  commandMatches: Command[] | null;
 }) {
   const hasQuery = query.length > 0;
   const matches = matchCount ?? 0;
+  const isCommand = mode === "command";
+
   let action: React.ReactNode;
-  if (!hasQuery) {
-    action = <span className="a-action">type to recall &nbsp;·&nbsp; <b>esc</b> close</span>;
+  if (isCommand) {
+    action =
+      matches === 0
+        ? <span className="a-action">no commands</span>
+        : <span className="a-action"><b>↵</b> run &nbsp;·&nbsp; <b>↑↓</b> step</span>;
+  } else if (!hasQuery) {
+    action = <span className="a-action">type to recall &nbsp;·&nbsp; <b>&gt;</b> commands &nbsp;·&nbsp; <b>esc</b> close</span>;
   } else if (matches === 0) {
     action = <span className="a-action"><b>↵</b> write “{query}”</span>;
   } else {
     action = <span className="a-action"><b>↵</b> jump &nbsp;·&nbsp; <b>↑↓</b> step &nbsp;·&nbsp; <b>⌘↵</b> write</span>;
   }
+
   return (
-    <div className="ambient-bar" role="status" aria-live="polite">
-      <span className="a-prompt">›</span>
-      <span className="a-q">{query}<span className="a-cursor" /></span>
-      <span className="a-sep" />
-      <span className="a-meta">
-        {hasQuery
-          ? matches === 0
-            ? <>nothing</>
-            : <><span className="a-num">{recallIdx + 1}</span> / {matches}</>
-          : <>ambient</>}
-      </span>
-      <span className="a-sep" />
-      {action}
-    </div>
+    <>
+      <div className="ambient-bar" role="status" aria-live="polite">
+        <span className="a-prompt">{isCommand ? "❯" : "›"}</span>
+        <span className="a-q">{query}<span className="a-cursor" /></span>
+        <span className="a-sep" />
+        <span className="a-meta">
+          {isCommand
+            ? matches === 0
+              ? <>none</>
+              : <><span className="a-num">{recallIdx + 1}</span> / {matches}</>
+            : hasQuery
+              ? matches === 0
+                ? <>nothing</>
+                : <><span className="a-num">{recallIdx + 1}</span> / {matches}</>
+              : <>ambient</>}
+        </span>
+        <span className="a-sep" />
+        {action}
+      </div>
+      {isCommand && commandMatches && commandMatches.length > 0 && (
+        <div className="command-list" role="listbox">
+          {commandMatches.map((cmd, i) => (
+            <div
+              key={cmd.id}
+              role="option"
+              aria-selected={i === recallIdx}
+              className={"command-row" + (i === recallIdx ? " selected" : "")}
+            >
+              <span className="cmd-label">{cmd.label}</span>
+              {cmd.hint && <span className="cmd-hint">{cmd.hint}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
-// ── TimeScrub ──────────────────────────────────────────────────────────
 export function TimeScrub({
   notes,
   scrubMoment,
@@ -152,7 +180,6 @@ export function TimeScrub({
   );
 }
 
-// ── Compass ────────────────────────────────────────────────────────────
 export function Compass({
   notes,
   view,
@@ -214,7 +241,6 @@ export function Compass({
   );
 }
 
-// ── InkUnderline ───────────────────────────────────────────────────────
 const INK_PATHS = [
   "M2,7 C 30,4 70,9 110,6 C 150,3 180,8 198,6",
   "M3,6 C 40,9 80,4 120,7 C 160,9 185,5 197,7",

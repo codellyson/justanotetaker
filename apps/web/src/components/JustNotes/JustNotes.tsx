@@ -13,6 +13,7 @@ import {
   RECENCY_ALPHA,
   WARM_MS,
   firstNonEmpty,
+  parsePastedUrl,
   recencyOf,
   restAfterFirst,
   uid,
@@ -22,15 +23,17 @@ import {
 import { renderBody, renderHeadline } from "./markdown";
 import { AmbientBar, Compass, InkUnderline, TimeScrub } from "./cherries";
 import { TweaksUI } from "./tweaks";
-import { Button } from "@codellyson/justui/react";
+import { Button, useTheme } from "@codellyson/justui/react";
 import { remoteStorage } from "../../lib/storage";
 import { authClient, clearKeychainToken } from "../../lib/auth-client";
 import { API_BASE_URL, isTauri } from "../../lib/runtime";
 import { AuthPanel } from "../AuthPanel";
+import { filterCommands, type Command } from "../../lib/commands";
+import { Graveyard } from "./Graveyard";
 
 type Persist = {
   onCreate: (note: Note) => void | Promise<void>;
-  onUpdate: (id: string, patch: Partial<Pick<Note, "x" | "y" | "t" | "text">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text">>) => void;
   onDelete: (id: string) => void;
 };
 
@@ -63,6 +66,8 @@ export default function JustNotes(props: JustNotesProps) {
   const [smooth, setSmooth] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
+  const editingIdRef = useRef<string | null>(null);
+  useEffect(() => { editingIdRef.current = editingId; }, [editingId]);
   const [glowingId, setGlowingId] = useState<string | null>(null);
   const [savedTickId, setSavedTickId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -78,8 +83,18 @@ export default function JustNotes(props: JustNotesProps) {
   const warmRef = useRef(new Map<string, number>());
   const [, setWarmTick] = useState(0);
 
+  // Cmd+V paste doesn't carry clientX/Y; fall back to last mousemove.
+  const lastMouseRef = useRef<{ x: number; y: number } | null>(null);
+
   const [helpOpen, setHelpOpen] = useState(false);
   const [authPanelOpen, setAuthPanelOpen] = useState(false);
+  const [graveyardOpen, setGraveyardOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const selectedIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
+  const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [hasGoogle, setHasGoogle] = useState(false);
   const [interacted, setInteracted] = useState(false);
 
@@ -137,6 +152,33 @@ export default function JustNotes(props: JustNotesProps) {
     setView({ pan: { x: r.width / 2, y: r.height / 2 - 40 }, zoom: 1 });
   }, []);
 
+  // Wheel: plain = pan, ⌘/Ctrl (or mac trackpad pinch which fires ctrlKey) = zoom on cursor.
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        const rect = el.getBoundingClientRect();
+        const sx = e.clientX - rect.left;
+        const sy = e.clientY - rect.top;
+        const v = viewRef.current;
+        const factor = Math.exp(-e.deltaY * 0.012);
+        const nextZoom = Math.max(0.32, Math.min(2.5, v.zoom * factor));
+        const canvasX = (sx - v.pan.x) / v.zoom;
+        const canvasY = (sy - v.pan.y) / v.zoom;
+        setView({
+          pan: { x: sx - canvasX * nextZoom, y: sy - canvasY * nextZoom },
+          zoom: nextZoom,
+        });
+      } else {
+        setView((v) => ({ ...v, pan: { x: v.pan.x - e.deltaX, y: v.pan.y - e.deltaY } }));
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
   // Warm-trail tick
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -188,11 +230,75 @@ export default function JustNotes(props: JustNotesProps) {
   function spawnAt(canvasX: number, canvasY: number, initialText = "") {
     const id = uid();
     const w = tweakRef.current.noteWidth;
-    const x = canvasX - w / 2;
-    const y = canvasY - 22;
-    setNotes((ns) => [...ns, { id, x, y, t: Date.now(), text: initialText }]);
+    const spot = findFreeSpot(canvasX - w / 2, canvasY - 22);
+    setNotes((ns) => [...ns, { id, x: spot.x, y: spot.y, w: null, h: null, t: Date.now(), text: initialText }]);
     editSnapshotRef.current = { id, isNew: true, prevText: "", prevT: Date.now() };
     setEditingId(id);
+  }
+
+  function findFreeSpot(x: number, y: number): { x: number; y: number } {
+    const existing = notesRef.current;
+    let cx = x, cy = y;
+    for (let i = 0; i < 30; i++) {
+      const collides = existing.some(
+        (n) => Math.abs(n.x - cx) < GRID && Math.abs(n.y - cy) < GRID,
+      );
+      if (!collides) return { x: cx, y: cy };
+      cx += GRID;
+      cy += GRID;
+    }
+    return { x: cx, y: cy };
+  }
+
+  function spawnCommitted(canvasX: number, canvasY: number, text: string): string {
+    const id = uid();
+    const w = tweakRef.current.noteWidth;
+    const spot = findFreeSpot(canvasX - w / 2, canvasY - 22);
+    const x = spot.x;
+    const y = spot.y;
+    const now = Date.now();
+    const note: Note = { id, x, y, w: null, h: null, t: now, text };
+    setNotes((ns) => [...ns, note]);
+    pushOp({ type: "create", id });
+    void onCreate(note);
+    if (tweakRef.current.glow) {
+      setGlowingId(id);
+      setSavedTickId(id);
+      window.setTimeout(() => setGlowingId((g) => g === id ? null : g), 720);
+      window.setTimeout(() => setSavedTickId((s) => s === id ? null : s), 1100);
+    }
+    if (tweakRef.current.warmTrail) markWarm(id);
+    enrichIfUrlNote(id);
+    return id;
+  }
+
+  const enrichedRef = useRef<Set<string>>(new Set());
+
+  function enrichIfUrlNote(id: string) {
+    const cur = notesRef.current.find((n) => n.id === id);
+    if (!cur) return;
+    const lines = cur.text.split("\n");
+    if (!lines[0]) return;
+    const url = parsePastedUrl(lines[0]);
+    if (!url) return;
+    const key = `${id}:${url}`;
+    if (enrichedRef.current.has(key)) return;
+    enrichedRef.current.add(key);
+    void remoteStorage.previewUrl(url).then((title) => {
+      if (!title) return;
+      if (editingIdRef.current === id) {
+        enrichedRef.current.delete(key);
+        return;
+      }
+      const cur2 = notesRef.current.find((n) => n.id === id);
+      if (!cur2) return;
+      const lines2 = cur2.text.split("\n");
+      if (parsePastedUrl(lines2[0] ?? "") !== url) return;
+      const tail = lines2.slice(1).join("\n");
+      const nextText = title + "\n" + url + (tail ? "\n" + tail : "");
+      setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, text: nextText } : n)));
+      onUpdate(id, { text: nextText });
+    });
   }
 
   function spawnAtCenter(initialText = "") {
@@ -252,6 +358,7 @@ export default function JustNotes(props: JustNotesProps) {
         window.setTimeout(() => setInkId((s) => s === id ? null : s), INK_MS + 200);
       }
       if (tweakRef.current.warmTrail) markWarm(id);
+      enrichIfUrlNote(id);
     }
     setEditingId(null);
     editSnapshotRef.current = null;
@@ -259,6 +366,49 @@ export default function JustNotes(props: JustNotesProps) {
 
   function updateNoteText(id: string, text: string) {
     setNotes((ns) => ns.map((n) => n.id === id ? { ...n, text } : n));
+  }
+
+  function deleteNoteById(id: string) {
+    const cur = notesRef.current.find((n) => n.id === id);
+    if (!cur) return;
+    pushOp({ type: "delete", note: { ...cur } });
+    setNotes((ns) => ns.filter((n) => n.id !== id));
+    if (editingId === id) {
+      setEditingId(null);
+      editSnapshotRef.current = null;
+    }
+    onDelete(id);
+  }
+
+  function reinsertRestoredNote(note: { id: string; x: number; y: number; t: number; text: string }) {
+    setNotes((ns) => (ns.some((n) => n.id === note.id) ? ns : [...ns, { ...note, w: null, h: null }]));
+  }
+
+  function startResize(e: React.MouseEvent<HTMLDivElement>, id: string) {
+    e.stopPropagation();
+    e.preventDefault();
+    const note = notesRef.current.find((n) => n.id === id);
+    if (!note) return;
+    const el = (e.currentTarget.parentElement as HTMLElement | null);
+    const startW = note.w ?? el?.offsetWidth ?? tweakRef.current.noteWidth;
+    const startH = note.h ?? el?.offsetHeight ?? 150;
+    const startSX = e.clientX, startSY = e.clientY;
+    const onMove = (ev: MouseEvent) => {
+      const z = viewRef.current.zoom;
+      const nw = Math.max(120, startW + (ev.clientX - startSX) / z);
+      const nh = Math.max(60, startH + (ev.clientY - startSY) / z);
+      setNotes((ns) => ns.map((n) => n.id === id ? { ...n, w: nw, h: nh } : n));
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      const cur = notesRef.current.find((n) => n.id === id);
+      if (cur && (cur.w !== startW || cur.h !== startH)) {
+        onUpdate(id, { w: cur.w, h: cur.h });
+      }
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
   }
 
   function frameNotes(list: Note[]) {
@@ -321,26 +471,60 @@ export default function JustNotes(props: JustNotesProps) {
     if (!target.dataset.canvas) return;
     e.preventDefault();
     markInteracted();
+    const wantsPan = e.metaKey || e.ctrlKey;
     const startSX = e.clientX, startSY = e.clientY;
     const startPan = { ...viewRef.current.pan };
+    const startCanvas = screenToCanvas(startSX, startSY);
     let moved = false;
+
     const onMove = (ev: MouseEvent) => {
       const dx = ev.clientX - startSX, dy = ev.clientY - startSY;
       if (!moved && dx * dx + dy * dy > 9) moved = true;
-      if (moved) setView((v) => ({ ...v, pan: { x: startPan.x + dx, y: startPan.y + dy } }));
+      if (!moved) return;
+      if (wantsPan) {
+        setView((v) => ({ ...v, pan: { x: startPan.x + dx, y: startPan.y + dy } }));
+      } else {
+        const cur = screenToCanvas(ev.clientX, ev.clientY);
+        setMarquee({
+          x0: Math.min(startCanvas.x, cur.x),
+          y0: Math.min(startCanvas.y, cur.y),
+          x1: Math.max(startCanvas.x, cur.x),
+          y1: Math.max(startCanvas.y, cur.y),
+        });
+      }
     };
     const onUp = (ev: MouseEvent) => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
-      if (moved) return;
-      if (viewRef.current.zoom < 0.95) {
-        if (prevViewRef.current) { animateView(prevViewRef.current); prevViewRef.current = null; }
+      if (!moved) {
+        if (viewRef.current.zoom < 0.95) {
+          if (prevViewRef.current) { animateView(prevViewRef.current); prevViewRef.current = null; }
+          return;
+        }
+        if (editingId) { commitEditing(); return; }
+        if (ambientOpen) { closeAmbient(); return; }
+        if (selectedIdsRef.current.size > 0) { setSelectedIds(new Set()); return; }
+        const c = screenToCanvas(ev.clientX, ev.clientY);
+        spawnAt(c.x, c.y);
         return;
       }
-      if (editingId) { commitEditing(); return; }
-      if (ambientOpen) { closeAmbient(); return; }
-      const c = screenToCanvas(ev.clientX, ev.clientY);
-      spawnAt(c.x, c.y);
+      if (wantsPan) return;
+      const cur = screenToCanvas(ev.clientX, ev.clientY);
+      const m = {
+        x0: Math.min(startCanvas.x, cur.x),
+        y0: Math.min(startCanvas.y, cur.y),
+        x1: Math.max(startCanvas.x, cur.x),
+        y1: Math.max(startCanvas.y, cur.y),
+      };
+      const w = tweakRef.current.noteWidth, h = 150;
+      const hit = new Set<string>();
+      for (const n of notesRef.current) {
+        if (n.x + w >= m.x0 && n.x <= m.x1 && n.y + h >= m.y0 && n.y <= m.y1) {
+          hit.add(n.id);
+        }
+      }
+      setSelectedIds(hit);
+      setMarquee(null);
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -359,8 +543,14 @@ export default function JustNotes(props: JustNotesProps) {
     }
     const note = notesRef.current.find((n) => n.id === id);
     if (!note) return;
+    const isSelected = selectedIdsRef.current.has(id);
+    const groupIds: string[] = isSelected ? Array.from(selectedIdsRef.current) : [id];
+    const startPositions = new Map<string, { x: number; y: number }>();
+    for (const nid of groupIds) {
+      const n = notesRef.current.find((x) => x.id === nid);
+      if (n) startPositions.set(nid, { x: n.x, y: n.y });
+    }
     const startSX = e.clientX, startSY = e.clientY;
-    const startX = note.x, startY = note.y;
     let moved = false;
     setDraggingId(id);
 
@@ -369,25 +559,33 @@ export default function JustNotes(props: JustNotesProps) {
       if (!moved && dxs * dxs + dys * dys > 9) moved = true;
       if (!moved) return;
       const z = viewRef.current.zoom;
-      const rawX = startX + dxs / z, rawY = startY + dys / z;
+      const dx = dxs / z, dy = dys / z;
       const useSnap = tweakRef.current.snap && !ev.shiftKey;
-      const nx = useSnap ? snap(rawX) : rawX;
-      const ny = useSnap ? snap(rawY) : rawY;
-      setNotes((ns) => ns.map((n) => n.id === id ? { ...n, x: nx, y: ny } : n));
+      setNotes((ns) => ns.map((n) => {
+        const sp = startPositions.get(n.id);
+        if (!sp) return n;
+        const rx = sp.x + dx, ry = sp.y + dy;
+        return { ...n, x: useSnap ? snap(rx) : rx, y: useSnap ? snap(ry) : ry };
+      }));
     };
     const onUp = () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       setDraggingId(null);
       if (!moved) {
+        if (!isSelected && selectedIdsRef.current.size > 0) setSelectedIds(new Set());
         if (editingId && editingId !== id) commitEditing();
         if (ambientOpen) closeAmbient();
         startEditingExisting(id);
-      } else {
-        pushOp({ type: "move", id, prevX: startX, prevY: startY });
-        if (tweakRef.current.warmTrail) markWarm(id);
-        const cur = notesRef.current.find((n) => n.id === id);
-        if (cur) onUpdate(id, { x: cur.x, y: cur.y });
+        return;
+      }
+      for (const nid of groupIds) {
+        const sp = startPositions.get(nid);
+        if (!sp) continue;
+        pushOp({ type: "move", id: nid, prevX: sp.x, prevY: sp.y });
+        if (tweakRef.current.warmTrail) markWarm(nid);
+        const cur = notesRef.current.find((n) => n.id === nid);
+        if (cur) onUpdate(nid, { x: cur.x, y: cur.y });
       }
     };
     window.addEventListener("mousemove", onMove);
@@ -395,21 +593,86 @@ export default function JustNotes(props: JustNotesProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingId, ambientOpen]);
 
-  // ── Ambient recall matches (server-side FTS5) ──────────────────────
-  // Phase 2: debounced storage.search() replaces the in-memory filter.
-  // Local fallback for the just-opened state means the first keystroke
-  // still feels instant — server result arrives ~80ms later and replaces
-  // the fallback. Pending searches are cancelled on every new keystroke.
+  // ── Ambient mode + command palette ─────────────────────────────────
+  const ambientMode: "search" | "command" =
+    recallQuery.startsWith(">") ? "command" : "search";
+  const effectiveQuery = ambientMode === "command" ? recallQuery.slice(1) : recallQuery;
+
+  const { mode: themeMode, themes, setThemeId, toggleMode } = useTheme();
+
+  const commands = useMemo<Command[]>(() => {
+    const list: Command[] = [];
+    list.push({
+      id: "new-note",
+      label: "New note",
+      hint: "spawn at canvas center",
+      run: () => spawnAtCenter(""),
+    });
+    list.push({
+      id: "tweaks",
+      label: "Open tweaks",
+      hint: "⌘,",
+      run: () => setTweaksOpen(true),
+    });
+    list.push({
+      id: "help",
+      label: "Show help",
+      hint: "?",
+      run: () => setHelpOpen(true),
+    });
+    list.push({
+      id: "graveyard",
+      label: "Show recently deleted",
+      hint: "30-day window",
+      run: () => setGraveyardOpen(true),
+    });
+    list.push({
+      id: "theme-mode",
+      label: `Switch to ${themeMode === "dark" ? "light" : "dark"} mode`,
+      run: () => toggleMode(),
+    });
+    for (const th of themes) {
+      list.push({
+        id: `theme:${th.id}`,
+        label: `Theme: ${th.label}`,
+        hint: th.description,
+        run: () => setThemeId(th.id),
+      });
+    }
+    if (!isAnonymous) {
+      list.push({
+        id: "sign-out",
+        label: "Sign out",
+        hint: identityLabel,
+        run: () => { void onSignOut(); },
+      });
+    } else {
+      list.push({
+        id: "sign-in",
+        label: "Sign in",
+        hint: "sync across devices",
+        run: () => setAuthPanelOpen(true),
+      });
+    }
+    return list;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [themeMode, themes, isAnonymous, identityLabel]);
+
+  const commandMatches = useMemo<Command[]>(
+    () => (ambientMode === "command" ? filterCommands(commands, effectiveQuery) : []),
+    [ambientMode, commands, effectiveQuery],
+  );
+
   const [matchIds, setMatchIds] = useState<string[] | null>(null);
   useEffect(() => {
-    if (!ambientOpen) { setMatchIds(null); return; }
-    const q = recallQuery.trim();
+    if (!ambientOpen || ambientMode !== "search") { setMatchIds(null); return; }
+    const q = effectiveQuery.trim();
     if (!q) { setMatchIds(null); return; }
 
-    // Optimistic local filter so matches appear immediately while the
-    // server query is in flight. Server result wins when it arrives.
     const lower = q.toLowerCase();
     setMatchIds(notesRef.current.filter((n) => n.text.toLowerCase().includes(lower)).map((n) => n.id));
+
+    if (q.startsWith("#")) return;
 
     const ac = new AbortController();
     const timer = window.setTimeout(async () => {
@@ -427,7 +690,7 @@ export default function JustNotes(props: JustNotesProps) {
       window.clearTimeout(timer);
       ac.abort();
     };
-  }, [recallQuery, ambientOpen]);
+  }, [effectiveQuery, ambientOpen, ambientMode]);
   const matchSet = useMemo(() => (matchIds ? new Set(matchIds) : null), [matchIds]);
 
   const prevMatchCountRef = useRef(0);
@@ -444,7 +707,18 @@ export default function JustNotes(props: JustNotesProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchIds, ambientOpen]);
 
+  useEffect(() => { setRecallIdx(0); }, [ambientMode]);
+  useEffect(() => {
+    if (ambientMode !== "command") return;
+    if (recallIdx >= commandMatches.length) setRecallIdx(0);
+  }, [ambientMode, commandMatches.length, recallIdx]);
+
   function stepMatch(delta: number) {
+    if (ambientMode === "command") {
+      if (commandMatches.length === 0) return;
+      setRecallIdx((i) => (i + delta + commandMatches.length) % commandMatches.length);
+      return;
+    }
     if (!matchIds || matchIds.length === 0) return;
     const next = (recallIdx + delta + matchIds.length) % matchIds.length;
     setRecallIdx(next);
@@ -463,6 +737,12 @@ export default function JustNotes(props: JustNotesProps) {
     setRecallIdx(0);
   }
   function commitAmbient(forceSpawn = false) {
+    if (ambientMode === "command") {
+      const cmd = commandMatches[recallIdx];
+      closeAmbient();
+      if (cmd) void cmd.run();
+      return;
+    }
     const q = recallQuery.trim();
     const hasMatches = matchIds && matchIds.length > 0;
     const idxNow = recallIdx;
@@ -483,6 +763,9 @@ export default function JustNotes(props: JustNotesProps) {
       const isInput = !!target && (target.tagName === "TEXTAREA" || target.tagName === "INPUT");
 
       if (e.key === "Escape") {
+        if (contextMenu) { setContextMenu(null); return; }
+        if (selectedIdsRef.current.size > 0) { setSelectedIds(new Set()); return; }
+        if (graveyardOpen) { setGraveyardOpen(false); return; }
         if (authPanelOpen) { setAuthPanelOpen(false); return; }
         if (tweaksOpen) { setTweaksOpen(false); return; }
         if (helpOpen) { setHelpOpen(false); return; }
@@ -526,6 +809,13 @@ export default function JustNotes(props: JustNotesProps) {
 
       if (isInput) return;
 
+      if ((e.key === "Backspace" || e.key === "Delete") && selectedIdsRef.current.size > 0) {
+        e.preventDefault();
+        for (const nid of Array.from(selectedIdsRef.current)) deleteNoteById(nid);
+        setSelectedIds(new Set());
+        return;
+      }
+
       if (e.key === "?") { e.preventDefault(); setHelpOpen((h) => !h); return; }
 
       if (ambientOpen) {
@@ -565,7 +855,41 @@ export default function JustNotes(props: JustNotesProps) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingId, ambientOpen, helpOpen, tweaksOpen, authPanelOpen, recallQuery, recallIdx, matchIds]);
+  }, [editingId, ambientOpen, helpOpen, tweaksOpen, authPanelOpen, graveyardOpen, contextMenu, recallQuery, recallIdx, matchIds]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      lastMouseRef.current = { x: e.clientX, y: e.clientY };
+    };
+    window.addEventListener("mousemove", onMove, { passive: true });
+    return () => window.removeEventListener("mousemove", onMove);
+  }, []);
+
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return;
+      }
+      if (authPanelOpen || helpOpen || tweaksOpen || editingId) return;
+
+      const text = e.clipboardData?.getData("text/plain")?.trim();
+      if (!text) return;
+      e.preventDefault();
+      markInteracted();
+
+      const sx = lastMouseRef.current?.x ?? window.innerWidth / 2;
+      const sy = lastMouseRef.current?.y ?? window.innerHeight / 2;
+      const c = screenToCanvas(sx, sy);
+
+      const url = parsePastedUrl(text);
+      spawnCommitted(c.x, c.y, url ?? text);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authPanelOpen, helpOpen, tweaksOpen, editingId]);
 
   // ── Render ─────────────────────────────────────────────────────────
   const inOverview = view.zoom < 0.95;
@@ -603,8 +927,19 @@ export default function JustNotes(props: JustNotesProps) {
       >
         <div
           className={"notes-layer" + (smooth ? " smooth" : "") + (inOverview ? " overview" : "")}
-          style={{ transform: `translate3d(${view.pan.x}px, ${view.pan.y}px, 0) scale(${view.zoom})` }}
+          style={{ transform: `translate(${view.pan.x}px, ${view.pan.y}px) scale(${view.zoom})` }}
         >
+          {marquee && (
+            <div
+              className="marquee"
+              style={{
+                left: marquee.x0,
+                top: marquee.y0,
+                width: marquee.x1 - marquee.x0,
+                height: marquee.y1 - marquee.y0,
+              }}
+            />
+          )}
           {notes.map((n) => (
             <NoteCard
               key={n.id}
@@ -620,10 +955,22 @@ export default function JustNotes(props: JustNotesProps) {
               dimmed={!!matchSet && !matchSet.has(n.id)}
               highlit={!!matchSet && matchSet.has(n.id)}
               focused={!!matchIds && matchIds[recallIdx] === n.id}
+              selected={selectedIds.has(n.id)}
               hidden={editingId === n.id && t.editMode === "focused"}
               scrubFade={scrubFadeFor(n)}
               onMouseDown={(e) => onNoteMouseDown(e, n.id)}
               onTextChange={(v) => updateNoteText(n.id, v)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setContextMenu({ id: n.id, x: e.clientX, y: e.clientY });
+              }}
+              onTagClick={(tag) => {
+                if (editingId) commitEditing();
+                openAmbient("#" + tag);
+                markInteracted();
+              }}
+              onResizeStart={(e) => startResize(e, n.id)}
             />
           ))}
         </div>
@@ -664,8 +1011,14 @@ export default function JustNotes(props: JustNotesProps) {
       {ambientOpen && (
         <AmbientBar
           query={recallQuery}
-          matchCount={matchIds ? matchIds.length : null}
+          mode={ambientMode}
+          matchCount={
+            ambientMode === "command"
+              ? commandMatches.length
+              : matchIds ? matchIds.length : null
+          }
           recallIdx={recallIdx}
+          commandMatches={ambientMode === "command" ? commandMatches : null}
         />
       )}
 
@@ -678,6 +1031,25 @@ export default function JustNotes(props: JustNotesProps) {
       {t.compass && <Compass notes={notes} view={view} flyHome={flyHome} />}
 
       {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
+
+      {contextMenu && (
+        <NoteContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onDelete={() => {
+            const id = contextMenu.id;
+            setContextMenu(null);
+            deleteNoteById(id);
+          }}
+        />
+      )}
+
+      <Graveyard
+        open={graveyardOpen}
+        onClose={() => setGraveyardOpen(false)}
+        onRestored={(n) => reinsertRestoredNote(n)}
+      />
 
       <TweaksUI t={t} setTweak={setTweak} open={tweaksOpen} onClose={() => setTweaksOpen(false)} />
     </div>
@@ -741,8 +1113,8 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 // ── NoteCard ───────────────────────────────────────────────────────────
 function NoteCard({
   note, editing, glowing, ink, inkSeed, warm, paperAge, showSaved, dragging,
-  dimmed, highlit, focused, hidden, scrubFade,
-  onMouseDown, onTextChange,
+  dimmed, highlit, focused, selected, hidden, scrubFade,
+  onMouseDown, onTextChange, onContextMenu, onTagClick, onResizeStart,
 }: {
   note: Note;
   editing: boolean;
@@ -756,10 +1128,14 @@ function NoteCard({
   dimmed: boolean;
   highlit: boolean;
   focused: boolean;
+  selected: boolean;
   hidden: boolean;
   scrubFade: number;
   onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void;
   onTextChange: (v: string) => void;
+  onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
+  onTagClick: (tag: string) => void;
+  onResizeStart: (e: React.MouseEvent<HTMLDivElement>) => void;
 }) {
   const rec = recencyOf(note.t);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
@@ -783,6 +1159,7 @@ function NoteCard({
   const first = firstNonEmpty(note.text);
   const rest = restAfterFirst(note.text);
   const isHeading = first.trim().startsWith("#");
+  const startsWithFence = /^\s*`{3,}/.test(first);
 
   const cls = [
     "note",
@@ -793,6 +1170,7 @@ function NoteCard({
     dimmed ? "dim" : "",
     highlit ? "hit" : "",
     focused ? "focused" : "",
+    selected ? "selected" : "",
     hidden ? "is-hidden" : "",
     isHeading && !editing ? "has-heading" : "",
     warm > 0 ? "warm" : "",
@@ -811,9 +1189,27 @@ function NoteCard({
     opacity: RECENCY_ALPHA[rec] * (scrubFade ?? 1),
     ["--warm" as string]: warm,
   };
+  if (note.w != null) style.width = note.w;
+  if (note.h != null) { style.height = note.h; style.maxHeight = "none"; }
 
   return (
-    <div className={cls} style={style} onMouseDown={onMouseDown}>
+    <div
+      className={cls}
+      style={style}
+      onMouseDown={(e) => {
+        const target = e.target as HTMLElement;
+        const tagEl = target.closest("[data-tag]") as HTMLElement | null;
+        if (tagEl && !editing) {
+          e.stopPropagation();
+          e.preventDefault();
+          const tag = tagEl.dataset.tag;
+          if (tag) onTagClick(tag);
+          return;
+        }
+        onMouseDown(e);
+      }}
+      onContextMenu={onContextMenu}
+    >
       {editing ? (
         <textarea
           ref={taRef}
@@ -824,6 +1220,10 @@ function NoteCard({
           placeholder="just write."
           spellCheck={false}
         />
+      ) : startsWithFence ? (
+        <div className="note-rest" style={{ color: "rgb(var(--text-secondary))" }}>
+          {renderBody(note.text)}
+        </div>
       ) : (
         <>
           {first
@@ -834,6 +1234,13 @@ function NoteCard({
       )}
       {!editing && ink && <InkUnderline seed={inkSeed} />}
       {showSaved && <div className="saved-tick">saved</div>}
+      {!editing && (
+        <div
+          className="note-resize"
+          aria-label="resize"
+          onMouseDown={onResizeStart}
+        />
+      )}
     </div>
   );
 }
@@ -924,7 +1331,9 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
   type Row = [string | string[], string];
   const rows: Row[] = [
     ["click empty canvas",         "write a new note"],
+    [[mod, "V"],                   "paste · text becomes a note · URLs fetch their title"],
     ["type any letter",            "ambient · live-filters notes as you type"],
+    ["#tag in a note",              "click chip to filter canvas to that tag"],
     [["↵"],                        "jump to match · or write a new note"],
     [[mod, "↵"],                   "always write (override match)"],
     [["↑↓"],                       "step through matches"],
@@ -932,7 +1341,12 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
     [[mod, "K"],                   "open ambient with empty query"],
     ["drag a note",                "reposition · snaps to grid"],
     [["shift", "drag a note"],     "ignore the grid"],
-    ["drag empty canvas",          "pan"],
+    ["drag empty canvas",          "marquee select"],
+    [[mod, "drag empty canvas"],   "pan"],
+    ["scroll / trackpad",          "pan"],
+    [[mod, "scroll"],              "zoom centered on cursor"],
+    ["drag a selected note",       "move the whole selection"],
+    [["delete"],                   "remove all selected notes"],
     ["drag the right edge",        "rewind canvas through time"],
     [["z"],                        "zoom out · overview"],
     [["click a note in overview"], "fly to it"],
@@ -1032,6 +1446,45 @@ function FocusedEditor({
           </span>
         </div>
       </div>
+    </div>
+  );
+}
+
+function NoteContextMenu({
+  x, y, onClose, onDelete,
+}: {
+  x: number; y: number; onClose: () => void; onDelete: () => void;
+}) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const onDocDown = (e: MouseEvent) => {
+      if (!menuRef.current) return;
+      if (!menuRef.current.contains(e.target as Node)) onClose();
+    };
+    window.addEventListener("mousedown", onDocDown);
+    window.addEventListener("contextmenu", onDocDown);
+    return () => {
+      window.removeEventListener("mousedown", onDocDown);
+      window.removeEventListener("contextmenu", onDocDown);
+    };
+  }, [onClose]);
+
+  const W = 180, H = 44;
+  const left = Math.min(x, window.innerWidth - W - 8);
+  const top = Math.min(y, window.innerHeight - H - 8);
+
+  return (
+    <div
+      ref={menuRef}
+      className="note-ctx"
+      style={{ left, top }}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <button className="note-ctx-item danger" onClick={onDelete}>
+        delete
+        <span className="note-ctx-hint">⌘Z to undo</span>
+      </button>
     </div>
   );
 }

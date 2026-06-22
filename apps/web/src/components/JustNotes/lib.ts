@@ -2,6 +2,8 @@ export type Note = {
   id: string;
   x: number;
   y: number;
+  w: number | null;
+  h: number | null;
   t: number;
   text: string;
 };
@@ -43,6 +45,27 @@ export const RECENCY_ALPHA: Record<Recency, number> = {
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
 
+export function parsePastedUrl(raw: string): string | null {
+  const text = raw.trim();
+  if (!text) return null;
+  if (/\s/.test(text)) return null;
+  if (/^https?:\/\//i.test(text)) {
+    try {
+      return new URL(text).toString();
+    } catch {
+      return null;
+    }
+  }
+  if (/^([a-z0-9][a-z0-9-]*\.)+[a-z]{2,}(\/.*)?$/i.test(text)) {
+    try {
+      return new URL("https://" + text).toString();
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 export const firstNonEmpty = (s: string) => {
   for (const line of s.split("\n")) if (line.trim()) return line;
   return "";
@@ -83,24 +106,3 @@ export const TWEAK_DEFAULTS: Tweaks = {
   compass: true,
 };
 
-const NOW = Date.now();
-const HOUR = 3.6e6;
-const DAY = 24 * HOUR;
-
-export const SEED: Omit<Note, "id">[] = [
-  { x: -340, y: -180, t: NOW - 0.3 * HOUR, text: "the answer is that capture is the problem.\nnot organization." },
-  { x:   20, y: -260, t: NOW - 1.5 * HOUR, text: "call mom\nthursday after 6" },
-  { x:  300, y: -200, t: NOW - 3   * HOUR, text: "# groceries\n- oat milk\n- eggs\n- rye bread\n- clementines" },
-  { x: -480, y:   30, t: NOW - 8   * HOUR, text: "ship date moved to the 14th\nemail eli, push the design review one week" },
-  { x: -140, y:   60, t: NOW - 14  * HOUR, text: "if folders are the answer, **search** is broken" },
-  { x:  210, y:   40, t: NOW - 26  * HOUR, text: "tuesday 11:30 — coffee w/ priya\nbluestone lane on greenwich\nhttps://maps.app.goo.gl/x" },
-  { x:  500, y:    0, t: NOW - 1.8 * DAY,  text: "# book idea\na week with no calendar. you only get the next 30 minutes." },
-  { x: -380, y:  240, t: NOW - 3.5 * DAY,  text: "rent due fri\nremember the parking permit" },
-  { x:  -70, y:  280, t: NOW - 5   * DAY,  text: "rewatch tampopo. the food in it." },
-  { x:  240, y:  260, t: NOW - 9   * DAY,  text: "dentist moved to thu 3:30\nthe new place on 6th" },
-  { x:  540, y:  220, t: NOW - 16  * DAY,  text: "the second album is always the production. nobody remembers the songs." },
-  { x: -620, y:  340, t: NOW - 20  * DAY,  text: "# interview prep — staff PM, fintech\n- the story: shipped X, learned Y, moved Z.\n- frame everything as a tradeoff, never a win.\n- questions to ask them: what's the last thing the team killed? who decided? what would have to be true for this product to exist in 5 years?\n- practice the comp number out loud. don't flinch." },
-  { x: -240, y:  460, t: NOW - 28  * DAY,  text: "library card expires aug" },
-  { x:  140, y:  470, t: NOW - 45  * DAY,  text: "passport. renew before sept. one photo left in the drawer." },
-  { x:  460, y:  440, t: NOW - 78  * DAY,  text: "address for the cabin\n412 spruce, hwy 50 mile 8" },
-];

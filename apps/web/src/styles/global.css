@@ -43,11 +43,37 @@ body {
   position: absolute; left: 0; top: 0;
   width: 0; height: 0;
   transform-origin: 0 0;
-  will-change: transform;
 }
 .notes-layer.smooth {
   transition: transform 400ms cubic-bezier(.22,.61,.36,1);
 }
+.marquee {
+  position: absolute;
+  border: 1px solid rgb(var(--accent) / 0.85);
+  background: rgb(var(--accent) / 0.12);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 5;
+}
+.note.selected {
+  box-shadow:
+    0 0 0 2px rgb(var(--accent)),
+    0 8px 24px -10px rgba(0,0,0,0.35);
+}
+.note-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  background:
+    linear-gradient(135deg, transparent 0 55%, rgb(var(--accent) / 0.7) 55% 65%, transparent 65% 75%, rgb(var(--accent) / 0.7) 75% 85%, transparent 85%);
+}
+.note:hover .note-resize,
+.note.selected .note-resize { opacity: 0.9; }
 .notes-layer.overview .note { cursor: pointer; }
 .notes-layer.overview .note:hover {
   transform: translateY(-1px) scale(1.02);
@@ -317,6 +343,39 @@ body {
   text-underline-offset: 2px;
 }
 .note a:hover { text-decoration-color: rgba(0,0,0,0.6); }
+.note .md-tag {
+  display: inline-block;
+  padding: 0 6px;
+  margin: 0 1px;
+  border-radius: 999px;
+  background: rgb(var(--accent) / 0.16);
+  color: rgb(var(--accent));
+  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-size: 0.88em;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.note .md-tag:hover { background: rgb(var(--accent) / 0.28); }
+.note .md-code {
+  margin: 6px 0;
+  border-radius: 6px;
+  overflow: hidden;
+  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  background: rgb(var(--bg) / 0.55);
+}
+.note .md-code pre {
+  margin: 0;
+  padding: 8px 10px;
+  background: transparent !important;
+  overflow-x: auto;
+  white-space: pre;
+}
+.note .md-code code { background: transparent; padding: 0; }
+.note .md-code-fallback pre,
+.note .md-code-fallback { background: rgb(var(--bg) / 0.55); color: rgb(var(--text-primary)); }
 
 /* ── overview chrome label ────────────────────────────────────── */
 .chrome-mode {
@@ -595,9 +654,118 @@ body {
   font-size: 10.5px;
   letter-spacing: 0.02em;
 }
+.command-list {
+  position: fixed;
+  top: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  width: min(420px, 92vw);
+  max-height: min(50vh, 360px);
+  overflow-y: auto;
+  padding: 4px;
+  background: rgba(20,24,32,0.92);
+  border: 1px solid rgb(var(--accent) / 0.18);
+  border-radius: 10px;
+  -webkit-backdrop-filter: blur(8px) saturate(110%);
+  backdrop-filter: blur(8px) saturate(110%);
+  box-shadow: 0 14px 36px -10px rgba(0,0,0,0.6);
+  font-family: var(--font-jn-sans), ui-sans-serif, sans-serif;
+  animation: jn-pop-bar 180ms cubic-bezier(.22,.61,.36,1);
+}
+.command-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: rgba(255,255,255,0.86);
+  font-size: 13px;
+}
+.command-row.selected {
+  background: rgb(var(--accent) / 0.14);
+  color: rgb(var(--text-primary));
+  box-shadow: inset 0 0 0 1px rgb(var(--accent) / 0.4);
+}
+.command-row .cmd-label { font-weight: 500; }
+.command-row .cmd-hint {
+  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  color: rgba(255,255,255,0.42);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .ambient-bar .a-action b {
   font-weight: 500;
   color: rgba(255,255,255,0.72);
+}
+
+/* ── Note context menu ──────────────────────────────────────────── */
+.note-ctx {
+  position: fixed;
+  z-index: 220;
+  min-width: 160px;
+  padding: 4px;
+  background: rgba(20,24,32,0.96);
+  border: 1px solid rgb(var(--accent) / 0.18);
+  border-radius: 8px;
+  -webkit-backdrop-filter: blur(8px) saturate(110%);
+  backdrop-filter: blur(8px) saturate(110%);
+  box-shadow: 0 10px 28px -8px rgba(0,0,0,0.55);
+  font-family: var(--font-jn-sans), ui-sans-serif, sans-serif;
+  animation: justui-fade 120ms ease-out;
+}
+.note-ctx-item {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  background: transparent;
+  border-radius: 5px;
+  font-size: 12.5px;
+  color: rgb(var(--text-primary));
+  text-align: left;
+  cursor: pointer;
+}
+.note-ctx-item:hover { background: rgb(var(--accent) / 0.14); }
+.note-ctx-item.danger:hover { background: rgb(var(--danger) / 0.16); color: rgb(var(--danger)); }
+.note-ctx-hint {
+  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  color: rgba(255,255,255,0.42);
+}
+
+/* ── Graveyard list ─────────────────────────────────────────────── */
+.grave-list {
+  display: flex; flex-direction: column;
+  gap: 4px;
+  margin: 0; padding: 0;
+  list-style: none;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.grave-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid rgb(var(--border) / 0.5);
+  background: rgb(var(--bg-secondary) / 0.5);
+}
+.grave-text { min-width: 0; flex: 1; }
+.grave-first {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: rgb(var(--text-primary));
+}
+.grave-meta {
+  margin-top: 2px;
+  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  color: rgb(var(--text-secondary));
 }
 
 /* ── Time scrub ─────────────────────────────────────────────────── */

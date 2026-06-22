@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { createAuth, hasGoogleProvider } from "./auth";
 import type { Env } from "./env";
 import { notesRoutes } from "./routes/notes";
+import { previewRoutes } from "./routes/preview";
 import { settingsRoutes } from "./routes/settings";
 
 const app = new Hono<Env>();
@@ -136,8 +137,10 @@ const requireUser = async (c: { get: (k: "user") => unknown; set: (k: "userId", 
 const routes = app
   .use("/api/notes/*", requireUser as any)
   .use("/api/settings/*", requireUser as any)
+  .use("/api/preview/*", requireUser as any)
   .route("/api/notes", notesRoutes)
-  .route("/api/settings", settingsRoutes);
+  .route("/api/settings", settingsRoutes)
+  .route("/api/preview", previewRoutes);
 
 export default app;
 

@@ -1,12 +1,9 @@
 import type { Note, Tweaks } from "../components/JustNotes/lib";
 import { api } from "./api-client";
 
-// Storage owns the API round-trips for notes + settings. The UI never
-// talks to the api-client directly. Phase 1 semantics: optimistic at the
-// hook layer, fire-and-forget writes here, errors logged but not retried.
-// Phase 2/3 will add a pending-write queue + reconnect drain.
-
 export type StoredNote = Note & { updatedAt: number };
+
+export type DeletedNote = StoredNote & { deletedAt: number };
 
 export type SearchMatch = StoredNote & { snippet: string };
 
@@ -17,10 +14,13 @@ export type StoredSettings = {
 
 export interface Storage {
   list(): Promise<StoredNote[]>;
-  create(input: { id?: string; x: number; y: number; t: number; text?: string }): Promise<StoredNote>;
-  update(id: string, patch: Partial<Pick<Note, "x" | "y" | "t" | "text">>): Promise<StoredNote | null>;
+  create(input: { id?: string; x: number; y: number; w?: number | null; h?: number | null; t: number; text?: string }): Promise<StoredNote>;
+  update(id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text">>): Promise<StoredNote | null>;
   remove(id: string): Promise<void>;
+  listDeleted(): Promise<DeletedNote[]>;
+  restore(id: string): Promise<StoredNote | null>;
   search(q: string, opts?: { limit?: number; signal?: AbortSignal }): Promise<SearchMatch[]>;
+  previewUrl(url: string, opts?: { signal?: AbortSignal }): Promise<string | null>;
   getSettings(): Promise<StoredSettings>;
   putSettings(input: { tweaks?: Tweaks | null; seeded?: boolean }): Promise<StoredSettings>;
 }
@@ -29,11 +29,22 @@ function toUiNote(row: {
   id: string;
   x: number;
   y: number;
+  w?: number | null;
+  h?: number | null;
   t: number;
   text: string;
   updatedAt: number;
 }): StoredNote {
-  return { id: row.id, x: row.x, y: row.y, t: row.t, text: row.text, updatedAt: row.updatedAt };
+  return {
+    id: row.id,
+    x: row.x,
+    y: row.y,
+    w: row.w ?? null,
+    h: row.h ?? null,
+    t: row.t,
+    text: row.text,
+    updatedAt: row.updatedAt,
+  };
 }
 
 export const remoteStorage: Storage = {
@@ -50,6 +61,8 @@ export const remoteStorage: Storage = {
         ...(input.id ? { id: input.id } : {}),
         x: input.x,
         y: input.y,
+        ...(input.w !== undefined ? { w: input.w } : {}),
+        ...(input.h !== undefined ? { h: input.h } : {}),
         t: input.t,
         ...(input.text !== undefined ? { text: input.text } : {}),
       },
@@ -74,6 +87,47 @@ export const remoteStorage: Storage = {
     if (!res.ok && res.status !== 404) throw new Error(`delete note: ${res.status}`);
   },
 
+  async listDeleted() {
+    const res = await api.api.notes.deleted.$get();
+    if (!res.ok) throw new Error(`list deleted: ${res.status}`);
+    const { notes } = await res.json();
+    return notes.map((n) => ({
+      id: n.id,
+      x: n.x,
+      y: n.y,
+      w: n.w ?? null,
+      h: n.h ?? null,
+      t: n.t,
+      text: n.text,
+      updatedAt: n.updatedAt,
+      deletedAt: n.deletedAt ?? 0,
+    }));
+  },
+
+  async restore(id) {
+    const res = await api.api.notes[":id"].restore.$post({ param: { id } });
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      throw new Error(`restore: ${res.status}`);
+    }
+    const { note } = await res.json();
+    return toUiNote(note);
+  },
+
+  async previewUrl(url, opts) {
+    try {
+      const res = await api.api.preview.$get(
+        { query: { url } },
+        { init: { signal: opts?.signal } },
+      );
+      if (!res.ok) return null;
+      const data = (await res.json()) as { title?: string | null };
+      return data.title ?? null;
+    } catch {
+      return null;
+    }
+  },
+
   async search(q, opts) {
     const res = await api.api.notes.search.$get(
       {
@@ -87,6 +141,8 @@ export const remoteStorage: Storage = {
       id: m.id,
       x: m.x,
       y: m.y,
+      w: null,
+      h: null,
       t: m.t,
       text: m.text,
       updatedAt: m.updatedAt,

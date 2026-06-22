@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { and, eq, gt, isNull, lte } from "drizzle-orm";
+import { and, eq, gt, gte, isNotNull, isNull, lte } from "drizzle-orm";
 import { createDb } from "../db/client";
 import { notes } from "../db/schema";
 import type { Env } from "../env";
@@ -10,6 +10,8 @@ const createSchema = z.object({
   id: z.string().optional(),
   x: z.number(),
   y: z.number(),
+  w: z.number().nullable().optional(),
+  h: z.number().nullable().optional(),
   t: z.number(),
   text: z.string().optional(),
 });
@@ -17,6 +19,8 @@ const createSchema = z.object({
 const patchSchema = z.object({
   x: z.number().optional(),
   y: z.number().optional(),
+  w: z.number().nullable().optional(),
+  h: z.number().nullable().optional(),
   t: z.number().optional(),
   text: z.string().optional(),
 });
@@ -32,10 +36,10 @@ const searchQuery = z.object({
   limit: z.coerce.number().int().positive().max(200).optional(),
 });
 
-// Tokenize the user's input into FTS5 prefix-matched literals. Wrapping
-// each token in double quotes neutralizes FTS5 operators (`*`, `OR`,
-// `NEAR`, `:`) and the trailing `*` re-enables prefix match per token —
-// so "rec" matches "recall", "recent", etc. Multiple tokens implicit-AND.
+const GRAVEYARD_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+// Wrap each whitespace-delimited token in double quotes (neutralizes FTS5
+// operators *, OR, NEAR, :), then append * for prefix match per token.
 function toFtsQuery(raw: string): string {
   return raw
     .trim()
@@ -46,9 +50,6 @@ function toFtsQuery(raw: string): string {
 }
 
 export const notesRoutes = new Hono<Env>()
-  // List the caller's notes. ?since=<ms> returns only rows with updated_at > since
-  // (including soft-deletes so clients can reconcile). Without ?since, soft-deleted
-  // rows are filtered out — that's the initial-load path.
   .get("/", zValidator("query", listQuery), async (c) => {
     const db = createDb(c.env.DB);
     const userId = c.get("userId");
@@ -56,7 +57,6 @@ export const notesRoutes = new Hono<Env>()
 
     const conds = [eq(notes.userId, userId)];
     if (since != null) {
-      // Delta sync — include soft-deletes so clients can reconcile.
       conds.push(gt(notes.updatedAt, since));
     } else {
       conds.push(isNull(notes.deletedAt));
@@ -66,13 +66,22 @@ export const notesRoutes = new Hono<Env>()
     const rows = await db.select().from(notes).where(and(...conds));
     return c.json({ notes: rows, serverTime: Date.now() });
   })
-  // FTS5-backed text search. Filters to the caller's notes + non-deleted
-  // at query time (the FTS index itself is ownership-agnostic). bm25
-  // ranks results; snippet() returns a 20-token excerpt with <mark> tags
-  // around the matched terms.
+  .get("/deleted", async (c) => {
+    const db = createDb(c.env.DB);
+    const userId = c.get("userId");
+    const cutoff = Date.now() - GRAVEYARD_WINDOW_MS;
+    const rows = await db
+      .select()
+      .from(notes)
+      .where(and(
+        eq(notes.userId, userId),
+        isNotNull(notes.deletedAt),
+        gte(notes.deletedAt, cutoff),
+      ));
+    rows.sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+    return c.json({ notes: rows, serverTime: Date.now() });
+  })
   .get("/search", zValidator("query", searchQuery), async (c) => {
-    // Drizzle's query builder doesn't model FTS5 — fall through to D1's
-    // raw prepared statement for the MATCH + JOIN + rank ORDER BY.
     const userId = c.get("userId");
     const { q, limit } = c.req.valid("query");
     const ftsQuery = toFtsQuery(q);
@@ -126,6 +135,8 @@ export const notesRoutes = new Hono<Env>()
       userId,
       x: body.x,
       y: body.y,
+      w: body.w ?? null,
+      h: body.h ?? null,
       t: body.t,
       text: body.text ?? "",
       updatedAt: now,
@@ -140,17 +151,32 @@ export const notesRoutes = new Hono<Env>()
     const { id } = c.req.valid("param");
     const body = c.req.valid("json");
 
-    const updates: Partial<{ x: number; y: number; t: number; text: string; updatedAt: number }> = {
+    const updates: Partial<{ x: number; y: number; w: number | null; h: number | null; t: number; text: string; updatedAt: number }> = {
       updatedAt: Date.now(),
     };
     if (typeof body.x === "number") updates.x = body.x;
     if (typeof body.y === "number") updates.y = body.y;
+    if (body.w !== undefined) updates.w = body.w;
+    if (body.h !== undefined) updates.h = body.h;
     if (typeof body.t === "number") updates.t = body.t;
     if (typeof body.text === "string") updates.text = body.text;
 
     const result = await db
       .update(notes)
       .set(updates)
+      .where(and(eq(notes.id, id), eq(notes.userId, userId)))
+      .returning();
+    if (result.length === 0) return c.json({ error: "not found" }, 404);
+    return c.json({ note: result[0] });
+  })
+  .post("/:id/restore", zValidator("param", idParam), async (c) => {
+    const db = createDb(c.env.DB);
+    const userId = c.get("userId");
+    const { id } = c.req.valid("param");
+    const now = Date.now();
+    const result = await db
+      .update(notes)
+      .set({ deletedAt: null, updatedAt: now })
       .where(and(eq(notes.id, id), eq(notes.userId, userId)))
       .returning();
     if (result.length === 0) return c.json({ error: "not found" }, 404);

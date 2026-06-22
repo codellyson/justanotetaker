@@ -73,6 +73,8 @@ export const notes = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     x: real("x").notNull(),
     y: real("y").notNull(),
+    w: real("w"),
+    h: real("h"),
     t: integer("t").notNull(),
     text: text("text").notNull().default(""),
     updatedAt: integer("updated_at").notNull(),
