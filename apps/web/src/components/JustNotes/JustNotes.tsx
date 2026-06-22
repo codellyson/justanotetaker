@@ -23,7 +23,7 @@ import {
 import { renderBody, renderHeadline } from "./markdown";
 import { AmbientBar, Compass, InkUnderline, TimeScrub } from "./cherries";
 import { TweaksUI } from "./tweaks";
-import { Button, useTheme } from "@codellyson/justui/react";
+import { Button } from "@codellyson/justui/react";
 import { remoteStorage } from "../../lib/storage";
 import { authClient, clearKeychainToken } from "../../lib/auth-client";
 import { API_BASE_URL, isTauri } from "../../lib/runtime";
@@ -53,7 +53,7 @@ type UndoOp =
 
 // ── App ────────────────────────────────────────────────────────────────
 export default function JustNotes(props: JustNotesProps) {
-  const { initialNotes, tweaks: t, setTweak, onCreate, onUpdate, onDelete } = props;
+  const { initialNotes, tweaks: t, setTweak, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete } = props;
   const [tweaksOpen, setTweaksOpen] = useState(false);
 
   const [notes, setNotes] = useState<Note[]>(initialNotes);
@@ -95,6 +95,41 @@ export default function JustNotes(props: JustNotesProps) {
   const selectedIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+
+  const [online, setOnline] = useState<boolean>(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine,
+  );
+  const [lastWriteAt, setLastWriteAt] = useState<number | null>(null);
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+  useEffect(() => {
+    if (lastWriteAt == null) return;
+    const id = window.setInterval(() => setNowTick((x) => x + 1), 5000);
+    return () => window.clearInterval(id);
+  }, [lastWriteAt]);
+  const markWrite = useCallback(() => setLastWriteAt(Date.now()), []);
+
+  const onCreate = useCallback<Persist["onCreate"]>((note) => {
+    markWrite();
+    return rawOnCreate(note);
+  }, [rawOnCreate, markWrite]);
+  const onUpdate = useCallback<Persist["onUpdate"]>((id, patch) => {
+    markWrite();
+    rawOnUpdate(id, patch);
+  }, [rawOnUpdate, markWrite]);
+  const onDelete = useCallback<Persist["onDelete"]>((id) => {
+    markWrite();
+    rawOnDelete(id);
+  }, [rawOnDelete, markWrite]);
   const [hasGoogle, setHasGoogle] = useState(false);
   const [interacted, setInteracted] = useState(false);
 
@@ -384,7 +419,7 @@ export default function JustNotes(props: JustNotesProps) {
     setNotes((ns) => (ns.some((n) => n.id === note.id) ? ns : [...ns, { ...note, w: null, h: null }]));
   }
 
-  function startResize(e: React.MouseEvent<HTMLDivElement>, id: string) {
+  function startResize(e: React.MouseEvent<HTMLDivElement>, id: string, dir: "e" | "s" | "se") {
     e.stopPropagation();
     e.preventDefault();
     const note = notesRef.current.find((n) => n.id === id);
@@ -395,8 +430,10 @@ export default function JustNotes(props: JustNotesProps) {
     const startSX = e.clientX, startSY = e.clientY;
     const onMove = (ev: MouseEvent) => {
       const z = viewRef.current.zoom;
-      const nw = Math.max(120, startW + (ev.clientX - startSX) / z);
-      const nh = Math.max(60, startH + (ev.clientY - startSY) / z);
+      const dx = (ev.clientX - startSX) / z;
+      const dy = (ev.clientY - startSY) / z;
+      const nw = dir === "s" ? startW : Math.max(120, startW + dx);
+      const nh = dir === "e" ? startH : Math.max(60, startH + dy);
       setNotes((ns) => ns.map((n) => n.id === id ? { ...n, w: nw, h: nh } : n));
     };
     const onUp = () => {
@@ -598,8 +635,6 @@ export default function JustNotes(props: JustNotesProps) {
     recallQuery.startsWith(">") ? "command" : "search";
   const effectiveQuery = ambientMode === "command" ? recallQuery.slice(1) : recallQuery;
 
-  const { mode: themeMode, themes, setThemeId, toggleMode } = useTheme();
-
   const commands = useMemo<Command[]>(() => {
     const list: Command[] = [];
     list.push({
@@ -611,7 +646,7 @@ export default function JustNotes(props: JustNotesProps) {
     list.push({
       id: "tweaks",
       label: "Open tweaks",
-      hint: "⌘,",
+      hint: "⌘, · theme + canvas + paper",
       run: () => setTweaksOpen(true),
     });
     list.push({
@@ -626,19 +661,6 @@ export default function JustNotes(props: JustNotesProps) {
       hint: "30-day window",
       run: () => setGraveyardOpen(true),
     });
-    list.push({
-      id: "theme-mode",
-      label: `Switch to ${themeMode === "dark" ? "light" : "dark"} mode`,
-      run: () => toggleMode(),
-    });
-    for (const th of themes) {
-      list.push({
-        id: `theme:${th.id}`,
-        label: `Theme: ${th.label}`,
-        hint: th.description,
-        run: () => setThemeId(th.id),
-      });
-    }
     if (!isAnonymous) {
       list.push({
         id: "sign-out",
@@ -656,7 +678,7 @@ export default function JustNotes(props: JustNotesProps) {
     }
     return list;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [themeMode, themes, isAnonymous, identityLabel]);
+  }, [isAnonymous, identityLabel]);
 
   const commandMatches = useMemo<Command[]>(
     () => (ambientMode === "command" ? filterCommands(commands, effectiveQuery) : []),
@@ -970,7 +992,7 @@ export default function JustNotes(props: JustNotesProps) {
                 openAmbient("#" + tag);
                 markInteracted();
               }}
-              onResizeStart={(e) => startResize(e, n.id)}
+              onResizeStart={(e, dir) => startResize(e, n.id, dir)}
             />
           ))}
         </div>
@@ -992,7 +1014,8 @@ export default function JustNotes(props: JustNotesProps) {
 
       <Chrome
         count={notes.length}
-        folderPath="~/Notes/2026 · iCloud Drive"
+        sync={syncLabel(online, lastWriteAt, nowTick)}
+        syncState={!online ? "offline" : lastWriteAt && Date.now() - lastWriteAt < 4000 ? "writing" : "synced"}
         hintVisible={!interacted}
         showRecencyKey={t.showRecencyKey}
         overviewLabel={inOverview ? "overview · z to return" : null}
@@ -1074,7 +1097,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     const z = zoom;
     if (grid === "off") return { background: "rgb(var(--bg))" };
     if (grid === "lines") {
-      const line = "rgba(255,255,255,0.035)";
+      const line = "rgb(var(--text-secondary) / 0.06)";
       const s = 56 * z;
       return {
         backgroundColor: "rgb(var(--bg))",
@@ -1090,7 +1113,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
     return {
       backgroundColor: "rgb(var(--bg))",
       backgroundImage:
-        "radial-gradient(circle, rgba(255,255,255,0.07) 1px, transparent 1.4px)",
+        "radial-gradient(circle, rgb(var(--text-secondary) / 0.12) 1px, transparent 1.4px)",
       backgroundSize: `${s}px ${s}px`,
       backgroundPosition: `${pan.x}px ${pan.y}px`,
       transition: smooth ? "background-size 400ms cubic-bezier(.22,.61,.36,1), background-position 400ms cubic-bezier(.22,.61,.36,1)" : "none",
@@ -1135,7 +1158,7 @@ function NoteCard({
   onTextChange: (v: string) => void;
   onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
   onTagClick: (tag: string) => void;
-  onResizeStart: (e: React.MouseEvent<HTMLDivElement>) => void;
+  onResizeStart: (e: React.MouseEvent<HTMLDivElement>, dir: "e" | "s" | "se") => void;
 }) {
   const rec = recencyOf(note.t);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1190,7 +1213,10 @@ function NoteCard({
     ["--warm" as string]: warm,
   };
   if (note.w != null) style.width = note.w;
-  if (note.h != null) { style.height = note.h; style.maxHeight = "none"; }
+  if (note.h != null) {
+    style.maxHeight = "none";
+    if (!editing) style.height = note.h;
+  }
 
   return (
     <div
@@ -1234,24 +1260,50 @@ function NoteCard({
       )}
       {!editing && ink && <InkUnderline seed={inkSeed} />}
       {showSaved && <div className="saved-tick">saved</div>}
+      {!editing && <div className="note-pad-cover" aria-hidden="true" />}
       {!editing && (
-        <div
-          className="note-resize"
-          aria-label="resize"
-          onMouseDown={onResizeStart}
-        />
+        <>
+          <div
+            className="note-edge note-edge-e"
+            aria-hidden="true"
+            onMouseDown={(e) => onResizeStart(e, "e")}
+          />
+          <div
+            className="note-edge note-edge-s"
+            aria-hidden="true"
+            onMouseDown={(e) => onResizeStart(e, "s")}
+          />
+          <div
+            className="note-resize"
+            aria-label="resize"
+            onMouseDown={(e) => onResizeStart(e, "se")}
+          />
+        </>
       )}
     </div>
   );
 }
 
 // ── Chrome ─────────────────────────────────────────────────────────────
+type SyncState = "synced" | "writing" | "offline";
+
+function syncLabel(online: boolean, lastWriteAt: number | null, _tick: number): string {
+  if (!online) return "offline";
+  if (lastWriteAt == null) return "synced";
+  const ageMs = Date.now() - lastWriteAt;
+  if (ageMs < 4000) return "saving…";
+  if (ageMs < 60_000) return `saved · ${Math.max(1, Math.round(ageMs / 1000))}s ago`;
+  if (ageMs < 3.6e6) return `saved · ${Math.round(ageMs / 60_000)}m ago`;
+  return "synced";
+}
+
 function Chrome({
-  count, folderPath, hintVisible, showRecencyKey, overviewLabel,
+  count, sync, syncState, hintVisible, showRecencyKey, overviewLabel,
   isAnonymous, identityLabel, onSignIn, onSignOut,
 }: {
   count: number;
-  folderPath: string;
+  sync: string;
+  syncState: SyncState;
   hintVisible: boolean;
   showRecencyKey: boolean;
   overviewLabel: string | null;
@@ -1285,7 +1337,10 @@ function Chrome({
           </Button>
         </div>
       )}
-      <div className="chrome chrome-br">{folderPath}</div>
+      <div className={"chrome chrome-br sync-status sync-" + syncState}>
+        <span className="sync-dot" aria-hidden="true" />
+        <span>{sync}</span>
+      </div>
       <div className={
         "chrome chrome-bl"
         + (hintVisible || isAnonymous ? "" : " faded")
