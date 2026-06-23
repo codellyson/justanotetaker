@@ -241,17 +241,3 @@ export function Compass({
   );
 }
 
-const INK_PATHS = [
-  "M2,7 C 30,4 70,9 110,6 C 150,3 180,8 198,6",
-  "M3,6 C 40,9 80,4 120,7 C 160,9 185,5 197,7",
-  "M2,8 C 25,5 60,8 100,5 C 145,3 175,8 198,5",
-];
-
-export function InkUnderline({ seed = 0 }: { seed?: number }) {
-  const path = INK_PATHS[seed % INK_PATHS.length];
-  return (
-    <svg className="ink-svg" viewBox="0 0 200 12" preserveAspectRatio="none">
-      <path d={path} />
-    </svg>
-  );
-}

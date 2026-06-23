@@ -137,6 +137,33 @@ body {
   transition: opacity 180ms ease;
 }
 .note:hover:not(.editing) .note-clip { opacity: 0.85; }
+
+/* Relationship threads — drawn in the transformed notes-layer so paths use
+   canvas coordinates directly. overflow:visible lets the 1px svg host paths
+   anywhere (incl. negative coords on the infinite canvas). */
+.relation-threads {
+  position: absolute;
+  left: 0; top: 0;
+  width: 1px; height: 1px;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 0;
+}
+.relation-threads path {
+  fill: none;
+  stroke: rgb(var(--accent));
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  /* Spring-out: draw from the focal card to each related card. pathLength=1
+     normalizes the dash math so one dash spans the whole curve regardless of
+     its real length; animating the offset 1→0 reveals it end-to-end. */
+  stroke-dasharray: 1;
+  animation: relThread 340ms cubic-bezier(.3, .7, .4, 1) both;
+}
+@keyframes relThread {
+  from { stroke-dashoffset: 1; opacity: 0; }
+  to   { stroke-dashoffset: 0; opacity: 0.5; }
+}
 .note:hover:not(.editing):not(.dim):not(.dragging) {
   box-shadow:
     0 0 0 1px rgb(var(--border)),
@@ -222,17 +249,6 @@ body {
 .note-ta::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
 .note-ta::placeholder { color: currentColor; opacity: 0.32; font-style: italic; }
 
-@keyframes jn-commit-glow {
-  0%   { box-shadow: 0 0 0 1.5px rgb(var(--accent)), 0 0 22px 2px rgb(var(--accent) / 0.55); }
-  100% {
-    box-shadow:
-      0 0 0 1px rgb(var(--border) / 0.7),
-      0 1px 0 rgb(var(--text-primary) / 0.05) inset,
-      0 6px 18px -8px rgba(0,0,0,0.55),
-      0 1px 2px rgba(0,0,0,0.25);
-  }
-}
-.note.glow { animation: jn-commit-glow 720ms ease-out; }
 
 /* ── Chrome ─────────────────────────────────────────────────────── */
 .chrome {
@@ -307,19 +323,6 @@ body {
   margin-right: 1px;
 }
 
-.chrome-key {
-  bottom: 48px; right: 24px;
-  display: flex; flex-direction: column; gap: 4px;
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
-  font-size: 10.5px;
-  color: rgb(var(--text-muted));
-  align-items: flex-end;
-}
-.chrome-key .key-row { display: flex; align-items: center; gap: 8px; }
-.chrome-key .key-row i {
-  width: 10px; height: 10px; border-radius: 1px; display: inline-block;
-}
-
 /* ── Search overlay ─────────────────────────────────────────────── */
 .search-shroud {
   position: fixed; inset: 0; z-index: 200;
@@ -356,26 +359,6 @@ body {
 }
 .note.focused.hit::after {
   box-shadow: 0 0 0 1.5px rgb(var(--accent)), 0 0 30px 2px rgb(var(--accent) / 0.55);
-}
-
-.saved-tick {
-  position: absolute;
-  left: 0; right: 0;
-  bottom: -20px;
-  text-align: center;
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
-  color: rgb(var(--accent));
-  pointer-events: none;
-  opacity: 0;
-  animation: jn-tick 1100ms cubic-bezier(.22,.61,.36,1) forwards;
-}
-@keyframes jn-tick {
-  0%   { opacity: 0; transform: translateY(-4px); }
-  25%  { opacity: 0.95; transform: translateY(0); }
-  70%  { opacity: 0.85; transform: translateY(0); }
-  100% { opacity: 0; transform: translateY(3px); }
 }
 
 /* ── markdown-light inside notes ──────────────────────────────── */
@@ -1034,76 +1017,6 @@ body {
 }
 .scrub-track:hover .scrub-baseline,
 .scrub-track.active .scrub-baseline { opacity: 0.85; }
-
-/* ── Still-warm trail ─────────────────────────────────────────── */
-.note.warm::before {
-  content: "";
-  position: absolute;
-  inset: -4px;
-  border-radius: calc(var(--radius, 2px) + 4px);
-  box-shadow:
-    0 0 0 1px rgb(var(--accent) / calc(var(--warm, 0) * 0.55)),
-    0 0 18px 0 rgb(var(--accent) / calc(var(--warm, 0) * 0.35));
-  pointer-events: none;
-  z-index: -1;
-  transition: box-shadow 600ms ease;
-}
-
-/* ── Paper that ages ──────────────────────────────────────────── */
-.note.paper-age::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background-image:
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='4'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.22 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
-  background-size: 180px 180px;
-  mix-blend-mode: multiply;
-  opacity: 0;
-  transition: opacity 400ms ease;
-}
-.note.rec-older.paper-age::after  { opacity: 0.38; }
-.note.rec-ancient.paper-age::after { opacity: 0.7; }
-.note.rec-ancient.paper-age {
-  background-image: linear-gradient(
-    152deg,
-    transparent 0%,
-    transparent 38%,
-    rgba(0,0,0,0.06) 41%,
-    rgba(255,255,255,0.04) 43%,
-    transparent 46%,
-    transparent 100%
-  );
-  background-blend-mode: multiply;
-}
-
-/* ── Ink stroke on commit ─────────────────────────────────────── */
-.ink-svg {
-  position: absolute;
-  left: 14px;
-  right: 14px;
-  top: 28px;
-  height: 14px;
-  pointer-events: none;
-  overflow: visible;
-}
-.note.editing .ink-svg { display: none; }
-.ink-svg path {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.25;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  opacity: 0.78;
-  stroke-dasharray: 240;
-  stroke-dashoffset: 240;
-  animation:
-    ink-draw 620ms cubic-bezier(.4,.0,.2,1) forwards,
-    ink-fade 320ms 640ms ease-out forwards;
-}
-@keyframes ink-draw { to { stroke-dashoffset: 0; } }
-@keyframes ink-fade { to { opacity: 0; } }
 
 /* ── Spatial compass ──────────────────────────────────────────── */
 .compass-tick {

@@ -402,16 +402,7 @@ export function TweaksUI({
       />
 
       <TweakSection label="Feedback" />
-      <TweakToggle label="Commit glow" value={t.glow} onChange={(v) => setTweak("glow", v)} />
-      <TweakToggle label="Ink underline" value={t.ink} onChange={(v) => setTweak("ink", v)} />
-      <TweakToggle label="Still-warm trail" value={t.warmTrail} onChange={(v) => setTweak("warmTrail", v)} />
-      <TweakToggle label="Paper aging" value={t.paperAge} onChange={(v) => setTweak("paperAge", v)} />
       <TweakToggle label="Compass" value={t.compass} onChange={(v) => setTweak("compass", v)} />
-      <TweakToggle
-        label="Recency key"
-        value={t.showRecencyKey}
-        onChange={(v) => setTweak("showRecencyKey", v)}
-      />
 
       {isTauri && (
         <>

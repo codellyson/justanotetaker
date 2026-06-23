@@ -11,8 +11,6 @@ export type Note = {
 export type Recency = "fresh" | "recent" | "older" | "ancient";
 
 export const GRID = 28;
-export const WARM_MS = 2 * 60 * 1000;
-export const INK_MS = 1000;
 
 /**
  * Maps a note's `t` (last-touched timestamp) to one of four recency
@@ -78,17 +76,23 @@ export const restAfterFirst = (s: string) => {
   return lines.slice(i + 1).join("\n").replace(/^\n+/, "");
 };
 
+// Lowercased, de-duped #tags in a note. Same token shape as the inline
+// markdown renderer (#word, letters/digits/-/_). Tags are the relationship
+// substrate: two notes are "related" when they share at least one.
+export function tagsOf(text: string): string[] {
+  const re = /#[A-Za-z][A-Za-z0-9_-]*/g;
+  const out = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) out.add(m[0].slice(1).toLowerCase());
+  return [...out];
+}
+
 export type Tweaks = {
   grid: "dots" | "lines" | "off";
   radius: number;
-  glow: boolean;
   noteWidth: number;
-  showRecencyKey: boolean;
   snap: boolean;
   editMode: "in place" | "focused";
-  ink: boolean;
-  warmTrail: boolean;
-  paperAge: boolean;
   compass: boolean;
   // Desktop only: poll the OS clipboard and auto-create notes from new copies.
   clipboardCapture: boolean;
@@ -100,14 +104,9 @@ export type Tweaks = {
 export const TWEAK_DEFAULTS: Tweaks = {
   grid: "dots",
   radius: 6,
-  glow: true,
   noteWidth: 220,
-  showRecencyKey: false,
   snap: true,
   editMode: "in place",
-  ink: true,
-  warmTrail: true,
-  paperAge: true,
   compass: true,
   clipboardCapture: false,
   clipboardSyncToCloud: true,

@@ -9,13 +9,12 @@ import React, {
 } from "react";
 import {
   GRID,
-  INK_MS,
   RECENCY_ALPHA,
-  WARM_MS,
   firstNonEmpty,
   parsePastedUrl,
   recencyOf,
   restAfterFirst,
+  tagsOf,
   uid,
   type Note,
   type Tweaks,
@@ -23,7 +22,7 @@ import {
 import { renderBody, renderHeadline } from "./markdown";
 import { formatCapturedNote } from "./clipboard";
 import { clipboardOrigin } from "../../lib/clipboard-origin";
-import { AmbientBar, Compass, InkUnderline, TimeScrub } from "./cherries";
+import { AmbientBar, Compass, TimeScrub } from "./cherries";
 import { TweaksUI } from "./tweaks";
 import { Button } from "@codellyson/justui/react";
 import { remoteStorage } from "../../lib/storage";
@@ -70,20 +69,13 @@ export default function JustNotes(props: JustNotesProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const editingIdRef = useRef<string | null>(null);
   useEffect(() => { editingIdRef.current = editingId; }, [editingId]);
-  const [glowingId, setGlowingId] = useState<string | null>(null);
-  const [savedTickId, setSavedTickId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [inkId, setInkId] = useState<string | null>(null);
-  const [inkSeed, setInkSeed] = useState(0);
 
   const [ambientOpen, setAmbientOpen] = useState(false);
   const [recallQuery, setRecallQuery] = useState("");
   const [recallIdx, setRecallIdx] = useState(0);
 
   const [scrubMoment, setScrubMoment] = useState<number | null>(null);
-
-  const warmRef = useRef(new Map<string, number>());
-  const [, setWarmTick] = useState(0);
 
   // Cmd+V paste doesn't carry clientX/Y; fall back to last mousemove.
   const lastMouseRef = useRef<{ x: number; y: number } | null>(null);
@@ -95,6 +87,18 @@ export default function JustNotes(props: JustNotesProps) {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const selectedIdsRef = useRef<Set<string>>(new Set());
+
+  // Relationship threads: hidden by default, toggled on (palette / "r").
+  // When on, hovering a note springs threads to cards sharing a #tag.
+  const [relationsOn, setRelationsOn] = useState(false);
+  const relationsOnRef = useRef(false);
+  useEffect(() => { relationsOnRef.current = relationsOn; }, [relationsOn]);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  // No-op unless relations are on, so hovering never churns render otherwise.
+  const onNoteHover = useCallback((id: string | null) => {
+    if (!relationsOnRef.current) return;
+    setHoveredId(id);
+  }, []);
   useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
 
@@ -235,26 +239,6 @@ export default function JustNotes(props: JustNotesProps) {
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
-  // Warm-trail tick
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      const m = warmRef.current;
-      const now = Date.now();
-      let any = false;
-      for (const [k, exp] of m) {
-        if (exp <= now) m.delete(k);
-        else any = true;
-      }
-      if (any) setWarmTick((x) => x + 1);
-    }, 4000);
-    return () => clearInterval(id);
-  }, []);
-
-  function markWarm(id: string) {
-    warmRef.current.set(id, Date.now() + WARM_MS);
-    setWarmTick((x) => x + 1);
-  }
-
   const markInteracted = () => { if (!interacted) setInteracted(true); };
 
   function animateView(next: View) {
@@ -317,13 +301,6 @@ export default function JustNotes(props: JustNotesProps) {
     setNotes((ns) => [...ns, note]);
     pushOp({ type: "create", id });
     void onCreate(note, opts);
-    if (tweakRef.current.glow) {
-      setGlowingId(id);
-      setSavedTickId(id);
-      window.setTimeout(() => setGlowingId((g) => g === id ? null : g), 720);
-      window.setTimeout(() => setSavedTickId((s) => s === id ? null : s), 1100);
-    }
-    if (tweakRef.current.warmTrail) markWarm(id);
     enrichIfUrlNote(id);
     return id;
   }
@@ -402,18 +379,6 @@ export default function JustNotes(props: JustNotesProps) {
       } else {
         onUpdate(id, { text: cur.text, t: now });
       }
-      if (tweakRef.current.glow) {
-        setGlowingId(id);
-        setSavedTickId(id);
-        window.setTimeout(() => setGlowingId((g) => g === id ? null : g), 720);
-        window.setTimeout(() => setSavedTickId((s) => s === id ? null : s), 1100);
-      }
-      if (tweakRef.current.ink) {
-        setInkSeed((s) => s + 1);
-        setInkId(id);
-        window.setTimeout(() => setInkId((s) => s === id ? null : s), INK_MS + 200);
-      }
-      if (tweakRef.current.warmTrail) markWarm(id);
       enrichIfUrlNote(id);
     }
     setEditingId(null);
@@ -641,7 +606,6 @@ export default function JustNotes(props: JustNotesProps) {
         const sp = startPositions.get(nid);
         if (!sp) continue;
         pushOp({ type: "move", id: nid, prevX: sp.x, prevY: sp.y });
-        if (tweakRef.current.warmTrail) markWarm(nid);
         const cur = notesRef.current.find((n) => n.id === nid);
         if (cur) onUpdate(nid, { x: cur.x, y: cur.y });
       }
@@ -682,6 +646,12 @@ export default function JustNotes(props: JustNotesProps) {
       hint: "30-day window",
       run: () => setGraveyardOpen(true),
     });
+    list.push({
+      id: "relations",
+      label: relationsOn ? "Hide relations" : "Show relations",
+      hint: "r · threads to notes sharing a tag",
+      run: () => setRelationsOn((v) => !v),
+    });
     if (!isAnonymous) {
       list.push({
         id: "sign-out",
@@ -699,7 +669,7 @@ export default function JustNotes(props: JustNotesProps) {
     }
     return list;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAnonymous, identityLabel]);
+  }, [isAnonymous, identityLabel, relationsOn]);
 
   const commandMatches = useMemo<Command[]>(
     () => (ambientMode === "command" ? filterCommands(commands, effectiveQuery) : []),
@@ -886,6 +856,11 @@ export default function JustNotes(props: JustNotesProps) {
       if (e.key === "h" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
         e.preventDefault(); flyHome(); return;
       }
+      if (e.key === "r" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        setRelationsOn((v) => { if (v) setHoveredId(null); return !v; });
+        return;
+      }
 
       if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey
           && !helpOpen && !editingId) {
@@ -975,21 +950,42 @@ export default function JustNotes(props: JustNotesProps) {
   // ── Render ─────────────────────────────────────────────────────────
   const inOverview = view.zoom < 0.95;
 
-  const warmMap = useMemo(() => {
-    const out = new Map<string, number>();
-    const now = Date.now();
-    for (const [k, exp] of warmRef.current) {
-      const rem = exp - now;
-      if (rem > 0) out.set(k, Math.min(1, rem / WARM_MS));
-    }
-    return out;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes]);
-
   function scrubFadeFor(n: Note) {
     if (scrubMoment == null) return 1;
     return n.t <= scrubMoment ? 1 : 0;
   }
+
+  // Threads from the active note (hovered, or the lone selection) to every
+  // note sharing a tag with it. Curved paths in canvas coordinates — the SVG
+  // lives inside the transformed notes-layer, so note x/y map 1:1.
+  const relationThreads = useMemo(() => {
+    if (!relationsOn) return [];
+    const activeId = hoveredId ?? (selectedIds.size === 1 ? [...selectedIds][0] : null);
+    if (!activeId) return [];
+    const active = notes.find((n) => n.id === activeId);
+    if (!active) return [];
+    const activeTags = new Set(tagsOf(active.text));
+    if (activeTags.size === 0) return [];
+
+    const center = (n: Note) => ({
+      x: n.x + (n.w ?? t.noteWidth) / 2,
+      y: n.y + (n.h ?? 56) / 2,
+    });
+    const a = center(active);
+    const out: { id: string; d: string }[] = [];
+    for (const n of notes) {
+      if (n.id === activeId) continue;
+      if (!tagsOf(n.text).some((tag) => activeTags.has(tag))) continue;
+      const b = center(n);
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const bow = Math.min(48, len * 0.14);
+      const cx = mx + (-dy / len) * bow, cy = my + (dx / len) * bow;
+      out.push({ id: n.id, d: `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}` });
+    }
+    return out;
+  }, [relationsOn, hoveredId, selectedIds, notes, t.noteWidth]);
 
   const rootStyle: CSSProperties = {
     ["--radius" as string]: `${t.radius}px`,
@@ -1021,18 +1017,20 @@ export default function JustNotes(props: JustNotesProps) {
               }}
             />
           )}
+          {relationThreads.length > 0 && (
+            <svg className="relation-threads" aria-hidden="true">
+              {relationThreads.map((th) => (
+                <path key={th.id} d={th.d} pathLength={1} />
+              ))}
+            </svg>
+          )}
           {notes.map((n) => (
             <NoteCard
               key={n.id}
               note={n}
               fromClipboard={clipboardIds.has(n.id)}
+              onHover={onNoteHover}
               editing={editingId === n.id}
-              glowing={glowingId === n.id}
-              ink={inkId === n.id}
-              inkSeed={inkSeed}
-              warm={t.warmTrail ? (warmMap.get(n.id) || 0) : 0}
-              paperAge={t.paperAge}
-              showSaved={savedTickId === n.id}
               dragging={draggingId === n.id}
               dimmed={!!matchSet && !matchSet.has(n.id)}
               highlit={!!matchSet && matchSet.has(n.id)}
@@ -1077,8 +1075,7 @@ export default function JustNotes(props: JustNotesProps) {
         sync={syncLabel(online, lastWriteAt, nowTick)}
         syncState={!online ? "offline" : lastWriteAt && Date.now() - lastWriteAt < 4000 ? "writing" : "synced"}
         hintVisible={!interacted}
-        showRecencyKey={t.showRecencyKey}
-        overviewLabel={inOverview ? "overview · z to return" : null}
+        overviewLabel={inOverview ? "overview · z to return" : relationsOn ? "relations · r to hide" : null}
         isAnonymous={isAnonymous}
         identityLabel={identityLabel}
         onSignIn={() => setAuthPanelOpen(true)}
@@ -1195,19 +1192,14 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 
 // ── NoteCard ───────────────────────────────────────────────────────────
 function NoteCard({
-  note, fromClipboard, editing, glowing, ink, inkSeed, warm, paperAge, showSaved, dragging,
+  note, fromClipboard, editing, dragging,
   dimmed, highlit, focused, selected, hidden, scrubFade,
-  onMouseDown, onTextChange, onContextMenu, onTagClick, onResizeStart,
+  onMouseDown, onTextChange, onContextMenu, onTagClick, onResizeStart, onHover,
 }: {
   note: Note;
   fromClipboard: boolean;
+  onHover: (id: string | null) => void;
   editing: boolean;
-  glowing: boolean;
-  ink: boolean;
-  inkSeed: number;
-  warm: number;
-  paperAge: boolean;
-  showSaved: boolean;
   dragging: boolean;
   dimmed: boolean;
   highlit: boolean;
@@ -1249,7 +1241,6 @@ function NoteCard({
     "note",
     `rec-${rec}`,
     editing ? "editing" : "",
-    glowing ? "glow" : "",
     dragging ? "dragging" : "",
     dimmed ? "dim" : "",
     highlit ? "hit" : "",
@@ -1257,8 +1248,6 @@ function NoteCard({
     selected ? "selected" : "",
     hidden ? "is-hidden" : "",
     isHeading && !editing ? "has-heading" : "",
-    warm > 0 ? "warm" : "",
-    paperAge ? "paper-age" : "",
   ].filter(Boolean).join(" ");
 
   // Paper colors derive from the active JustUI theme. The recency
@@ -1271,7 +1260,6 @@ function NoteCard({
     background: "rgb(var(--bg-secondary))",
     color: "rgb(var(--text-primary))",
     opacity: RECENCY_ALPHA[rec] * (scrubFade ?? 1),
-    ["--warm" as string]: warm,
   };
   if (note.w != null) style.width = note.w;
   if (note.h != null) {
@@ -1295,6 +1283,8 @@ function NoteCard({
         }
         onMouseDown(e);
       }}
+      onMouseEnter={() => onHover(note.id)}
+      onMouseLeave={() => onHover(null)}
       onContextMenu={onContextMenu}
     >
       {editing ? (
@@ -1327,8 +1317,6 @@ function NoteCard({
           </svg>
         </div>
       )}
-      {!editing && ink && <InkUnderline seed={inkSeed} />}
-      {showSaved && <div className="saved-tick">saved</div>}
       {!editing && <div className="note-pad-cover" aria-hidden="true" />}
       {!editing && (
         <>
@@ -1367,14 +1355,13 @@ function syncLabel(online: boolean, lastWriteAt: number | null, _tick: number): 
 }
 
 function Chrome({
-  count, sync, syncState, hintVisible, showRecencyKey, overviewLabel,
+  count, sync, syncState, hintVisible, overviewLabel,
   isAnonymous, identityLabel, onSignIn, onSignOut,
 }: {
   count: number;
   sync: string;
   syncState: SyncState;
   hintVisible: boolean;
-  showRecencyKey: boolean;
   overviewLabel: string | null;
   isAnonymous: boolean;
   identityLabel: string;
@@ -1430,16 +1417,6 @@ function Chrome({
         )}
       </div>
       {overviewLabel && <div className="chrome chrome-mode">{overviewLabel}</div>}
-      {showRecencyKey && (
-        <div className="chrome chrome-key">
-          {(["fresh", "recent", "older", "ancient"] as const).map((k) => (
-            <span key={k} className="key-row">
-              <i style={{ background: "rgb(var(--bg-secondary))", opacity: RECENCY_ALPHA[k] }} />
-              {k}
-            </span>
-          ))}
-        </div>
-      )}
     </>
   );
 }
@@ -1471,6 +1448,7 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
     [["z"],                        "zoom out · overview"],
     [["click a note in overview"], "fly to it"],
     [["h"],                        "fly home · re-center on cluster"],
+    [["r"],                        "toggle relations · hover a note for threads to shared tags"],
     [[mod, "Z"],                   "undo last commit / move / delete"],
     [[mod, ","],                   "toggle tweaks panel"],
     [["esc"],                      "close · exit · back"],
