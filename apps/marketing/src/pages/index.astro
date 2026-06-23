@@ -1,12 +1,17 @@
 ---
-import Button from "@codellyson/justui/astro/Button.astro";
 import ThemeToggle from "@codellyson/justui/astro/ThemeToggle.astro";
 import "../styles/global.css";
 
 // Built-in env-driven CTAs. Override with PUBLIC_WEB_URL /
 // PUBLIC_DESKTOP_URL when shipping (see docs/deploy.md).
 const webUrl = import.meta.env.PUBLIC_WEB_URL ?? "http://localhost:5173";
-const desktopUrl = import.meta.env.PUBLIC_DESKTOP_URL ?? "#desktop";
+const desktopUrl = import.meta.env.PUBLIC_DESKTOP_URL ?? "#get";
+
+const description =
+  "A single, infinite canvas for the notes you want to keep close. Write anywhere, place them where they make sense, and find them again the way you remember.";
+
+// Inline SVG mark — two offset rounded squares, white on the accent chip.
+const mark = `<svg viewBox="0 0 56 56"><rect x="9" y="11" width="25" height="25" rx="6.5" fill="#fff" opacity="0.55"/><rect x="22" y="20" width="25" height="25" rx="6.5" fill="#fff"/></svg>`;
 ---
 
 <!doctype html>
@@ -15,7 +20,7 @@ const desktopUrl = import.meta.env.PUBLIC_DESKTOP_URL ?? "#desktop";
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>justnotetaking</title>
-    <meta name="description" content="Spatial notes on a dark canvas." />
+    <meta name="description" content={description} />
 
     <!-- Favicon set generated from brand/mark.svg via `python3 brand/build.py`. -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -24,11 +29,11 @@ const desktopUrl = import.meta.env.PUBLIC_DESKTOP_URL ?? "#desktop";
 
     <meta property="og:type" content="website" />
     <meta property="og:title" content="justnotetaking" />
-    <meta property="og:description" content="Spatial notes on a dark canvas." />
+    <meta property="og:description" content={description} />
     <meta property="og:image" content="/og.png" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="justnotetaking" />
-    <meta name="twitter:description" content="Spatial notes on a dark canvas." />
+    <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content="/og.png" />
 
     <script>
@@ -37,48 +42,193 @@ const desktopUrl = import.meta.env.PUBLIC_DESKTOP_URL ?? "#desktop";
       bootTheme({ keyPrefix: "justnotetaking" });
     </script>
   </head>
-  <body>
-    <main class="mx-auto max-w-5xl px-6 py-20">
-      <div class="flex items-center gap-3">
-        <span class="inline-block h-2 w-2 rounded-full bg-accent shadow-[0_0_8px_0_rgb(var(--accent)/0.55)]"></span>
-        <span class="font-mono text-xs uppercase tracking-[0.08em] text-muted">justnotetaking</span>
-      </div>
+  <body class="overflow-x-hidden font-sans">
+    <!-- Grain overlay — a soft paper texture; multiply-blends into the bg. -->
+    <div
+      class="pointer-events-none fixed inset-0 z-40 opacity-[0.32] mix-blend-multiply"
+      style="background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E&quot;); background-size:200px 200px;"
+    >
+    </div>
 
-      <div class="mt-12 grid items-center gap-12 lg:grid-cols-[1fr_1.2fr]">
+    <!-- ░░░ NAV ░░░ -->
+    <nav class="mx-auto flex max-w-[1080px] items-center justify-between px-12 py-8">
+      <a href={webUrl} class="flex items-center gap-2.5 no-underline">
+        <span
+          class="flex h-7 w-7 items-center justify-center rounded-lg [&_svg]:h-[15px] [&_svg]:w-[15px]"
+          style="background:linear-gradient(157deg, rgb(var(--accent)), rgb(var(--accent-hover)));"
+          set:html={mark}
+        />
+        <span class="text-[15px] text-primary">
+          <span class="font-medium text-accent">just</span><span class="font-bold">notetaking</span>
+        </span>
+      </a>
+      <a
+        href={webUrl}
+        class="whitespace-nowrap rounded-[10px] bg-primary px-[18px] py-2.5 text-sm font-semibold text-bg no-underline transition-opacity hover:opacity-90"
+      >
+        Open canvas
+      </a>
+    </nav>
+
+    <!-- ░░░ HERO ░░░ -->
+    <header class="mx-auto max-w-[760px] px-12 pt-24 text-center">
+      <div class="mb-[30px] font-mono text-xs tracking-[0.16em] text-muted">A QUIET PLACE TO THINK</div>
+      <h1 class="text-[66px] font-extrabold leading-none tracking-[-0.045em] text-primary">
+        Think in space,<br /><span class="text-accent">not in lists.</span>
+      </h1>
+      <p class="mx-auto mt-[30px] max-w-[440px] text-[19px] leading-relaxed text-secondary">
+        A single, infinite canvas for the notes you want to keep close. Write anywhere, place them
+        where they make sense, and find them again the way you remember.
+      </p>
+      <div class="mt-[38px] flex items-baseline justify-center gap-7">
+        <a
+          href={webUrl}
+          class="whitespace-nowrap border-b-[1.5px] border-accent pb-1 text-base font-semibold text-primary no-underline transition-colors hover:text-accent"
+        >
+          Open the canvas
+        </a>
+        <a
+          href={desktopUrl}
+          class="text-[15px] font-medium text-muted no-underline transition-colors hover:text-secondary"
+        >
+          desktop app
+        </a>
+      </div>
+    </header>
+
+    <!-- ░░░ HERO — the live canvas, framed. A real, interactive embed of the
+         web app (PUBLIC_WEB_URL) rather than a static mock. Needs the web
+         app to permit framing from this origin (frame-ancestors). ░░░ -->
+    <div class="mx-auto mt-[72px] max-w-[880px] px-12">
+      <div
+        class="overflow-hidden rounded-2xl border border-border bg-bg-secondary"
+        style="box-shadow:0 40px 80px -44px rgba(60,40,20,.45), 0 2px 6px rgba(60,40,20,.04);"
+      >
+        <iframe
+          src={webUrl}
+          title="The justnotetaking canvas"
+          loading="lazy"
+          class="block h-[480px] w-full border-0"
+          allow="clipboard-write"
+        ></iframe>
+      </div>
+    </div>
+
+    <!-- ░░░ THREE QUIET IDEAS ░░░ -->
+    <section class="mx-auto mt-[130px] max-w-[1000px] px-12">
+      <div class="grid grid-cols-1 gap-12 border-t border-border pt-12 md:grid-cols-3">
         <div>
-          <h1 class="text-4xl font-medium tracking-tight text-primary lg:text-5xl">
-            Spatial notes on a dark canvas.
-          </h1>
-          <p class="mt-5 max-w-md text-secondary">
-            Just write. Drag to place. Type to recall. Your canvas, syncing across every device.
-          </p>
-
-          <div class="mt-10 flex flex-wrap gap-3">
-            <Button href={webUrl}>
-              Try in browser →
-            </Button>
-            <Button variant="secondary" href={desktopUrl}>
-              Get for desktop
-            </Button>
-          </div>
-
-          <p class="mt-10 text-xs text-muted">
-            Local-first sketch. Free to use, free to leave. Open the canvas, close the tab — it's still there next time.
+          <div class="mb-[18px] text-2xl font-extrabold leading-none tracking-[-0.02em] text-accent">01</div>
+          <h3 class="mb-2.5 text-[19px] font-semibold text-primary">Just write</h3>
+          <p class="text-[15px] leading-relaxed text-secondary">
+            Click anywhere and start typing. No folders, no templates — the note appears where your cursor is.
           </p>
         </div>
-
-        <div class="overflow-hidden rounded-lg border border-border">
-          <!-- Hero illustration. SVG, theme-responsive — recolors with
-               the active JustUI palette. Sourced from brand/canvas-hero.svg. -->
-          <img
-            src="/canvas-hero.svg"
-            alt="A spatial canvas of scattered paper notes"
-            class="block h-auto w-full"
-            loading="eager"
-          />
+        <div>
+          <div class="mb-[18px] text-2xl font-extrabold leading-none tracking-[-0.02em] text-accent">02</div>
+          <h3 class="mb-2.5 text-[19px] font-semibold text-primary">Drag to place</h3>
+          <p class="text-[15px] leading-relaxed text-secondary">
+            Arrange thoughts the way you hold them in your head. A project clusters; the big idea gets its own corner.
+          </p>
+        </div>
+        <div>
+          <div class="mb-[18px] text-2xl font-extrabold leading-none tracking-[-0.02em] text-accent">03</div>
+          <h3 class="mb-2.5 text-[19px] font-semibold text-primary">Type to recall</h3>
+          <p class="text-[15px] leading-relaxed text-secondary">
+            Forgot where you left something? Start typing and the canvas drifts you straight back to it.
+          </p>
         </div>
       </div>
-    </main>
+    </section>
+
+    <!-- ░░░ EDITORIAL STATEMENT ░░░ -->
+    <section class="mx-auto mt-[140px] max-w-[760px] px-12 text-center">
+      <div class="text-[46px] font-extrabold leading-[1.1] tracking-[-0.04em] text-primary">
+        A list forgets.<br /><span class="text-accent">A canvas remembers.</span>
+      </div>
+      <p class="mx-auto mt-[34px] max-w-[520px] text-[17px] leading-[1.65] text-secondary">
+        Everything is written to your own device first and synced quietly in the background. Open the
+        tab, close the tab — it's still there next time. No spinner, no account wall between you and a
+        thought.
+      </p>
+      <div class="mt-10 flex flex-wrap justify-center gap-4 font-mono text-[12.5px] tracking-[0.03em] text-muted">
+        <span>local-first</span><span class="text-accent">·</span><span>open source</span><span
+          class="text-accent">·</span><span>no account</span><span class="text-accent">·</span><span
+        >export to markdown</span>
+      </div>
+    </section>
+
+    <!-- ░░░ CLOSING — calm & light ░░░ -->
+    <section id="get" class="mx-auto mt-[140px] max-w-[860px] px-12">
+      <div
+        class="rounded-3xl border border-border bg-bg-secondary px-14 py-[90px] text-center"
+        style="box-shadow:0 30px 70px -42px rgba(60,40,20,.28);"
+      >
+        <div class="mb-[26px] font-mono text-xs tracking-[0.16em] text-muted">OPEN WHEN YOU'RE READY</div>
+        <div class="text-[48px] font-extrabold leading-[1.04] tracking-[-0.04em] text-primary">
+          Somewhere to put<br />the <span class="text-accent">next</span> one.
+        </div>
+        <div class="mt-[38px] flex items-center justify-center gap-[22px]">
+          <a
+            href={webUrl}
+            class="whitespace-nowrap rounded-xl bg-accent px-7 py-[15px] text-[15.5px] font-semibold no-underline transition-colors hover:bg-accent-hover"
+            style="color:rgb(var(--accent-text)); box-shadow:0 2px 4px rgba(60,40,20,.12);"
+          >
+            Open the canvas
+          </a>
+          <a
+            href={desktopUrl}
+            class="whitespace-nowrap text-[15px] font-medium text-muted no-underline transition-colors hover:text-secondary"
+          >
+            or get the desktop app
+          </a>
+        </div>
+        <div class="mt-[22px] text-[13.5px] text-muted">Free, in your browser. No download, no account.</div>
+      </div>
+    </section>
+
+    <!-- ░░░ FOOTER ░░░ -->
+    <footer class="mx-auto mt-[140px] max-w-[1080px] px-12">
+      <div class="border-t border-border pt-12">
+        <div class="flex flex-wrap items-start justify-between gap-10">
+          <div class="max-w-[300px]">
+            <div class="mb-4 flex items-center gap-2.5">
+              <span
+                class="flex h-[26px] w-[26px] items-center justify-center rounded-[7px] [&_svg]:h-[14px] [&_svg]:w-[14px]"
+                style="background:linear-gradient(157deg, rgb(var(--accent)), rgb(var(--accent-hover)));"
+                set:html={mark}
+              />
+              <span class="text-[15px] text-primary">
+                <span class="font-medium text-accent">just</span><span class="font-bold">notetaking</span>
+              </span>
+            </div>
+            <div class="text-[18px] font-medium leading-[1.45] text-secondary">
+              One quiet canvas.<br />Yours, wherever you are.
+            </div>
+          </div>
+          <div class="flex gap-16">
+            <div>
+              <div class="mb-4 font-mono text-[11px] tracking-[0.14em] text-muted">PRODUCT</div>
+              <div class="flex flex-col gap-3">
+                <a href={webUrl} class="whitespace-nowrap text-[14.5px] text-secondary no-underline transition-colors hover:text-accent">Open canvas</a>
+                <a href={desktopUrl} class="text-[14.5px] text-secondary no-underline transition-colors hover:text-accent">Desktop app</a>
+              </div>
+            </div>
+            <div>
+              <div class="mb-4 font-mono text-[11px] tracking-[0.14em] text-muted">ELSEWHERE</div>
+              <div class="flex flex-col gap-3">
+                <a href="https://github.com/codellyson" class="text-[14.5px] text-secondary no-underline transition-colors hover:text-accent">GitHub</a>
+                <a href="https://kreativekorna.com" class="whitespace-nowrap text-[14.5px] text-secondary no-underline transition-colors hover:text-accent">Just Apps</a>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-12 flex flex-wrap items-center justify-between gap-2.5 border-t border-border pb-[52px] pt-[22px] font-mono text-[12.5px] text-muted">
+          <span>© 2026 justnotetaking · a just app by KreativeKorna</span>
+          <span>local-first <span class="text-accent">·</span> open source</span>
+        </div>
+      </div>
+    </footer>
 
     <ThemeToggle />
   </body>
