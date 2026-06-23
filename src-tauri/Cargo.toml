@@ -40,6 +40,10 @@ tauri-plugin-oauth = "2"
 # session token across Tauri launches without a cookie store.
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
 
+# Cross-platform clipboard read for background auto-capture. A polling thread
+# reads the OS clipboard and emits new text to the webview as capture events.
+arboard = "3"
+
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = { version = "2" }
 

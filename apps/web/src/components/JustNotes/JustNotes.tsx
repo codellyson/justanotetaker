@@ -21,6 +21,8 @@ import {
   type Tweaks,
 } from "./lib";
 import { renderBody, renderHeadline } from "./markdown";
+import { formatCapturedNote } from "./clipboard";
+import { clipboardOrigin } from "../../lib/clipboard-origin";
 import { AmbientBar, Compass, InkUnderline, TimeScrub } from "./cherries";
 import { TweaksUI } from "./tweaks";
 import { Button } from "@codellyson/justui/react";
@@ -32,7 +34,7 @@ import { filterCommands, type Command } from "../../lib/commands";
 import { Graveyard } from "./Graveyard";
 
 type Persist = {
-  onCreate: (note: Note) => void | Promise<void>;
+  onCreate: (note: Note, opts?: { localOnly?: boolean }) => void | Promise<void>;
   onUpdate: (id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text">>) => void;
   onDelete: (id: string) => void;
 };
@@ -118,9 +120,21 @@ export default function JustNotes(props: JustNotesProps) {
   }, [lastWriteAt]);
   const markWrite = useCallback(() => setLastWriteAt(Date.now()), []);
 
-  const onCreate = useCallback<Persist["onCreate"]>((note) => {
+  // Ids of notes that came from a clipboard auto-capture, for the badge.
+  // Seeded from localStorage so the marker survives reloads.
+  const [clipboardIds, setClipboardIds] = useState<Set<string>>(() => clipboardOrigin.list());
+  const markClipboardOrigin = useCallback((id: string) => {
+    clipboardOrigin.add(id);
+    setClipboardIds((s) => {
+      const next = new Set(s);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  const onCreate = useCallback<Persist["onCreate"]>((note, opts) => {
     markWrite();
-    return rawOnCreate(note);
+    return rawOnCreate(note, opts);
   }, [rawOnCreate, markWrite]);
   const onUpdate = useCallback<Persist["onUpdate"]>((id, patch) => {
     markWrite();
@@ -128,6 +142,13 @@ export default function JustNotes(props: JustNotesProps) {
   }, [rawOnUpdate, markWrite]);
   const onDelete = useCallback<Persist["onDelete"]>((id) => {
     markWrite();
+    clipboardOrigin.remove(id);
+    setClipboardIds((s) => {
+      if (!s.has(id)) return s;
+      const next = new Set(s);
+      next.delete(id);
+      return next;
+    });
     rawOnDelete(id);
   }, [rawOnDelete, markWrite]);
   const [hasGoogle, setHasGoogle] = useState(false);
@@ -285,7 +306,7 @@ export default function JustNotes(props: JustNotesProps) {
     return { x: cx, y: cy };
   }
 
-  function spawnCommitted(canvasX: number, canvasY: number, text: string): string {
+  function spawnCommitted(canvasX: number, canvasY: number, text: string, opts?: { localOnly?: boolean }): string {
     const id = uid();
     const w = tweakRef.current.noteWidth;
     const spot = findFreeSpot(canvasX - w / 2, canvasY - 22);
@@ -295,7 +316,7 @@ export default function JustNotes(props: JustNotesProps) {
     const note: Note = { id, x, y, w: null, h: null, t: now, text };
     setNotes((ns) => [...ns, note]);
     pushOp({ type: "create", id });
-    void onCreate(note);
+    void onCreate(note, opts);
     if (tweakRef.current.glow) {
       setGlowingId(id);
       setSavedTickId(id);
@@ -895,6 +916,9 @@ export default function JustNotes(props: JustNotesProps) {
         if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return;
       }
       if (authPanelOpen || helpOpen || tweaksOpen || editingId) return;
+      // Auto-capture already turns every copy into a note, so paste-to-create
+      // here would just duplicate it. Cede the gesture while capture is on.
+      if (isTauri && tweakRef.current.clipboardCapture) return;
 
       const text = e.clipboardData?.getData("text/plain")?.trim();
       if (!text) return;
@@ -912,6 +936,41 @@ export default function JustNotes(props: JustNotesProps) {
     return () => window.removeEventListener("paste", onPaste);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authPanelOpen, helpOpen, tweaksOpen, editingId]);
+
+  // Desktop clipboard auto-capture. When the tweak is on, enable the Rust
+  // monitor and turn each new copied string into a committed note — classified
+  // + formatted (code/json fenced, URLs normalized) so it renders right.
+  // Notes cascade via findFreeSpot so repeated captures don't stack.
+  useEffect(() => {
+    if (!isTauri || !t.clipboardCapture) return;
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    (async () => {
+      const [{ invoke }, { listen }] = await Promise.all([
+        import("@tauri-apps/api/core"),
+        import("@tauri-apps/api/event"),
+      ]);
+      if (cancelled) return;
+      await invoke("set_clipboard_capture", { enabled: true });
+      unlisten = await listen<string>("clipboard://text", (event) => {
+        const raw = event.payload;
+        if (!raw || !raw.trim()) return;
+        const { text: formatted, kind } = formatCapturedNote(raw);
+        const noteText = kind === "url" ? parsePastedUrl(raw) ?? formatted : formatted;
+        const c = screenToCanvas(window.innerWidth / 2, window.innerHeight / 2);
+        const id = spawnCommitted(c.x, c.y, noteText, { localOnly: !tweakRef.current.clipboardSyncToCloud });
+        markClipboardOrigin(id);
+      });
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      void import("@tauri-apps/api/core").then(({ invoke }) =>
+        invoke("set_clipboard_capture", { enabled: false }),
+      );
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t.clipboardCapture]);
 
   // ── Render ─────────────────────────────────────────────────────────
   const inOverview = view.zoom < 0.95;
@@ -966,6 +1025,7 @@ export default function JustNotes(props: JustNotesProps) {
             <NoteCard
               key={n.id}
               note={n}
+              fromClipboard={clipboardIds.has(n.id)}
               editing={editingId === n.id}
               glowing={glowingId === n.id}
               ink={inkId === n.id}
@@ -1135,11 +1195,12 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 
 // ── NoteCard ───────────────────────────────────────────────────────────
 function NoteCard({
-  note, editing, glowing, ink, inkSeed, warm, paperAge, showSaved, dragging,
+  note, fromClipboard, editing, glowing, ink, inkSeed, warm, paperAge, showSaved, dragging,
   dimmed, highlit, focused, selected, hidden, scrubFade,
   onMouseDown, onTextChange, onContextMenu, onTagClick, onResizeStart,
 }: {
   note: Note;
+  fromClipboard: boolean;
   editing: boolean;
   glowing: boolean;
   ink: boolean;
@@ -1258,6 +1319,14 @@ function NoteCard({
           {rest && <div className="note-rest" style={{ color: "rgb(var(--text-secondary))" }}>{renderBody(rest)}</div>}
         </>
       )}
+      {!editing && fromClipboard && (
+        <div className="note-clip" title="captured from clipboard" aria-label="captured from clipboard">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="8" y="2" width="8" height="4" rx="1" />
+            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+          </svg>
+        </div>
+      )}
       {!editing && ink && <InkUnderline seed={inkSeed} />}
       {showSaved && <div className="saved-tick">saved</div>}
       {!editing && <div className="note-pad-cover" aria-hidden="true" />}
@@ -1314,10 +1383,6 @@ function Chrome({
 }) {
   return (
     <>
-      <div className="chrome chrome-tl">
-        <span className="dot" />
-        <span className="wordmark">justnotetaking</span>
-      </div>
       {isAnonymous ? (
         <div className="chrome chrome-tr">
           <span className="count-num">{count}</span>

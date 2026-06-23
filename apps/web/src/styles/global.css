@@ -124,6 +124,19 @@ body {
   z-index: 3;
   pointer-events: none;
 }
+/* Clipboard-capture badge — a small clipboard glyph, top-right. Subtle at
+   rest, brightens with the note on hover so it marks origin without shouting. */
+.note-clip {
+  position: absolute;
+  top: 6px; right: 7px;
+  z-index: 4;
+  display: flex;
+  color: rgb(var(--accent));
+  opacity: 0.4;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+.note:hover:not(.editing) .note-clip { opacity: 0.85; }
 .note:hover:not(.editing):not(.dim):not(.dragging) {
   box-shadow:
     0 0 0 1px rgb(var(--border)),
@@ -228,19 +241,6 @@ body {
   color: rgb(var(--text-muted));
   pointer-events: none;
 }
-.chrome-tl { top: 18px; left: 22px; display: flex; align-items: center; gap: 8px; }
-.chrome-tl .dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: rgb(var(--accent));
-  box-shadow: 0 0 8px 0 rgb(var(--accent) / 0.55);
-}
-.wordmark {
-  font-family: var(--font-jn-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  letter-spacing: -0.01em;
-  color: rgb(var(--text-secondary));
-}
-
 .chrome-tr {
   top: 18px; right: 24px;
   display: flex; align-items: baseline; gap: 6px;

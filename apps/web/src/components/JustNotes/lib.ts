@@ -90,6 +90,11 @@ export type Tweaks = {
   warmTrail: boolean;
   paperAge: boolean;
   compass: boolean;
+  // Desktop only: poll the OS clipboard and auto-create notes from new copies.
+  clipboardCapture: boolean;
+  // Whether clipboard-captured notes sync to the cloud. When false they stay
+  // on this device only (localStorage), never sent to the API.
+  clipboardSyncToCloud: boolean;
 };
 
 export const TWEAK_DEFAULTS: Tweaks = {
@@ -104,5 +109,7 @@ export const TWEAK_DEFAULTS: Tweaks = {
   warmTrail: true,
   paperAge: true,
   compass: true,
+  clipboardCapture: false,
+  clipboardSyncToCloud: true,
 };
 
