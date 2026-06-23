@@ -9,8 +9,6 @@ overrides:
   '@types/react-dom': 19.2.3
   vite: ^6.0.0
   kysely: ^0.28.17
-  drizzle-orm: ^0.45.2
-  drizzle-orm@<0.45.0: ^0.45.2
 
 importers:
 
@@ -34,9 +32,6 @@ importers:
       better-auth:
         specifier: ^1.6.0
         version: 1.6.14(@cloudflare/workers-types@4.20260605.1)(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260605.1)(kysely@0.28.17))(next@16.2.6(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
-      drizzle-orm:
-        specifier: ^0.45.2
-        version: 0.45.2(@cloudflare/workers-types@4.20260605.1)(kysely@0.28.17)
       hono:
         specifier: ^4.6.0
         version: 4.12.23
@@ -47,9 +42,6 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.41
-      drizzle-kit:
-        specifier: ^0.31.4
-        version: 0.31.10
       typescript:
         specifier: ^5
         version: 5.9.3
@@ -4094,7 +4086,8 @@ snapshots:
     dependencies:
       '@jridgewell/trace-mapping': 0.3.9
 
-  '@drizzle-team/brocli@0.10.2': {}
+  '@drizzle-team/brocli@0.10.2':
+    optional: true
 
   '@emmetio/abbreviation@2.3.3':
     dependencies:
@@ -4130,11 +4123,13 @@ snapshots:
     dependencies:
       esbuild: 0.18.20
       source-map-support: 0.5.21
+    optional: true
 
   '@esbuild-kit/esm-loader@2.6.5':
     dependencies:
       '@esbuild-kit/core-utils': 3.3.2
       get-tsconfig: 4.14.0
+    optional: true
 
   '@esbuild-plugins/node-globals-polyfill@0.2.3(esbuild@0.17.19)':
     dependencies:
@@ -5382,7 +5377,8 @@ snapshots:
       node-releases: 2.0.47
       update-browserslist-db: 1.2.3(browserslist@4.28.2)
 
-  buffer-from@1.1.2: {}
+  buffer-from@1.1.2:
+    optional: true
 
   camelcase@8.0.0: {}
 
@@ -5552,11 +5548,13 @@ snapshots:
       '@esbuild-kit/esm-loader': 2.6.5
       esbuild: 0.25.12
       tsx: 4.22.4
+    optional: true
 
   drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260605.1)(kysely@0.28.17):
     optionalDependencies:
       '@cloudflare/workers-types': 4.20260605.1
       kysely: 0.28.17
+    optional: true
 
   dset@3.1.4: {}
 
@@ -5631,6 +5629,7 @@ snapshots:
       '@esbuild/win32-arm64': 0.18.20
       '@esbuild/win32-ia32': 0.18.20
       '@esbuild/win32-x64': 0.18.20
+    optional: true
 
   esbuild@0.25.12:
     optionalDependencies:
@@ -5718,6 +5717,7 @@ snapshots:
       '@esbuild/win32-arm64': 0.28.0
       '@esbuild/win32-ia32': 0.28.0
       '@esbuild/win32-x64': 0.28.0
+    optional: true
 
   escalade@3.2.0: {}
 
@@ -5776,6 +5776,7 @@ snapshots:
   get-tsconfig@4.14.0:
     dependencies:
       resolve-pkg-maps: 1.0.0
+    optional: true
 
   github-slugger@2.0.0: {}
 
@@ -6584,7 +6585,8 @@ snapshots:
 
   require-from-string@2.0.2: {}
 
-  resolve-pkg-maps@1.0.0: {}
+  resolve-pkg-maps@1.0.0:
+    optional: true
 
   retext-latin@4.0.0:
     dependencies:
@@ -6770,6 +6772,7 @@ snapshots:
     dependencies:
       buffer-from: 1.1.2
       source-map: 0.6.1
+    optional: true
 
   source-map@0.6.1: {}
 
@@ -6856,6 +6859,7 @@ snapshots:
       esbuild: 0.28.0
     optionalDependencies:
       fsevents: 2.3.3
+    optional: true
 
   type-fest@4.41.0: {}
 

@@ -1,9 +1,6 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { and, eq, gt, gte, isNotNull, isNull, lte } from "drizzle-orm";
-import { createDb } from "../db/client";
-import { notes } from "../db/schema";
 import type { Env } from "../env";
 
 const createSchema = z.object({
@@ -38,6 +35,36 @@ const searchQuery = z.object({
 
 const GRAVEYARD_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
+const NOTE_COLS = "id, user_id, x, y, w, h, t, text, updated_at, deleted_at";
+
+type NoteRow = {
+  id: string;
+  user_id: string;
+  x: number;
+  y: number;
+  w: number | null;
+  h: number | null;
+  t: number;
+  text: string;
+  updated_at: number;
+  deleted_at: number | null;
+};
+
+function toNote(r: NoteRow) {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    x: r.x,
+    y: r.y,
+    w: r.w,
+    h: r.h,
+    t: r.t,
+    text: r.text,
+    updatedAt: r.updated_at,
+    deletedAt: r.deleted_at,
+  };
+}
+
 // Wrap each whitespace-delimited token in double quotes (neutralizes FTS5
 // operators *, OR, NEAR, :), then append * for prefix match per token.
 function toFtsQuery(raw: string): string {
@@ -51,35 +78,40 @@ function toFtsQuery(raw: string): string {
 
 export const notesRoutes = new Hono<Env>()
   .get("/", zValidator("query", listQuery), async (c) => {
-    const db = createDb(c.env.DB);
     const userId = c.get("userId");
     const { since, before } = c.req.valid("query");
 
-    const conds = [eq(notes.userId, userId)];
+    const conds = ["user_id = ?"];
+    const binds: (string | number)[] = [userId];
     if (since != null) {
-      conds.push(gt(notes.updatedAt, since));
+      conds.push("updated_at > ?");
+      binds.push(since);
     } else {
-      conds.push(isNull(notes.deletedAt));
+      conds.push("deleted_at IS NULL");
     }
-    if (before != null) conds.push(lte(notes.t, before));
+    if (before != null) {
+      conds.push("t <= ?");
+      binds.push(before);
+    }
 
-    const rows = await db.select().from(notes).where(and(...conds));
-    return c.json({ notes: rows, serverTime: Date.now() });
+    const { results } = await c.env.DB.prepare(
+      `SELECT ${NOTE_COLS} FROM notes WHERE ${conds.join(" AND ")}`,
+    )
+      .bind(...binds)
+      .all<NoteRow>();
+    return c.json({ notes: (results ?? []).map(toNote), serverTime: Date.now() });
   })
   .get("/deleted", async (c) => {
-    const db = createDb(c.env.DB);
     const userId = c.get("userId");
     const cutoff = Date.now() - GRAVEYARD_WINDOW_MS;
-    const rows = await db
-      .select()
-      .from(notes)
-      .where(and(
-        eq(notes.userId, userId),
-        isNotNull(notes.deletedAt),
-        gte(notes.deletedAt, cutoff),
-      ));
-    rows.sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
-    return c.json({ notes: rows, serverTime: Date.now() });
+    const { results } = await c.env.DB.prepare(
+      `SELECT ${NOTE_COLS} FROM notes
+       WHERE user_id = ? AND deleted_at IS NOT NULL AND deleted_at >= ?
+       ORDER BY deleted_at DESC`,
+    )
+      .bind(userId, cutoff)
+      .all<NoteRow>();
+    return c.json({ notes: (results ?? []).map(toNote), serverTime: Date.now() });
   })
   .get("/search", zValidator("query", searchQuery), async (c) => {
     const userId = c.get("userId");
@@ -87,7 +119,7 @@ export const notesRoutes = new Hono<Env>()
     const ftsQuery = toFtsQuery(q);
     if (!ftsQuery) return c.json({ matches: [], serverTime: Date.now() });
 
-    type Row = {
+    type SearchRow = {
       id: string;
       x: number;
       y: number;
@@ -109,7 +141,7 @@ export const notesRoutes = new Hono<Env>()
        LIMIT ?`,
     )
       .bind(ftsQuery, userId, limit ?? 50)
-      .all<Row>();
+      .all<SearchRow>();
 
     return c.json({
       matches: (results ?? []).map((r) => ({
@@ -125,12 +157,11 @@ export const notesRoutes = new Hono<Env>()
     });
   })
   .post("/", zValidator("json", createSchema), async (c) => {
-    const db = createDb(c.env.DB);
     const userId = c.get("userId");
     const body = c.req.valid("json");
     const id = body.id ?? crypto.randomUUID();
     const now = Date.now();
-    const row = {
+    const note = {
       id,
       userId,
       x: body.x,
@@ -142,56 +173,58 @@ export const notesRoutes = new Hono<Env>()
       updatedAt: now,
       deletedAt: null as number | null,
     };
-    await db.insert(notes).values(row);
-    return c.json({ note: row });
+    await c.env.DB.prepare(
+      `INSERT INTO notes (${NOTE_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(note.id, note.userId, note.x, note.y, note.w, note.h, note.t, note.text, note.updatedAt, note.deletedAt)
+      .run();
+    return c.json({ note });
   })
   .patch("/:id", zValidator("param", idParam), zValidator("json", patchSchema), async (c) => {
-    const db = createDb(c.env.DB);
     const userId = c.get("userId");
     const { id } = c.req.valid("param");
     const body = c.req.valid("json");
 
-    const updates: Partial<{ x: number; y: number; w: number | null; h: number | null; t: number; text: string; updatedAt: number }> = {
-      updatedAt: Date.now(),
-    };
-    if (typeof body.x === "number") updates.x = body.x;
-    if (typeof body.y === "number") updates.y = body.y;
-    if (body.w !== undefined) updates.w = body.w;
-    if (body.h !== undefined) updates.h = body.h;
-    if (typeof body.t === "number") updates.t = body.t;
-    if (typeof body.text === "string") updates.text = body.text;
+    const sets = ["updated_at = ?"];
+    const binds: (string | number | null)[] = [Date.now()];
+    if (typeof body.x === "number") { sets.push("x = ?"); binds.push(body.x); }
+    if (typeof body.y === "number") { sets.push("y = ?"); binds.push(body.y); }
+    if (body.w !== undefined) { sets.push("w = ?"); binds.push(body.w); }
+    if (body.h !== undefined) { sets.push("h = ?"); binds.push(body.h); }
+    if (typeof body.t === "number") { sets.push("t = ?"); binds.push(body.t); }
+    if (typeof body.text === "string") { sets.push("text = ?"); binds.push(body.text); }
 
-    const result = await db
-      .update(notes)
-      .set(updates)
-      .where(and(eq(notes.id, id), eq(notes.userId, userId)))
-      .returning();
-    if (result.length === 0) return c.json({ error: "not found" }, 404);
-    return c.json({ note: result[0] });
+    const { results } = await c.env.DB.prepare(
+      `UPDATE notes SET ${sets.join(", ")} WHERE id = ? AND user_id = ? RETURNING ${NOTE_COLS}`,
+    )
+      .bind(...binds, id, userId)
+      .all<NoteRow>();
+    if (!results || results.length === 0) return c.json({ error: "not found" }, 404);
+    return c.json({ note: toNote(results[0]) });
   })
   .post("/:id/restore", zValidator("param", idParam), async (c) => {
-    const db = createDb(c.env.DB);
     const userId = c.get("userId");
     const { id } = c.req.valid("param");
     const now = Date.now();
-    const result = await db
-      .update(notes)
-      .set({ deletedAt: null, updatedAt: now })
-      .where(and(eq(notes.id, id), eq(notes.userId, userId)))
-      .returning();
-    if (result.length === 0) return c.json({ error: "not found" }, 404);
-    return c.json({ note: result[0] });
+    const { results } = await c.env.DB.prepare(
+      `UPDATE notes SET deleted_at = NULL, updated_at = ?
+       WHERE id = ? AND user_id = ? RETURNING ${NOTE_COLS}`,
+    )
+      .bind(now, id, userId)
+      .all<NoteRow>();
+    if (!results || results.length === 0) return c.json({ error: "not found" }, 404);
+    return c.json({ note: toNote(results[0]) });
   })
   .delete("/:id", zValidator("param", idParam), async (c) => {
-    const db = createDb(c.env.DB);
     const userId = c.get("userId");
     const { id } = c.req.valid("param");
     const now = Date.now();
-    const result = await db
-      .update(notes)
-      .set({ deletedAt: now, updatedAt: now })
-      .where(and(eq(notes.id, id), eq(notes.userId, userId)))
-      .returning({ id: notes.id });
-    if (result.length === 0) return c.json({ error: "not found" }, 404);
+    const { results } = await c.env.DB.prepare(
+      `UPDATE notes SET deleted_at = ?, updated_at = ?
+       WHERE id = ? AND user_id = ? RETURNING id`,
+    )
+      .bind(now, now, id, userId)
+      .all<{ id: string }>();
+    if (!results || results.length === 0) return c.json({ error: "not found" }, 404);
     return c.json({ ok: true, id, deletedAt: now });
   });

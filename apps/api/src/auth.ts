@@ -1,10 +1,6 @@
 import { betterAuth } from "better-auth";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { anonymous, bearer } from "better-auth/plugins";
-import { eq } from "drizzle-orm";
 import type { D1Database } from "@cloudflare/workers-types";
-import { createDb } from "./db/client";
-import { schema, notes, settings } from "./db/schema";
 
 export type AuthEnv = {
   DB: D1Database;
@@ -35,10 +31,10 @@ export function hasGoogleProvider(env: AuthEnv): boolean {
 // Auth instance is created per-request because Workers env (D1 binding,
 // secrets) is per-request, not module-level. Init cost is negligible.
 export function createAuth(env: AuthEnv) {
-  const db = createDb(env.DB);
-
   return betterAuth({
-    database: drizzleAdapter(db, { provider: "sqlite", schema }),
+    // Better Auth duck-types the D1 binding (batch/exec/prepare) and uses
+    // its internal Kysely D1 dialect — no separate adapter package needed.
+    database: env.DB,
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
     // Browsers send Origin on cross-origin POSTs; Better Auth blocks any
@@ -65,14 +61,12 @@ export function createAuth(env: AuthEnv) {
         // canvas state and tweaks follow them in. Better Auth deletes
         // the anonymous user row after this hook returns.
         onLinkAccount: async ({ anonymousUser, newUser }) => {
-          await db
-            .update(notes)
-            .set({ userId: newUser.user.id })
-            .where(eq(notes.userId, anonymousUser.user.id));
-          await db
-            .update(settings)
-            .set({ userId: newUser.user.id })
-            .where(eq(settings.userId, anonymousUser.user.id));
+          const from = anonymousUser.user.id;
+          const to = newUser.user.id;
+          await env.DB.batch([
+            env.DB.prepare("UPDATE notes SET user_id = ? WHERE user_id = ?").bind(to, from),
+            env.DB.prepare("UPDATE settings SET user_id = ? WHERE user_id = ?").bind(to, from),
+          ]);
         },
       }),
       bearer(),

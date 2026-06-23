@@ -14,8 +14,8 @@ A pnpm workspace with four surfaces. Read this before touching code — your tra
 
 - **Hono trie router.** Registering a specific path under the same prefix as a wildcard breaks wildcard matching. The Better Auth wildcard at `/api/auth/**` is fragile; our `/api/desktop-callback` deliberately sits outside `/api/auth/` for this reason. Don't add `app.get("/api/auth/whatever", …)` — proxy through your own path instead.
 - **Tailwind 4 preset wiring.** The justui preset is Tailwind 3-style JS config; we load it via `@config "./tailwind.config.cjs"` in `global.css`. Both `apps/web` and `apps/marketing` need that line — without it `bg-accent` etc. resolve to nothing.
-- **`pnpm.overrides` is load-bearing.** `kysely`, `drizzle-orm`, and `vite` are pinned via overrides because Better Auth + Drizzle pull in incompatible transitive versions. Don't remove the pins without re-validating with `wrangler dev`.
-- **D1 + Drizzle.** Schema is in `apps/api/src/db/schema.ts`. Migrations are generated via `pnpm --filter @justnotetaking/api db:generate`; FTS5 migration (`0002_notes_fts.sql`) is hand-written because drizzle-kit can't model virtual tables.
+- **`pnpm.overrides` is load-bearing.** `kysely` and `vite` are pinned via overrides because Better Auth's bundled D1 dialect builds against a specific kysely, and Vite resolves to one major across the workspace. Don't remove the pins without re-validating with `wrangler dev`.
+- **No ORM — raw D1 SQL.** The API talks to D1 directly via `c.env.DB.prepare(…).bind(…)`. Domain queries live inline in `apps/api/src/routes/{notes,settings}.ts`; there's no schema/client module. Better Auth owns its own tables through its built-in Kysely-D1 dialect (`database: env.DB` in `auth.ts`) — it duck-types the binding, no adapter package. Migrations are hand-written `.sql` files in `apps/api/migrations/` (create scaffolds with `pnpm --filter @justnotetaking/api db:migrate:create`, apply with `db:migrate:local`/`:remote`). The FTS5 migration (`0002_notes_fts.sql`) and its triggers are the search index — keep `notes` column names stable so the triggers don't break.
 
 ## Workflow
 

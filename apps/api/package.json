@@ -16,22 +16,19 @@
     "build": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "deploy": "wrangler deploy",
-    "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply justnotetaking-dev --local",
     "db:migrate:remote": "wrangler d1 migrations apply justnotetaking-prod --remote",
-    "auth:generate": "better-auth generate --config src/auth.ts --output src/db/schema.ts"
+    "db:migrate:create": "wrangler d1 migrations create justnotetaking-dev"
   },
   "dependencies": {
     "@cloudflare/workers-types": "^4.20250101.0",
     "@hono/zod-validator": "^0.7.0",
     "better-auth": "^1.6.0",
-    "drizzle-orm": "^0.45.2",
     "hono": "^4.6.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/node": "^20",
-    "drizzle-kit": "^0.31.4",
     "typescript": "^5",
     "wrangler": "^3.95.0"
   }

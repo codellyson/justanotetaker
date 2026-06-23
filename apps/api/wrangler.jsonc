@@ -17,7 +17,7 @@
       // validated. To use a real remote dev DB: wrangler d1 create justnotetaking-dev
       // and paste the returned ID.
       "database_id": "REPLACE_ME_RUN_wrangler_d1_create",
-      "migrations_dir": "drizzle"
+      "migrations_dir": "migrations"
     }
   ],
   "vars": {
@@ -45,7 +45,7 @@
           "binding": "DB",
           "database_name": "justnotetaking-prod",
           "database_id": "52d71419-59c6-47ce-924c-9a73324257b8",
-          "migrations_dir": "drizzle"
+          "migrations_dir": "migrations"
         }
       ],
       "routes": [

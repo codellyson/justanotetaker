@@ -1,9 +1,6 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { createDb } from "../db/client";
-import { settings } from "../db/schema";
 import type { Env } from "../env";
 
 const putSchema = z.object({
@@ -11,46 +8,56 @@ const putSchema = z.object({
   seeded: z.boolean().optional(),
 });
 
+type SettingsRow = {
+  user_id: string;
+  tweaks: string | null;
+  seeded: number;
+  updated_at: number;
+};
+
+async function readSettings(db: Env["Bindings"]["DB"], userId: string) {
+  const { results } = await db
+    .prepare("SELECT user_id, tweaks, seeded, updated_at FROM settings WHERE user_id = ?")
+    .bind(userId)
+    .all<SettingsRow>();
+  return results?.[0];
+}
+
 export const settingsRoutes = new Hono<Env>()
   // Read the caller's settings row. Returns nulls + seeded:false if none yet —
   // the client treats that as the first-visit signal.
   .get("/", async (c) => {
-    const db = createDb(c.env.DB);
-    const userId = c.get("userId");
-    const rows = await db.select().from(settings).where(eq(settings.userId, userId));
-    const row = rows[0];
+    const row = await readSettings(c.env.DB, c.get("userId"));
     return c.json({
       tweaks: row?.tweaks ?? null,
-      seeded: row?.seeded ?? false,
-      updatedAt: row?.updatedAt ?? null,
+      seeded: row ? row.seeded === 1 : false,
+      updatedAt: row?.updated_at ?? null,
     });
   })
   // Upsert. Either field may be set independently — omit a field to leave it
   // unchanged. `tweaks` is stored as TEXT JSON; client serializes.
   .put("/", zValidator("json", putSchema), async (c) => {
-    const db = createDb(c.env.DB);
     const userId = c.get("userId");
     const body = c.req.valid("json");
     const now = Date.now();
 
-    const existing = await db.select().from(settings).where(eq(settings.userId, userId));
-    if (existing.length === 0) {
-      await db.insert(settings).values({
-        userId,
-        tweaks: body.tweaks ?? null,
-        seeded: body.seeded ?? false,
-        updatedAt: now,
-      });
+    const existing = await readSettings(c.env.DB, userId);
+    if (!existing) {
+      await c.env.DB.prepare(
+        "INSERT INTO settings (user_id, tweaks, seeded, updated_at) VALUES (?, ?, ?, ?)",
+      )
+        .bind(userId, body.tweaks ?? null, body.seeded ? 1 : 0, now)
+        .run();
     } else {
-      const updates: Partial<{ tweaks: string | null; seeded: boolean; updatedAt: number }> = {
-        updatedAt: now,
-      };
-      if (body.tweaks !== undefined) updates.tweaks = body.tweaks;
-      if (body.seeded !== undefined) updates.seeded = body.seeded;
-      await db.update(settings).set(updates).where(eq(settings.userId, userId));
+      const sets = ["updated_at = ?"];
+      const binds: (string | number | null)[] = [now];
+      if (body.tweaks !== undefined) { sets.push("tweaks = ?"); binds.push(body.tweaks); }
+      if (body.seeded !== undefined) { sets.push("seeded = ?"); binds.push(body.seeded ? 1 : 0); }
+      await c.env.DB.prepare(`UPDATE settings SET ${sets.join(", ")} WHERE user_id = ?`)
+        .bind(...binds, userId)
+        .run();
     }
 
-    const rows = await db.select().from(settings).where(eq(settings.userId, userId));
-    const row = rows[0]!;
-    return c.json({ tweaks: row.tweaks, seeded: row.seeded, updatedAt: row.updatedAt });
+    const row = (await readSettings(c.env.DB, userId))!;
+    return c.json({ tweaks: row.tweaks, seeded: row.seeded === 1, updatedAt: row.updated_at });
   });
