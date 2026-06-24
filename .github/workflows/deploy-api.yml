@@ -17,10 +17,12 @@
 name: deploy-api
 
 on:
-  # Auto-deploy on push is disabled: CI has no CLOUDFLARE_API_TOKEN, so it
-  # only ever fails. Production is deployed manually via `wrangler deploy`.
-  # To re-enable CI deploys, add the CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
-  # repo secrets and restore the push: trigger (branches: [main], paths: apps/api/**).
+  push:
+    branches: [main]
+    paths:
+      - "apps/api/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/deploy-api.yml"
   workflow_dispatch:
 
 permissions:

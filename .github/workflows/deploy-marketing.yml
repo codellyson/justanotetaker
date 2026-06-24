@@ -16,10 +16,16 @@
 name: deploy-marketing
 
 on:
-  # Auto-deploy on push/PR is disabled: CI has no CLOUDFLARE_API_TOKEN, so it
-  # only ever fails. Production is deployed manually via `wrangler`/Pages.
-  # To re-enable, add the CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID repo
-  # secrets and restore the push:/pull_request: triggers (paths: apps/marketing/**).
+  push:
+    branches: [main]
+    paths:
+      - "apps/marketing/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/deploy-marketing.yml"
+  pull_request:
+    paths:
+      - "apps/marketing/**"
+      - ".github/workflows/deploy-marketing.yml"
   workflow_dispatch:
 
 permissions:

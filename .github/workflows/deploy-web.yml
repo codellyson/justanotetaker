@@ -14,11 +14,20 @@
 name: deploy-web
 
 on:
-  # Auto-deploy on push/PR is disabled: CI has no CLOUDFLARE_API_TOKEN, so it
-  # only ever fails. Production is deployed manually via `wrangler`/Pages.
-  # To re-enable, add the CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID repo
-  # secrets and restore the push:/pull_request: triggers (paths: apps/web/**,
-  # packages/api-client/**, apps/api/src/**).
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "packages/api-client/**"
+      - "apps/api/src/**"  # AppType change → RPC client types shift
+      - "pnpm-lock.yaml"
+      - ".github/workflows/deploy-web.yml"
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "packages/api-client/**"
+      - "apps/api/src/**"
+      - ".github/workflows/deploy-web.yml"
   workflow_dispatch:
 
 permissions:
