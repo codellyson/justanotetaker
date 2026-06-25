@@ -486,6 +486,38 @@ body {
   color: rgb(var(--text-primary));
   font-family: var(--font-jn-sans), ui-sans-serif, sans-serif;
 }
+
+/* Subtle themed scrollbars for the app's scroll containers — the default
+   browser bar clashes with the dark UI. */
+.help-card, .focus-ta, .command-list, .grave-list, .auth-rail-inner {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--border)) transparent;
+}
+.help-card::-webkit-scrollbar,
+.focus-ta::-webkit-scrollbar,
+.command-list::-webkit-scrollbar,
+.grave-list::-webkit-scrollbar,
+.auth-rail-inner::-webkit-scrollbar { width: 10px; }
+.help-card::-webkit-scrollbar-track,
+.focus-ta::-webkit-scrollbar-track,
+.command-list::-webkit-scrollbar-track,
+.grave-list::-webkit-scrollbar-track,
+.auth-rail-inner::-webkit-scrollbar-track { background: transparent; }
+.help-card::-webkit-scrollbar-thumb,
+.focus-ta::-webkit-scrollbar-thumb,
+.command-list::-webkit-scrollbar-thumb,
+.grave-list::-webkit-scrollbar-thumb,
+.auth-rail-inner::-webkit-scrollbar-thumb {
+  background: rgb(var(--border));
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.help-card::-webkit-scrollbar-thumb:hover,
+.focus-ta::-webkit-scrollbar-thumb:hover,
+.command-list::-webkit-scrollbar-thumb:hover,
+.grave-list::-webkit-scrollbar-thumb:hover,
+.auth-rail-inner::-webkit-scrollbar-thumb:hover { background: rgb(var(--text-muted)); }
 .help-hd {
   display: flex; align-items: center; justify-content: space-between;
   font-family: var(--font-jn-mono), ui-monospace, monospace;

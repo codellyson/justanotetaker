@@ -214,6 +214,16 @@ export default function JustNotes(props: JustNotesProps) {
     setView({ pan: { x: r.width / 2, y: r.height / 2 - 40 }, zoom: 1 });
   }, []);
 
+  // Multiply zoom by `factor`, keeping the screen point (sx, sy) — relative to
+  // the canvas element — fixed under the cursor.
+  function zoomAt(factor: number, sx: number, sy: number) {
+    const v = viewRef.current;
+    const nextZoom = Math.max(0.32, Math.min(2.5, v.zoom * factor));
+    const canvasX = (sx - v.pan.x) / v.zoom;
+    const canvasY = (sy - v.pan.y) / v.zoom;
+    setView({ pan: { x: sx - canvasX * nextZoom, y: sy - canvasY * nextZoom }, zoom: nextZoom });
+  }
+
   // Wheel: plain = pan, ⌘/Ctrl (or mac trackpad pinch which fires ctrlKey) = zoom on cursor.
   useEffect(() => {
     const el = canvasRef.current;
@@ -222,17 +232,14 @@ export default function JustNotes(props: JustNotesProps) {
       e.preventDefault();
       if (e.ctrlKey || e.metaKey) {
         const rect = el.getBoundingClientRect();
-        const sx = e.clientX - rect.left;
-        const sy = e.clientY - rect.top;
-        const v = viewRef.current;
-        const factor = Math.exp(-e.deltaY * 0.012);
-        const nextZoom = Math.max(0.32, Math.min(2.5, v.zoom * factor));
-        const canvasX = (sx - v.pan.x) / v.zoom;
-        const canvasY = (sy - v.pan.y) / v.zoom;
-        setView({
-          pan: { x: sx - canvasX * nextZoom, y: sy - canvasY * nextZoom },
-          zoom: nextZoom,
-        });
+        // Normalize across input devices: line/page deltas → px, then clamp so
+        // a single chunky mouse notch doesn't jump zoom levels. Small factor
+        // keeps it gradual; trackpads send many small events that accumulate.
+        let dy = e.deltaY;
+        if (e.deltaMode === 1) dy *= 16;
+        else if (e.deltaMode === 2) dy *= el.clientHeight;
+        dy = Math.max(-120, Math.min(120, dy));
+        zoomAt(Math.exp(-dy * 0.002), e.clientX - rect.left, e.clientY - rect.top);
       } else {
         setView((v) => ({ ...v, pan: { x: v.pan.x - e.deltaX, y: v.pan.y - e.deltaY } }));
       }
@@ -611,10 +618,10 @@ export default function JustNotes(props: JustNotesProps) {
       window.removeEventListener("mouseup", onUp);
       setDraggingId(null);
       if (!moved) {
-        if (!isSelected && selectedIdsRef.current.size > 0) setSelectedIds(new Set());
+        // Single click selects; editing is on double-click (onDoubleClick).
         if (editingId && editingId !== id) commitEditing();
         if (ambientOpen) closeAmbient();
-        startEditingExisting(id);
+        setSelectedIds(new Set([id]));
         return;
       }
       for (const nid of groupIds) {
@@ -864,6 +871,16 @@ export default function JustNotes(props: JustNotesProps) {
         return;
       }
 
+      // ⌘/Ctrl +/- zoom on the canvas center. "=" covers the unshifted "+" key.
+      if ((e.metaKey || e.ctrlKey) && (e.key === "=" || e.key === "+" || e.key === "-")) {
+        e.preventDefault();
+        const el = canvasRef.current;
+        if (el) {
+          const r = el.getBoundingClientRect();
+          zoomAt(e.key === "-" ? 1 / 1.2 : 1.2, r.width / 2, r.height / 2);
+        }
+        return;
+      }
       if (e.key === "/") { e.preventDefault(); openAmbient(""); markInteracted(); return; }
       if (e.key === "z" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
         e.preventDefault(); toggleOverview(); return;
@@ -1054,6 +1071,7 @@ export default function JustNotes(props: JustNotesProps) {
               hidden={editingId === n.id && t.editMode === "focused"}
               scrubFade={scrubFadeFor(n)}
               onMouseDown={(e) => onNoteMouseDown(e, n.id)}
+              onEdit={() => startEditingExisting(n.id)}
               onTextChange={(v) => updateNoteText(n.id, v)}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -1220,7 +1238,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 function NoteCard({
   note, fromClipboard, editing, dragging,
   dimmed, highlit, focused, selected, hidden, scrubFade,
-  onMouseDown, onTextChange, onContextMenu, onTagClick, onResizeStart, onHover,
+  onMouseDown, onEdit, onTextChange, onContextMenu, onTagClick, onResizeStart, onHover,
 }: {
   note: Note;
   fromClipboard: boolean;
@@ -1234,6 +1252,7 @@ function NoteCard({
   hidden: boolean;
   scrubFade: number;
   onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void;
+  onEdit: () => void;
   onTextChange: (v: string) => void;
   onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
   onTagClick: (tag: string) => void;
@@ -1309,6 +1328,7 @@ function NoteCard({
         }
         onMouseDown(e);
       }}
+      onDoubleClick={() => { if (!editing) onEdit(); }}
       onMouseEnter={() => onHover(note.id)}
       onMouseLeave={() => onHover(null)}
       onContextMenu={onContextMenu}
@@ -1454,6 +1474,8 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
   type Row = [string | string[], string];
   const rows: Row[] = [
     ["click empty canvas",         "write a new note"],
+    ["click a note",               "select it"],
+    ["double-click a note",        "edit it"],
     [[mod, "V"],                   "paste · text becomes a note · URLs fetch their title"],
     ["type any letter",            "ambient · live-filters notes as you type"],
     ["#tag in a note",              "click chip to filter canvas to that tag"],
@@ -1468,6 +1490,7 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
     [[mod, "drag empty canvas"],   "pan"],
     ["scroll / trackpad",          "pan"],
     [[mod, "scroll"],              "zoom centered on cursor"],
+    [[mod, "+ / -"],               "zoom in / out"],
     ["drag a selected note",       "move the whole selection"],
     [["delete"],                   "remove all selected notes"],
     ["drag the right edge",        "rewind canvas through time"],
