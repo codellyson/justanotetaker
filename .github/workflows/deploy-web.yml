@@ -56,7 +56,7 @@ jobs:
       - name: Build web
         env:
           VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
-        run: pnpm --filter @justnotetaking/web build
+        run: pnpm --filter @justanotetaker/web build
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

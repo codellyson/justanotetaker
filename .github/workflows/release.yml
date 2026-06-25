@@ -108,7 +108,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Vite reads import.meta.env.VITE_API_BASE_URL at build time;
-          # tauri-action runs `pnpm --filter @justnotetaking/web build`
+          # tauri-action runs `pnpm --filter @justanotetaker/web build`
           # as a subprocess so the env propagates. Source is the repo
           # variable so swapping the API host doesn't need a code change.
           VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
@@ -124,12 +124,12 @@ jobs:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         with:
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
-          releaseName: "JustNoteTaking ${{ github.ref_name }}"
+          releaseName: "Just a Notetaker ${{ github.ref_name }}"
           releaseBody: |
             ## Downloads
 
-            - **macOS (universal)** — `JustNoteTaking_*_universal.dmg`
-            - **Windows** — `JustNoteTaking_*_x64-setup.exe` or `.msi`
+            - **macOS (universal)** — `Just a Notetaker_*_universal.dmg`
+            - **Windows** — `Just a Notetaker_*_x64-setup.exe` or `.msi`
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
@@ -149,12 +149,12 @@ jobs:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         with:
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
-          releaseName: "JustNoteTaking ${{ github.ref_name }}"
+          releaseName: "Just a Notetaker ${{ github.ref_name }}"
           releaseBody: |
             ## Downloads
 
-            - **macOS (universal)** — `JustNoteTaking_*_universal.dmg`
-            - **Windows** — `JustNoteTaking_*_x64-setup.exe` or `.msi`
+            - **macOS (universal)** — `Just a Notetaker_*_universal.dmg`
+            - **Windows** — `Just a Notetaker_*_x64-setup.exe` or `.msi`
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

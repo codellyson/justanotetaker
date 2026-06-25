@@ -1,18 +1,18 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "JustNoteTaking",
+  "productName": "Just a Notetaker",
   "version": "0.3.0",
   "identifier": "com.kreativekorna.justnotetaking",
   "build": {
     "frontendDist": "../apps/web/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "pnpm --filter @justnotetaking/web dev",
-    "beforeBuildCommand": "pnpm --filter @justnotetaking/web build"
+    "beforeDevCommand": "pnpm --filter @justanotetaker/web dev",
+    "beforeBuildCommand": "pnpm --filter @justanotetaker/web build"
   },
   "app": {
     "windows": [
       {
-        "title": "JustNoteTaking",
+        "title": "Just a Notetaker",
         "width": 1280,
         "height": 800,
         "minWidth": 800,
@@ -43,7 +43,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/codellyson/justnotetaking/releases/latest/download/latest.json"
+        "https://github.com/codellyson/justanotetaker/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ1M0MzRjcwNjNDMTM0QjYKUldTMk5NRmpjRDg4MVVkSXd3TDkzVGZHUDVFQnloTHZsdkRQSEdQYXV5QXQyZUFIMCsxRGVTbjYK"
     }

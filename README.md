@@ -18,12 +18,12 @@ You need two (or three) terminals.
 
 ```sh
 # Terminal 1 — API (Worker + local D1)
-pnpm --filter @justnotetaking/api dev          # → :8787
+pnpm --filter @justanotetaker/api dev          # → :8787
 
 # Terminal 2 — Web app
-pnpm --filter @justnotetaking/web dev          # → :5173
+pnpm --filter @justanotetaker/web dev          # → :5173
 # or marketing:
-pnpm --filter @justnotetaking/marketing dev    # → :4321
+pnpm --filter @justanotetaker/marketing dev    # → :4321
 
 # Terminal 3 (optional) — desktop shell
 pnpm tauri:dev                            # spawns vite as a subprocess
@@ -32,7 +32,7 @@ pnpm tauri:dev                            # spawns vite as a subprocess
 First time only — apply local D1 migrations:
 
 ```sh
-pnpm --filter @justnotetaking/api db:migrate:local
+pnpm --filter @justanotetaker/api db:migrate:local
 ```
 
 You'll also need `apps/api/.dev.vars`:

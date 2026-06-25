@@ -13,7 +13,7 @@ const TTL_MS = 5 * 60 * 1000;
 const MAX_BYTES = 1_000_000;
 const TIMEOUT_MS = 5000;
 const UA =
-  "Mozilla/5.0 (compatible; justnotetakingbot/0.2; +https://justnotetaking.kreativekorna.com)";
+  "Mozilla/5.0 (compatible; justanotetakerbot/0.2; +https://justanotetaker.kreativekorna.com)";
 
 function isBlockedHost(host: string): boolean {
   const lower = host.toLowerCase();

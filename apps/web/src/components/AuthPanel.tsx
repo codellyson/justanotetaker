@@ -83,7 +83,7 @@ export function AuthPanel({
         <header className="auth-rail-hd">
           <div className="auth-rail-brand">
             <span className="auth-rail-dot" />
-            <span className="auth-rail-wordmark">justnotetaking</span>
+            <span className="auth-rail-wordmark">justanotetaker</span>
           </div>
           <button
             type="button"

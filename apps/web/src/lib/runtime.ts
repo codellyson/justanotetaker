@@ -11,5 +11,5 @@ export const isTauri =
 export const API_BASE_URL =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
   (import.meta.env.PROD
-    ? "https://api.justnotetaking.kreativekorna.com"
+    ? "https://api.justanotetaker.kreativekorna.com"
     : "http://localhost:8787");
