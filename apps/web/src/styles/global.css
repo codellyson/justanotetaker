@@ -257,6 +257,26 @@ body {
   color: rgb(var(--text-muted));
   pointer-events: none;
 }
+/* Bottom-center — clear of the bottom-left hint and bottom-right sync label. */
+.chrome-clear-seeds {
+  bottom: 18px; left: 50%; transform: translateX(-50%);
+  pointer-events: auto;
+  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: rgb(var(--text-muted));
+  background: rgb(var(--bg-secondary) / 0.7);
+  border: 1px solid rgb(var(--border));
+  border-radius: 999px;
+  padding: 5px 13px;
+  cursor: pointer;
+  transition: color 160ms ease, border-color 160ms ease, opacity 160ms ease;
+}
+.chrome-clear-seeds:hover {
+  color: rgb(var(--accent));
+  border-color: rgb(var(--accent) / 0.5);
+}
+
 .chrome-tr {
   top: 18px; right: 24px;
   display: flex; align-items: baseline; gap: 6px;

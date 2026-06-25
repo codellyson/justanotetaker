@@ -22,6 +22,7 @@ import {
 import { renderBody, renderHeadline } from "./markdown";
 import { formatCapturedNote } from "./clipboard";
 import { clipboardOrigin } from "../../lib/clipboard-origin";
+import { seedIdStore } from "../../lib/seed-ids";
 import { AmbientBar, Compass, TimeScrub } from "./cherries";
 import { TweaksUI } from "./tweaks";
 import { Button } from "@codellyson/justui/react";
@@ -40,6 +41,7 @@ type Persist = {
 
 export type JustNotesProps = Persist & {
   initialNotes: Note[];
+  seedIds: string[];
   tweaks: Tweaks;
   setTweak: <K extends keyof Tweaks>(key: K, val: Tweaks[K]) => void;
 };
@@ -54,7 +56,7 @@ type UndoOp =
 
 // ── App ────────────────────────────────────────────────────────────────
 export default function JustNotes(props: JustNotesProps) {
-  const { initialNotes, tweaks: t, setTweak, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete } = props;
+  const { initialNotes, seedIds, tweaks: t, setTweak, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete } = props;
   const [tweaksOpen, setTweaksOpen] = useState(false);
 
   const [notes, setNotes] = useState<Note[]>(initialNotes);
@@ -399,6 +401,19 @@ export default function JustNotes(props: JustNotesProps) {
       editSnapshotRef.current = null;
     }
     onDelete(id);
+  }
+
+  const seedIdSet = useMemo(() => new Set(seedIds), [seedIds]);
+  const remainingSeeds = notes.filter((n) => seedIdSet.has(n.id));
+
+  // Drop the on-device record once no seeds remain, so it doesn't linger.
+  useEffect(() => {
+    if (seedIds.length > 0 && remainingSeeds.length === 0) seedIdStore.clear();
+  }, [seedIds.length, remainingSeeds.length]);
+
+  function clearStarterNotes() {
+    for (const n of notes.filter((x) => seedIdSet.has(x.id))) deleteNoteById(n.id);
+    seedIdStore.clear();
   }
 
   function reinsertRestoredNote(note: { id: string; x: number; y: number; t: number; text: string }) {
@@ -1057,6 +1072,17 @@ export default function JustNotes(props: JustNotesProps) {
       </Canvas>
 
       {notes.length === 0 && <GhostCard />}
+
+      {remainingSeeds.length > 0 && (
+        <button
+          type="button"
+          className="chrome chrome-clear-seeds"
+          onClick={clearStarterNotes}
+          title="Remove the welcome notes"
+        >
+          clear starter notes
+        </button>
+      )}
 
       {editingId && t.editMode === "focused" && (() => {
         const n = notes.find((x) => x.id === editingId);
