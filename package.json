@@ -10,7 +10,8 @@
     "lint": "pnpm -r --parallel lint",
     "tauri": "tauri",
     "tauri:dev": "cross-env WEBKIT_DISABLE_DMABUF_RENDERER=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 WEBKIT_FORCE_SANDBOX=0 LIBGL_ALWAYS_SOFTWARE=1 tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "release": "bash scripts/release.sh"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.2",
