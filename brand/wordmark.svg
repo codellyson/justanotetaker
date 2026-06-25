@@ -1,37 +1,6 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!--
-  justnotetaking wordmark — small mark + "justnotetaking" set in Geist Medium.
-  Falls back to system sans if Geist isn't loaded (e.g. the OG renderer);
-  the visual stays close because Geist is a clean geometric sans.
-
-  Designed to sit on a transparent background so it can be dropped into
-  the marketing page header or any chrome that already has a bg.
--->
-<svg
-  xmlns="http://www.w3.org/2000/svg"
-  viewBox="0 0 540 120"
-  width="540"
-  height="120"
-  role="img"
-  aria-label="justnotetaking"
->
-  <style>
-    :root, svg { --jn-accent: rgb(var(--accent, 232 161 63)); }
-    .jn-word {
-      fill: rgb(var(--text-primary, 232 222 210));
-      font: 500 64px/1 "Geist Variable", -apple-system, "Segoe UI", system-ui, sans-serif;
-      letter-spacing: -0.02em;
-    }
-  </style>
-  <defs>
-    <radialGradient id="halo-sm" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="var(--jn-accent)" stop-opacity="0.5" />
-      <stop offset="100%" stop-color="var(--jn-accent)" stop-opacity="0" />
-    </radialGradient>
-  </defs>
-  <!-- mark -->
-  <circle cx="58" cy="60" r="42" fill="url(#halo-sm)" />
-  <circle cx="58" cy="60" r="22" fill="var(--jn-accent)" />
-  <!-- wordmark -->
-  <text x="118" y="82" class="jn-word">justnotetaking</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="258" height="48" viewBox="0 0 258 48" fill="currentColor" role="img" aria-label="justanotetaker">
+  <defs><mask id="gap"><rect width="48" height="48" fill="#fff"></rect><rect x="17" y="15" width="26" height="26" rx="8" fill="#000"></rect></mask></defs>
+  <rect x="7" y="8" width="22" height="22" rx="6" mask="url(#gap)"></rect>
+  <rect x="19" y="17" width="22" height="22" rx="6"></rect>
+  <text x="62" y="33" font-family="&#39;Hanken Grotesk&#39;,&#39;Helvetica Neue&#39;,Arial,sans-serif" font-size="30" letter-spacing="-0.8"><tspan fill="#FF6A3D" font-weight="500">just</tspan><tspan font-weight="800">anotetaker</tspan></text>
 </svg>
