@@ -22,7 +22,9 @@
   ],
   "vars": {
     "BETTER_AUTH_URL": "http://localhost:8787",
-    "TRUSTED_ORIGINS": "http://localhost:5173,http://localhost:5174,http://localhost:4321,tauri://localhost"
+    // tauri://localhost is the macOS/Linux webview origin; http(s)://tauri.localhost
+    // is what Windows (WebView2) + Android send. All needed for the desktop app.
+    "TRUSTED_ORIGINS": "http://localhost:5173,http://localhost:5174,http://localhost:4321,tauri://localhost,http://tauri.localhost,https://tauri.localhost"
   },
   // Secrets (NOT vars) live in .dev.vars locally and `wrangler secret put` in prod:
   //   BETTER_AUTH_SECRET    — random 32-byte hex; required.
@@ -38,7 +40,9 @@
       "vars": {
         "BETTER_AUTH_URL": "https://api.justnotetaking.kreativekorna.com",
         // Comma-separated. Add any extra origins (preview deploys, etc.).
-        "TRUSTED_ORIGINS": "https://justnotetaking.kreativekorna.com,https://app.justnotetaking.kreativekorna.com,https://justnotetaking-marketing.pages.dev,https://justnotetaking-web.pages.dev,tauri://localhost"
+        // tauri://localhost = macOS/Linux; http(s)://tauri.localhost = Windows
+        // (WebView2) + Android — the desktop app is CORS-blocked without them.
+        "TRUSTED_ORIGINS": "https://justnotetaking.kreativekorna.com,https://app.justnotetaking.kreativekorna.com,https://justnotetaking-marketing.pages.dev,https://justnotetaking-web.pages.dev,tauri://localhost,http://tauri.localhost,https://tauri.localhost"
       },
       "d1_databases": [
         {
