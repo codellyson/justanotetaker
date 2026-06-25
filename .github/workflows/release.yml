@@ -129,7 +129,7 @@ jobs:
 
             - **macOS (universal)** — `JustNoteTaking_*_universal.dmg`
             - **Windows** — `JustNoteTaking_*_x64-setup.exe` or `.msi`
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
 
@@ -154,7 +154,7 @@ jobs:
 
             - **macOS (universal)** — `JustNoteTaking_*_universal.dmg`
             - **Windows** — `JustNoteTaking_*_x64-setup.exe` or `.msi`
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
 

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "JustNoteTaking",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "identifier": "com.kreativekorna.justnotetaking",
   "build": {
     "frontendDist": "../apps/web/dist",
@@ -29,7 +29,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["deb", "appimage", "app", "dmg", "nsis"],
     "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
