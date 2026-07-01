@@ -37,6 +37,8 @@ body {
   position: absolute; inset: 0;
   cursor: grab;
   overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .canvas:active { cursor: grabbing; }
 .notes-layer {
@@ -113,8 +115,8 @@ body {
   box-shadow:
     0 0 0 1px rgb(var(--border) / 0.7),
     0 1px 0 rgb(var(--text-primary) / 0.05) inset,
-    0 6px 18px -8px rgba(0,0,0,0.55),
-    0 1px 2px rgba(0,0,0,0.25);
+    0 4px 12px -8px rgba(0,0,0,0.32),
+    0 1px 2px rgba(0,0,0,0.14);
 }
 .note-pad-cover {
   position: absolute;
@@ -168,8 +170,8 @@ body {
   box-shadow:
     0 0 0 1px rgb(var(--border)),
     0 1px 0 rgb(var(--text-primary) / 0.06) inset,
-    0 10px 24px -8px rgba(0,0,0,0.6),
-    0 2px 3px rgba(0,0,0,0.3);
+    0 6px 16px -8px rgba(0,0,0,0.38),
+    0 1px 2px rgba(0,0,0,0.16);
 }
 .note.editing {
   max-height: none;
@@ -185,11 +187,19 @@ body {
     0 0 0 1px rgb(var(--border)),
     0 0 0 1px rgb(var(--accent) / 0.35),
     0 1px 0 rgb(var(--text-primary) / 0.08) inset,
-    0 22px 48px -12px rgba(0,0,0,0.6),
-    0 4px 8px rgba(0,0,0,0.35);
+    0 12px 30px -12px rgba(0,0,0,0.42),
+    0 2px 5px rgba(0,0,0,0.2);
   transition: none;
 }
 .note.editing { z-index: 60; cursor: text; box-shadow: 0 0 0 1px rgb(var(--accent) / 0.55); }
+
+/* Glide to the cleared spot after a colliding drop (~340ms). */
+.note.snapping {
+  transition:
+    left 300ms cubic-bezier(.22,.61,.36,1),
+    top 300ms cubic-bezier(.22,.61,.36,1),
+    box-shadow 180ms ease;
+}
 
 .note.dim { opacity: 0.12 !important; filter: saturate(0.4); }
 .note.hit { z-index: 40; }
@@ -200,6 +210,72 @@ body {
   box-shadow: 0 0 0 1px rgb(var(--accent) / 0.85), 0 0 22px 0 rgb(var(--accent) / 0.35);
   pointer-events: none;
 }
+
+/* ── View modes ─────────────────────────────────────────────────────
+   Mode is a class on .notes-layer; position/color are set inline by NoteCard.
+   `layout-animating` (mode-switch only) eases position/size; the base .note
+   never transitions position so dragging stays snappy. */
+.notes-layer.layout-animating .note {
+  transition:
+    left 560ms cubic-bezier(.22,.61,.36,1),
+    top 560ms cubic-bezier(.22,.61,.36,1),
+    width 560ms cubic-bezier(.22,.61,.36,1),
+    height 560ms cubic-bezier(.22,.61,.36,1),
+    min-height 560ms cubic-bezier(.22,.61,.36,1),
+    background-color 320ms ease,
+    color 320ms ease,
+    opacity 320ms ease,
+    box-shadow 320ms ease;
+}
+
+/* Sticky — colored square (bg/ink set inline); fixed shape + lifted shadow. */
+.notes-layer.view-sticky .note {
+  width: 190px;
+  height: 190px;
+  max-height: 190px;
+  padding: 13px 15px;
+  border-radius: 3px;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.28) inset,
+    0 4px 12px -8px rgba(0,0,0,0.3),
+    0 1px 2px rgba(0,0,0,0.14);
+}
+.notes-layer.view-sticky .note:hover:not(.editing):not(.dim) {
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.3) inset,
+    0 8px 18px -8px rgba(0,0,0,0.34),
+    0 2px 4px rgba(0,0,0,0.16);
+}
+
+/* Paper — A4 page (width + min-height set inline); themed background. */
+.notes-layer.view-paper .note {
+  max-height: none;
+  padding: 32px 36px;
+  border-radius: 5px;
+}
+/* Document typography: serif, larger, generous leading — editor + rendered. */
+.notes-layer.view-paper .note-first,
+.notes-layer.view-paper .note-rest,
+.notes-layer.view-paper .note-ta,
+.notes-layer.view-paper .md-p,
+.notes-layer.view-paper .md-li {
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+}
+.notes-layer.view-paper .note-first {
+  font-size: 22px;
+  line-height: 1.4;
+  letter-spacing: 0;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.notes-layer.view-paper .note-rest,
+.notes-layer.view-paper .note-ta {
+  font-size: 15.5px;
+  line-height: 1.8;
+  letter-spacing: 0;
+}
+/* Paragraph rhythm — blank lines between paragraphs open up more on a page. */
+.notes-layer.view-paper .md-blank { height: 14px; }
 
 .note-first {
   font-size: 14px;
@@ -257,6 +333,38 @@ body {
   color: rgb(var(--text-muted));
   pointer-events: none;
 }
+/* Top-center — the view-mode switcher. A quiet segmented pill. */
+.mode-switch {
+  top: 14px; left: 50%; transform: translateX(-50%);
+  pointer-events: auto;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgb(var(--bg-secondary) / 0.82);
+  border: 1px solid rgb(var(--border));
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 14px -8px rgba(0,0,0,0.4);
+}
+.mode-switch-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: rgb(var(--text-muted));
+  padding: 5px 14px;
+  border-radius: 999px;
+  transition: color 160ms ease, background 160ms ease;
+}
+.mode-switch-btn:hover { color: rgb(var(--text-primary)); }
+.mode-switch-btn.active {
+  color: rgb(var(--bg));
+  background: rgb(var(--accent));
+}
+
 /* Bottom-center — clear of the bottom-left hint and bottom-right sync label. */
 .chrome-clear-seeds {
   bottom: 18px; left: 50%; transform: translateX(-50%);
@@ -454,7 +562,7 @@ body {
 
 /* ── overview chrome label ────────────────────────────────────── */
 .chrome-mode {
-  top: 18px; left: 50%; transform: translateX(-50%);
+  top: 54px; left: 50%; transform: translateX(-50%);
   font-family: var(--font-jn-mono), ui-monospace, monospace;
   font-size: 11px;
   color: rgb(var(--accent) / 0.78);

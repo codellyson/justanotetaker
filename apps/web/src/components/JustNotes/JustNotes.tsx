@@ -16,8 +16,13 @@ import {
   restAfterFirst,
   tagsOf,
   uid,
+  stickyColorOf,
+  STICKY_SIZE,
+  PAPER_W,
+  PAPER_H,
   type Note,
   type Tweaks,
+  type ViewMode,
 } from "./lib";
 import { renderBody, renderHeadline } from "./markdown";
 import { formatCapturedNote } from "./clipboard";
@@ -72,6 +77,13 @@ export default function JustNotes(props: JustNotesProps) {
   const editingIdRef = useRef<string | null>(null);
   useEffect(() => { editingIdRef.current = editingId; }, [editingId]);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  // A note that just glided to a free spot after a drop (drives the snap CSS).
+  const [snappingId, setSnappingId] = useState<string | null>(null);
+
+  // `layoutAnimating` gates the left/top transition to mode-switch time only,
+  // so ordinary dragging never lags.
+  const viewMode = t.viewMode;
+  const [layoutAnimating, setLayoutAnimating] = useState(false);
 
   const [ambientOpen, setAmbientOpen] = useState(false);
   const [recallQuery, setRecallQuery] = useState("");
@@ -207,6 +219,8 @@ export default function JustNotes(props: JustNotesProps) {
   const tweakRef = useRef<Tweaks>(t);
   useEffect(() => { tweakRef.current = t; }, [t]);
 
+  const prevModeRef = useRef<ViewMode>("default");
+
   // Center the canvas around the seed cluster on first paint.
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -256,6 +270,42 @@ export default function JustNotes(props: JustNotesProps) {
     window.setTimeout(() => setSmooth(false), 400);
   }
 
+  // Display-only positions for the active mode: sticky/paper declump overlaps
+  // (real positions are never touched, so default restores the true layout).
+  // The dragged note is excluded so it follows the cursor and doesn't shove
+  // the others. Empty in default — NoteCard falls back to home x/y.
+  const layout = useMemo(() => {
+    const map = new Map<string, { x: number; y: number }>();
+    if (viewMode === "default") return map;
+    const w = viewMode === "sticky" ? STICKY_SIZE : PAPER_W;
+    const h = viewMode === "sticky" ? STICKY_SIZE : PAPER_H;
+    const placed: { x: number; y: number; w: number; h: number }[] = [];
+    // Reading order anchors the top-left and only pushes later notes.
+    const ordered = notes
+      .filter((n) => n.id !== draggingId)
+      .sort((a, b) => a.y - b.y || a.x - b.x);
+    for (const n of ordered) {
+      const spot = resolveFreePosition(n.x, n.y, w, h, placed);
+      placed.push({ x: spot.x, y: spot.y, w, h });
+      map.set(n.id, spot);
+    }
+    return map;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, notes, draggingId]);
+
+  // So the drag handler can read the current display layout.
+  const layoutRef = useRef(layout);
+  useEffect(() => { layoutRef.current = layout; }, [layout]);
+
+  // Pulse the glide transition on a mode change (no view/position changes).
+  useEffect(() => {
+    if (prevModeRef.current === viewMode) return;
+    prevModeRef.current = viewMode;
+    setLayoutAnimating(true);
+    const stop = window.setTimeout(() => setLayoutAnimating(false), 620);
+    return () => window.clearTimeout(stop);
+  }, [viewMode]);
+
   function screenToCanvas(sx: number, sy: number, v: View = viewRef.current) {
     return { x: (sx - v.pan.x) / v.zoom, y: (sy - v.pan.y) / v.zoom };
   }
@@ -285,18 +335,60 @@ export default function JustNotes(props: JustNotesProps) {
     setEditingId(id);
   }
 
-  function findFreeSpot(x: number, y: number): { x: number; y: number } {
-    const existing = notesRef.current;
-    let cx = x, cy = y;
-    for (let i = 0; i < 30; i++) {
-      const collides = existing.some(
-        (n) => Math.abs(n.x - cx) < GRID && Math.abs(n.y - cy) < GRID,
-      );
-      if (!collides) return { x: cx, y: cy };
-      cx += GRID;
-      cy += GRID;
+  // On-screen rects (declumped display spot + DOM-measured size) for collision.
+  function measureRects(excludeId?: string) {
+    const layer = canvasRef.current?.querySelector(".notes-layer");
+    const disp = layoutRef.current;
+    const rects: { x: number; y: number; w: number; h: number }[] = [];
+    for (const n of notesRef.current) {
+      if (n.id === excludeId) continue;
+      const el = layer?.querySelector<HTMLElement>(`[data-note-id="${n.id}"]`);
+      const p = disp.get(n.id) ?? { x: n.x, y: n.y };
+      rects.push({
+        x: p.x,
+        y: p.y,
+        w: el?.offsetWidth ?? n.w ?? tweakRef.current.noteWidth,
+        h: el?.offsetHeight ?? n.h ?? 96,
+      });
     }
-    return { x: cx, y: cy };
+    return rects;
+  }
+
+  // Nearest position around (x,y) where a w×h card clears `others`; spirals
+  // outward on the grid, returns (x,y) unchanged if already free.
+  function resolveFreePosition(
+    x: number, y: number, w: number, h: number,
+    others: { x: number; y: number; w: number; h: number }[],
+  ): { x: number; y: number } {
+    const GAP = 14;
+    const clears = (cx: number, cy: number) =>
+      !others.some(
+        (r) =>
+          cx < r.x + r.w + GAP && cx + w + GAP > r.x &&
+          cy < r.y + r.h + GAP && cy + h + GAP > r.y,
+      );
+    if (clears(x, y)) return { x, y };
+    const step = tweakRef.current.snap ? GRID : 20;
+    for (let ring = 1; ring <= 80; ring++) {
+      let best: { x: number; y: number } | null = null;
+      let bestD = Infinity;
+      for (let dx = -ring; dx <= ring; dx++) {
+        for (let dy = -ring; dy <= ring; dy++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+          const cx = x + dx * step, cy = y + dy * step;
+          if (!clears(cx, cy)) continue;
+          const d = dx * dx + dy * dy;
+          if (d < bestD) { bestD = d; best = { x: cx, y: cy }; }
+        }
+      }
+      if (best) return best;
+    }
+    return { x, y };
+  }
+
+  // Where a freshly-spawned card should land: near (x,y) but not overlapping.
+  function findFreeSpot(x: number, y: number): { x: number; y: number } {
+    return resolveFreePosition(x, y, tweakRef.current.noteWidth, 84, measureRects());
   }
 
   function spawnCommitted(canvasX: number, canvasY: number, text: string, opts?: { localOnly?: boolean }): string {
@@ -484,10 +576,11 @@ export default function JustNotes(props: JustNotesProps) {
   }
   function toggleOverview() {
     const v = viewRef.current;
-    if (v.zoom < 0.95 && prevViewRef.current) {
+    if (prevViewRef.current) {
       animateView(prevViewRef.current);
       prevViewRef.current = null;
-    } else {
+    } else if (notesRef.current.length) {
+      // Nothing to frame on an empty canvas — don't enter a stuck overview.
       prevViewRef.current = v;
       frameNotes(notesRef.current);
     }
@@ -515,8 +608,13 @@ export default function JustNotes(props: JustNotesProps) {
     const target = e.target as HTMLElement;
     if (!target.dataset.canvas) return;
     e.preventDefault();
+    // Ignore the 2nd+ click of a multi-click: otherwise a double-tap spawns a
+    // note then commits (deletes) it. preventDefault above also blocks the
+    // native text-selection.
+    if (e.detail > 1) return;
     markInteracted();
-    const wantsPan = e.metaKey || e.ctrlKey;
+    // Plain drag pans the canvas; ⌘/Ctrl + drag marquee-selects.
+    const wantsSelect = e.metaKey || e.ctrlKey;
     const startSX = e.clientX, startSY = e.clientY;
     const startPan = { ...viewRef.current.pan };
     const startCanvas = screenToCanvas(startSX, startSY);
@@ -526,7 +624,7 @@ export default function JustNotes(props: JustNotesProps) {
       const dx = ev.clientX - startSX, dy = ev.clientY - startSY;
       if (!moved && dx * dx + dy * dy > 9) moved = true;
       if (!moved) return;
-      if (wantsPan) {
+      if (!wantsSelect) {
         setView((v) => ({ ...v, pan: { x: startPan.x + dx, y: startPan.y + dy } }));
       } else {
         const cur = screenToCanvas(ev.clientX, ev.clientY);
@@ -542,10 +640,9 @@ export default function JustNotes(props: JustNotesProps) {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       if (!moved) {
-        if (viewRef.current.zoom < 0.95) {
-          if (prevViewRef.current) { animateView(prevViewRef.current); prevViewRef.current = null; }
-          return;
-        }
+        // In overview (entered via z) a click flies back, not spawns.
+        if (prevViewRef.current) { animateView(prevViewRef.current); prevViewRef.current = null; return; }
+        if (viewRef.current.zoom < 0.95) return; // manually zoomed way out — don't spawn tiny notes
         if (editingId) { commitEditing(); return; }
         if (ambientOpen) { closeAmbient(); return; }
         if (selectedIdsRef.current.size > 0) { setSelectedIds(new Set()); return; }
@@ -553,7 +650,7 @@ export default function JustNotes(props: JustNotesProps) {
         spawnAt(c.x, c.y);
         return;
       }
-      if (wantsPan) return;
+      if (!wantsSelect) return;
       const cur = screenToCanvas(ev.clientX, ev.clientY);
       const m = {
         x0: Math.min(startCanvas.x, cur.x),
@@ -578,10 +675,11 @@ export default function JustNotes(props: JustNotesProps) {
 
   const onNoteMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>, id: string) => {
     if (e.button !== 0) return;
+    // All modes are freeform + draggable; sticky/paper just declump on entry.
     if (editingId === id) return;
     e.stopPropagation();
     markInteracted();
-    if (viewRef.current.zoom < 0.95) {
+    if (prevViewRef.current) {
       const n = notesRef.current.find((x) => x.id === id);
       if (n) flyTo(n);
       return;
@@ -590,10 +688,24 @@ export default function JustNotes(props: JustNotesProps) {
     if (!note) return;
     const isSelected = selectedIdsRef.current.has(id);
     const groupIds: string[] = isSelected ? Array.from(selectedIdsRef.current) : [id];
+    // Drag from the displayed spot: bake the declumped position into real so
+    // the card follows the cursor with no jump; origReals reverts on a plain
+    // click (no drag).
+    const disp = layoutRef.current;
     const startPositions = new Map<string, { x: number; y: number }>();
+    const origReals = new Map<string, { x: number; y: number }>();
+    const bakes: { id: string; x: number; y: number }[] = [];
     for (const nid of groupIds) {
       const n = notesRef.current.find((x) => x.id === nid);
-      if (n) startPositions.set(nid, { x: n.x, y: n.y });
+      if (!n) continue;
+      const p = disp.get(nid) ?? { x: n.x, y: n.y };
+      startPositions.set(nid, p);
+      origReals.set(nid, { x: n.x, y: n.y });
+      if (p.x !== n.x || p.y !== n.y) bakes.push({ id: nid, x: p.x, y: p.y });
+    }
+    if (bakes.length) {
+      const bakeById = new Map(bakes.map((b) => [b.id, b]));
+      setNotes((ns) => ns.map((n) => { const b = bakeById.get(n.id); return b ? { ...n, x: b.x, y: b.y } : n; }));
     }
     const startSX = e.clientX, startSY = e.clientY;
     let moved = false;
@@ -618,18 +730,42 @@ export default function JustNotes(props: JustNotesProps) {
       window.removeEventListener("mouseup", onUp);
       setDraggingId(null);
       if (!moved) {
+        // A click, not a drag — undo the bake (stays at its declumped spot).
+        if (bakes.length) {
+          setNotes((ns) => ns.map((n) => { const o = origReals.get(n.id); return o ? { ...n, x: o.x, y: o.y } : n; }));
+        }
         // Single click selects; editing is on double-click (onDoubleClick).
         if (editingId && editingId !== id) commitEditing();
         if (ambientOpen) closeAmbient();
         setSelectedIds(new Set([id]));
         return;
       }
-      for (const nid of groupIds) {
-        const sp = startPositions.get(nid);
-        if (!sp) continue;
-        pushOp({ type: "move", id: nid, prevX: sp.x, prevY: sp.y });
+      // Single-card drops snap to the nearest free spot so cards never stack.
+      if (groupIds.length === 1) {
+        const nid = groupIds[0];
+        const orig = origReals.get(nid);
         const cur = notesRef.current.find((n) => n.id === nid);
-        if (cur) onUpdate(nid, { x: cur.x, y: cur.y });
+        if (orig && cur) {
+          const el = canvasRef.current?.querySelector<HTMLElement>(`[data-note-id="${nid}"]`);
+          const selfW = el?.offsetWidth ?? cur.w ?? tweakRef.current.noteWidth;
+          const selfH = el?.offsetHeight ?? cur.h ?? 96;
+          const spot = resolveFreePosition(cur.x, cur.y, selfW, selfH, measureRects(nid));
+          pushOp({ type: "move", id: nid, prevX: orig.x, prevY: orig.y });
+          if (spot.x !== cur.x || spot.y !== cur.y) {
+            setNotes((ns) => ns.map((n) => (n.id === nid ? { ...n, x: spot.x, y: spot.y } : n)));
+            setSnappingId(nid);
+            window.setTimeout(() => setSnappingId((s) => (s === nid ? null : s)), 340);
+          }
+          onUpdate(nid, { x: spot.x, y: spot.y });
+        }
+      } else {
+        for (const nid of groupIds) {
+          const orig = origReals.get(nid);
+          if (!orig) continue;
+          pushOp({ type: "move", id: nid, prevX: orig.x, prevY: orig.y });
+          const cur = notesRef.current.find((n) => n.id === nid);
+          if (cur) onUpdate(nid, { x: cur.x, y: cur.y });
+        }
       }
     };
     window.addEventListener("mousemove", onMove);
@@ -798,17 +934,22 @@ export default function JustNotes(props: JustNotesProps) {
       const isInput = !!target && (target.tagName === "TEXTAREA" || target.tagName === "INPUT");
 
       if (e.key === "Escape") {
-        if (contextMenu) { setContextMenu(null); return; }
-        if (selectedIdsRef.current.size > 0) { setSelectedIds(new Set()); return; }
-        if (graveyardOpen) { setGraveyardOpen(false); return; }
-        if (authPanelOpen) { setAuthPanelOpen(false); return; }
-        if (tweaksOpen) { setTweaksOpen(false); return; }
-        if (helpOpen) { setHelpOpen(false); return; }
-        if (ambientOpen) { closeAmbient(); return; }
-        if (editingId) { commitEditing(); return; }
-        if (viewRef.current.zoom < 0.95 && prevViewRef.current) {
-          animateView(prevViewRef.current); prevViewRef.current = null; return;
-        }
+        // Close whatever's open, most-transient first. Consume the event when
+        // we handle it so the browser doesn't also act on Esc (e.g. exit
+        // fullscreen); only fall through when there's nothing to dismiss.
+        let handled = true;
+        if (contextMenu) setContextMenu(null);
+        else if (selectedIdsRef.current.size > 0) setSelectedIds(new Set());
+        else if (graveyardOpen) setGraveyardOpen(false);
+        else if (authPanelOpen) setAuthPanelOpen(false);
+        else if (tweaksOpen) setTweaksOpen(false);
+        else if (helpOpen) setHelpOpen(false);
+        else if (ambientOpen) closeAmbient();
+        else if (editingId) commitEditing();
+        else if (prevViewRef.current) {
+          animateView(prevViewRef.current); prevViewRef.current = null;
+        } else handled = false;
+        if (handled) { e.preventDefault(); e.stopPropagation(); return; }
       }
 
       // When the auth panel is open, every key belongs to the form
@@ -980,7 +1121,9 @@ export default function JustNotes(props: JustNotesProps) {
   }, [t.clipboardCapture]);
 
   // ── Render ─────────────────────────────────────────────────────────
-  const inOverview = view.zoom < 0.95;
+  // Overview = zoomed way out, or entered via z (can settle at zoom≈1 for a
+  // tight cluster). prevViewRef flips alongside a setView, so it's safe here.
+  const inOverview = view.zoom < 0.95 || prevViewRef.current != null;
 
   function scrubFadeFor(n: Note) {
     if (scrubMoment == null) return 1;
@@ -991,7 +1134,7 @@ export default function JustNotes(props: JustNotesProps) {
   // note sharing a tag with it. Curved paths in canvas coordinates — the SVG
   // lives inside the transformed notes-layer, so note x/y map 1:1.
   const relationThreads = useMemo(() => {
-    if (!relationsOn) return [];
+    if (!relationsOn || viewMode !== "default") return [];
     const activeId = hoveredId ?? (selectedIds.size === 1 ? [...selectedIds][0] : null);
     if (!activeId) return [];
     const active = notes.find((n) => n.id === activeId);
@@ -1017,7 +1160,7 @@ export default function JustNotes(props: JustNotesProps) {
       out.push({ id: n.id, d: `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}` });
     }
     return out;
-  }, [relationsOn, hoveredId, selectedIds, notes, t.noteWidth]);
+  }, [relationsOn, viewMode, hoveredId, selectedIds, notes, t.noteWidth]);
 
   const rootStyle: CSSProperties = {
     ["--radius" as string]: `${t.radius}px`,
@@ -1035,7 +1178,7 @@ export default function JustNotes(props: JustNotesProps) {
         onMouseDown={onCanvasMouseDown}
       >
         <div
-          className={"notes-layer" + (smooth ? " smooth" : "") + (inOverview ? " overview" : "")}
+          className={"notes-layer view-" + viewMode + (smooth ? " smooth" : "") + (inOverview ? " overview" : "") + (layoutAnimating ? " layout-animating" : "")}
           style={{ transform: `translate(${view.pan.x}px, ${view.pan.y}px) scale(${view.zoom})` }}
         >
           {marquee && (
@@ -1060,10 +1203,14 @@ export default function JustNotes(props: JustNotesProps) {
             <NoteCard
               key={n.id}
               note={n}
+              pos={layout.get(n.id) ?? { x: n.x, y: n.y }}
+              viewMode={viewMode}
+              stickyColor={viewMode === "sticky" ? stickyColorOf(n.id) : null}
               fromClipboard={clipboardIds.has(n.id)}
               onHover={onNoteHover}
               editing={editingId === n.id}
               dragging={draggingId === n.id}
+              snapping={snappingId === n.id}
               dimmed={!!matchSet && !matchSet.has(n.id)}
               highlit={!!matchSet && matchSet.has(n.id)}
               focused={!!matchIds && matchIds[recallIdx] === n.id}
@@ -1113,6 +1260,8 @@ export default function JustNotes(props: JustNotesProps) {
           />
         );
       })()}
+
+      <ModeSwitch mode={viewMode} onChange={(m) => { markInteracted(); setTweak("viewMode", m); }} />
 
       <Chrome
         count={notes.length}
@@ -1236,15 +1385,19 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 
 // ── NoteCard ───────────────────────────────────────────────────────────
 function NoteCard({
-  note, fromClipboard, editing, dragging,
+  note, pos, viewMode, stickyColor, fromClipboard, editing, dragging, snapping,
   dimmed, highlit, focused, selected, hidden, scrubFade,
   onMouseDown, onEdit, onTextChange, onContextMenu, onTagClick, onResizeStart, onHover,
 }: {
   note: Note;
+  pos: { x: number; y: number };
+  viewMode: ViewMode;
+  stickyColor: { bg: string; ink: string } | null;
   fromClipboard: boolean;
   onHover: (id: string | null) => void;
   editing: boolean;
   dragging: boolean;
+  snapping: boolean;
   dimmed: boolean;
   highlit: boolean;
   focused: boolean;
@@ -1287,6 +1440,7 @@ function NoteCard({
     `rec-${rec}`,
     editing ? "editing" : "",
     dragging ? "dragging" : "",
+    snapping ? "snapping" : "",
     dimmed ? "dim" : "",
     highlit ? "hit" : "",
     focused ? "focused" : "",
@@ -1295,26 +1449,32 @@ function NoteCard({
     isHeading && !editing ? "has-heading" : "",
   ].filter(Boolean).join(" ");
 
-  // Paper colors derive from the active JustUI theme. The recency
-  // alpha gives the four-step aging feeling without needing per-theme
-  // color tables — fresh notes are full-opacity bg-secondary, ancient
-  // ones fade toward the canvas bg.
+  // Default colors come from the theme + recency alpha; stickies wear a fixed
+  // palette color and skip the recency fade.
+  const isManaged = viewMode !== "default";
   const style: CSSProperties = {
-    left: note.x,
-    top: note.y,
-    background: "rgb(var(--bg-secondary))",
-    color: "rgb(var(--text-primary))",
-    opacity: RECENCY_ALPHA[rec] * (scrubFade ?? 1),
+    left: pos.x,
+    top: pos.y,
+    backgroundColor: stickyColor ? stickyColor.bg : "rgb(var(--bg-secondary))",
+    color: stickyColor ? stickyColor.ink : "rgb(var(--text-primary))",
+    opacity: (isManaged ? 1 : RECENCY_ALPHA[rec]) * (scrubFade ?? 1),
   };
-  if (note.w != null) style.width = note.w;
-  if (note.h != null) {
+  // Per-note resize overrides apply only in default; modes own card size.
+  if (!isManaged && note.w != null) style.width = note.w;
+  if (!isManaged && note.h != null) {
     style.maxHeight = "none";
     if (!editing) style.height = note.h;
+  }
+  // Paper = A4 (from shared constants, so JS layout and card can't drift).
+  if (viewMode === "paper") {
+    style.width = PAPER_W;
+    style.minHeight = PAPER_H;
   }
 
   return (
     <div
       className={cls}
+      data-note-id={note.id}
       style={style}
       onMouseDown={(e) => {
         const target = e.target as HTMLElement;
@@ -1364,7 +1524,7 @@ function NoteCard({
         </div>
       )}
       {!editing && <div className="note-pad-cover" aria-hidden="true" />}
-      {!editing && (
+      {!editing && !isManaged && (
         <>
           <div
             className="note-edge note-edge-e"
@@ -1383,6 +1543,33 @@ function NoteCard({
           />
         </>
       )}
+    </div>
+  );
+}
+
+// ── ModeSwitch ─────────────────────────────────────────────────────────
+// Top-center segmented control; writes the persisted `viewMode` tweak.
+const MODE_LABELS: { mode: ViewMode; label: string }[] = [
+  { mode: "default", label: "canvas" },
+  { mode: "sticky", label: "sticky" },
+  { mode: "paper", label: "paper" },
+];
+
+function ModeSwitch({ mode, onChange }: { mode: ViewMode; onChange: (m: ViewMode) => void }) {
+  return (
+    <div className="chrome mode-switch" role="radiogroup" aria-label="canvas view mode">
+      {MODE_LABELS.map((m) => (
+        <button
+          key={m.mode}
+          type="button"
+          role="radio"
+          aria-checked={m.mode === mode}
+          className={"mode-switch-btn" + (m.mode === mode ? " active" : "")}
+          onClick={() => onChange(m.mode)}
+        >
+          {m.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -1486,8 +1673,8 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
     [[mod, "K"],                   "open ambient with empty query"],
     ["drag a note",                "reposition · snaps to grid"],
     [["shift", "drag a note"],     "ignore the grid"],
-    ["drag empty canvas",          "marquee select"],
-    [[mod, "drag empty canvas"],   "pan"],
+    ["drag empty canvas",          "pan · fly around"],
+    [[mod, "drag empty canvas"],   "marquee select"],
     ["scroll / trackpad",          "pan"],
     [[mod, "scroll"],              "zoom centered on cursor"],
     [[mod, "+ / -"],               "zoom in / out"],
