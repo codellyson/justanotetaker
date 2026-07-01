@@ -38,11 +38,11 @@
     "production": {
       "name": "justnotetaking-api-prod",
       "vars": {
-        "BETTER_AUTH_URL": "https://api.justnotetaking.kreativekorna.com",
+        "BETTER_AUTH_URL": "https://api.justanotetaker.kreativekorna.com",
         // Comma-separated. Add any extra origins (preview deploys, etc.).
         // tauri://localhost = macOS/Linux; http(s)://tauri.localhost = Windows
         // (WebView2) + Android — the desktop app is CORS-blocked without them.
-        "TRUSTED_ORIGINS": "https://justnotetaking.kreativekorna.com,https://app.justnotetaking.kreativekorna.com,https://justnotetaking-marketing.pages.dev,https://justnotetaking-web.pages.dev,tauri://localhost,http://tauri.localhost,https://tauri.localhost"
+        "TRUSTED_ORIGINS": "https://justanotetaker.kreativekorna.com,https://app.justanotetaker.kreativekorna.com,https://justnotetaking-marketing.pages.dev,https://justnotetaking-web.pages.dev,tauri://localhost,http://tauri.localhost,https://tauri.localhost"
       },
       "d1_databases": [
         {
@@ -54,7 +54,7 @@
       ],
       "routes": [
         {
-          "pattern": "api.justnotetaking.kreativekorna.com",
+          "pattern": "api.justanotetaker.kreativekorna.com",
           "custom_domain": true
         }
       ]

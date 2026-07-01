@@ -98,4 +98,4 @@ git push origin "$TAG"
 echo
 echo "✓ Released $TAG"
 echo "  • Watch the build:  gh run watch \$(gh run list --workflow=release.yml --limit 1 --json databaseId --jq '.[0].databaseId') --exit-status"
-echo "  • Release page:     https://github.com/codellyson/justnotetaking/releases/tag/$TAG"
+echo "  • Release page:     https://github.com/codellyson/justanotetaker/releases/tag/$TAG"

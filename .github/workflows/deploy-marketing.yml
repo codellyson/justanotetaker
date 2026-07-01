@@ -10,8 +10,8 @@
 #   CLOUDFLARE_ACCOUNT_ID  - account ID
 #
 # Required repo vars (Settings → Variables, not Secrets — non-sensitive):
-#   PUBLIC_WEB_URL         - https://app.justnotetaking.kreativekorna.com
-#   PUBLIC_DESKTOP_URL     - https://github.com/codellyson/justnotetaking/releases/latest
+#   PUBLIC_WEB_URL         - https://app.justanotetaker.kreativekorna.com
+#   PUBLIC_DESKTOP_URL     - https://github.com/codellyson/justanotetaker/releases/latest
 
 name: deploy-marketing
 
@@ -55,7 +55,7 @@ jobs:
         env:
           PUBLIC_WEB_URL: ${{ vars.PUBLIC_WEB_URL }}
           PUBLIC_DESKTOP_URL: ${{ vars.PUBLIC_DESKTOP_URL }}
-        run: pnpm --filter @justnotetaking/marketing build
+        run: pnpm --filter @justanotetaker/marketing build
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

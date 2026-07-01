@@ -32,9 +32,9 @@ GitHub repo vars (Settings → Variables and Secrets → Variables tab — non-s
 
 | Variable | Value (this repo) |
 | --- | --- |
-| `VITE_API_BASE_URL`   | `https://api.justnotetaking.kreativekorna.com` |
-| `PUBLIC_WEB_URL`      | `https://app.justnotetaking.kreativekorna.com` |
-| `PUBLIC_DESKTOP_URL`  | `https://github.com/codellyson/justnotetaking/releases/latest` |
+| `VITE_API_BASE_URL`   | `https://api.justanotetaker.kreativekorna.com` |
+| `PUBLIC_WEB_URL`      | `https://app.justanotetaker.kreativekorna.com` |
+| `PUBLIC_DESKTOP_URL`  | `https://github.com/codellyson/justanotetaker/releases/latest` |
 
 Optional secrets (signing — see [Desktop release](#desktop-release-tauri)):
 
@@ -47,14 +47,14 @@ Optional secrets (signing — see [Desktop release](#desktop-release-tauri)):
 ## Prerequisites
 
 - Cloudflare account with Workers + D1 + Pages enabled
-- `wrangler` available (already in `apps/api/devDependencies`; use `pnpm --filter @justnotetaking/api exec wrangler ...` from the repo root)
-- A custom domain on Cloudflare DNS (the runbook assumes `justnotetaking.kreativekorna.com` for marketing/web and `api.justnotetaking.kreativekorna.com` for the Worker — search/replace if yours differs)
+- `wrangler` available (already in `apps/api/devDependencies`; use `pnpm --filter @justanotetaker/api exec wrangler ...` from the repo root)
+- A custom domain on Cloudflare DNS (the runbook assumes `justanotetaker.kreativekorna.com` for marketing/web and `api.justanotetaker.kreativekorna.com` for the Worker — search/replace if yours differs)
 - Optional: Google Cloud Console OAuth client (only needed if you want the Google sign-in button)
 
 ```sh
 cd /path/to/justnotetaking
 pnpm install   # if you haven't already
-pnpm --filter @justnotetaking/api exec wrangler login
+pnpm --filter @justanotetaker/api exec wrangler login
 ```
 
 ---
@@ -65,8 +65,8 @@ Each env (dev/prod) gets its own D1 instance.
 
 ```sh
 # One-time per env. Copy the database_id from the output into wrangler.jsonc.
-pnpm --filter @justnotetaking/api exec wrangler d1 create justnotetaking-dev
-pnpm --filter @justnotetaking/api exec wrangler d1 create justnotetaking-prod
+pnpm --filter @justanotetaker/api exec wrangler d1 create justnotetaking-dev
+pnpm --filter @justanotetaker/api exec wrangler d1 create justnotetaking-prod
 ```
 
 Open `apps/api/wrangler.jsonc` and replace both `REPLACE_ME_RUN_wrangler_d1_create` placeholders with the real IDs:
@@ -77,11 +77,11 @@ Apply migrations to both:
 
 ```sh
 # Dev (uses miniflare in-memory by default; --remote hits the real D1)
-pnpm --filter @justnotetaking/api db:migrate:local       # local SQLite
-pnpm --filter @justnotetaking/api exec wrangler d1 migrations apply justnotetaking-dev --remote
+pnpm --filter @justanotetaker/api db:migrate:local       # local SQLite
+pnpm --filter @justanotetaker/api exec wrangler d1 migrations apply justnotetaking-dev --remote
 
 # Prod
-pnpm --filter @justnotetaking/api db:migrate:remote
+pnpm --filter @justanotetaker/api db:migrate:remote
 ```
 
 ---
@@ -92,26 +92,26 @@ Required for any env that actually serves traffic:
 
 ```sh
 # BETTER_AUTH_SECRET — random 32-byte hex. Different per env.
-openssl rand -hex 32 | pnpm --filter @justnotetaking/api exec wrangler secret put BETTER_AUTH_SECRET --env production
+openssl rand -hex 32 | pnpm --filter @justanotetaker/api exec wrangler secret put BETTER_AUTH_SECRET --env production
 ```
 
 Optional — Google OAuth. Skip if you only want email/password sign-in.
 
 ```sh
 # From Google Cloud Console → APIs & Services → Credentials → OAuth client ID
-pnpm --filter @justnotetaking/api exec wrangler secret put GOOGLE_CLIENT_ID --env production
-pnpm --filter @justnotetaking/api exec wrangler secret put GOOGLE_CLIENT_SECRET --env production
+pnpm --filter @justanotetaker/api exec wrangler secret put GOOGLE_CLIENT_ID --env production
+pnpm --filter @justanotetaker/api exec wrangler secret put GOOGLE_CLIENT_SECRET --env production
 ```
 
 The Google OAuth callback URL to register in the Cloud Console is:
-`https://api.justnotetaking.kreativekorna.com/api/auth/callback/google`
+`https://api.justanotetaker.kreativekorna.com/api/auth/callback/google`
 
 ---
 
 ## 3 · Deploy the Worker
 
 ```sh
-pnpm --filter @justnotetaking/api exec wrangler deploy --env production
+pnpm --filter @justanotetaker/api exec wrangler deploy --env production
 ```
 
 The first deploy will print the `*.workers.dev` URL the Worker is now reachable at. You can hit it directly to smoke-test before attaching the custom domain.
@@ -122,27 +122,27 @@ Either:
 - Leave `routes` in `wrangler.jsonc#env.production` and rerun `wrangler deploy --env production` (wrangler attaches the route on your behalf), **or**
 - Skip the `routes` block and attach via the Cloudflare dashboard → Workers → your worker → Triggers → Add Custom Domain.
 
-DNS: a proxied CNAME for `api.justnotetaking.kreativekorna.com` to the workers.dev hostname. (The dashboard's "Add Custom Domain" creates this automatically.)
+DNS: a proxied CNAME for `api.justanotetaker.kreativekorna.com` to the workers.dev hostname. (The dashboard's "Add Custom Domain" creates this automatically.)
 
 ### Smoke test
 
 ```sh
 # Health
-curl https://api.justnotetaking.kreativekorna.com/api/health
+curl https://api.justanotetaker.kreativekorna.com/api/health
 # → {"ok":true,"time":...}
 
 # Anonymous sign-in (cookie ends up in the jar)
 JAR=/tmp/jn.cookies && rm -f "$JAR"
 curl -s -c "$JAR" -X POST \
-  https://api.justnotetaking.kreativekorna.com/api/auth/sign-in/anonymous \
+  https://api.justanotetaker.kreativekorna.com/api/auth/sign-in/anonymous \
   -H "Content-Type: application/json" \
-  -H "Origin: https://justnotetaking.kreativekorna.com" \
+  -H "Origin: https://justanotetaker.kreativekorna.com" \
   -d '{}' | jq .user.id
 
 # Whoami
 curl -s -b "$JAR" \
-  -H "Origin: https://justnotetaking.kreativekorna.com" \
-  https://api.justnotetaking.kreativekorna.com/api/me | jq .
+  -H "Origin: https://justanotetaker.kreativekorna.com" \
+  https://api.justanotetaker.kreativekorna.com/api/me | jq .
 ```
 
 If `INVALID_ORIGIN` comes back, double-check `TRUSTED_ORIGINS` in `wrangler.jsonc#env.production.vars` includes the exact origin you're sending from.
@@ -155,21 +155,21 @@ Static build, no SSR — Pages serves the `dist/` directly.
 
 ```sh
 # Build with the prod URLs baked into the CTAs
-PUBLIC_WEB_URL=https://justnotetaking.kreativekorna.com \
+PUBLIC_WEB_URL=https://justanotetaker.kreativekorna.com \
 PUBLIC_DESKTOP_URL=https://github.com/your-org/justnotetaking/releases/latest \
-pnpm --filter @justnotetaking/marketing build
+pnpm --filter @justanotetaker/marketing build
 
 # Deploy (first run prompts for project name + branch settings)
-pnpm --filter @justnotetaking/marketing exec wrangler pages deploy dist --project-name justnotetaking-marketing
+pnpm --filter @justanotetaker/marketing exec wrangler pages deploy dist --project-name justnotetaking-marketing
 ```
 
 For continuous deploys, hook Pages up to the GitHub repo in the dashboard with this build command:
-- Build command: `pnpm install --frozen-lockfile && pnpm --filter @justnotetaking/marketing build`
+- Build command: `pnpm install --frozen-lockfile && pnpm --filter @justanotetaker/marketing build`
 - Build output dir: `apps/marketing/dist`
 - Root dir: leave blank (Pages will run at repo root)
 - Env vars: `PUBLIC_WEB_URL`, `PUBLIC_DESKTOP_URL`
 
-DNS: a proxied CNAME for `justnotetaking.kreativekorna.com` to the pages.dev hostname.
+DNS: a proxied CNAME for `justanotetaker.kreativekorna.com` to the pages.dev hostname.
 
 ---
 
@@ -179,15 +179,15 @@ The web app is a static Vite bundle. Same Pages flow as marketing, different pro
 
 ```sh
 # Build with the prod API URL
-VITE_API_BASE_URL=https://api.justnotetaking.kreativekorna.com \
-pnpm --filter @justnotetaking/web build
+VITE_API_BASE_URL=https://api.justanotetaker.kreativekorna.com \
+pnpm --filter @justanotetaker/web build
 
-pnpm --filter @justnotetaking/web exec wrangler pages deploy dist --project-name justnotetaking-web
+pnpm --filter @justanotetaker/web exec wrangler pages deploy dist --project-name justnotetaking-web
 ```
 
 `VITE_API_BASE_URL` is honored by `apps/web/src/lib/runtime.ts` — set it to override the prod default for staging/preview builds.
 
-Web app domain: `app.justnotetaking.kreativekorna.com` (or the bare apex — your call). Update `TRUSTED_ORIGINS` in the Worker's prod env to match before deploying the Worker, or sign-in will 403.
+Web app domain: `app.justanotetaker.kreativekorna.com` (or the bare apex — your call). Update `TRUSTED_ORIGINS` in the Worker's prod env to match before deploying the Worker, or sign-in will 403.
 
 ---
 
@@ -262,7 +262,7 @@ See `docs/migration.md#phase-3` for the original sketch.
 D1 has no built-in rollback, so keep migrations forward-only and additive when possible. For Workers code:
 
 ```sh
-pnpm --filter @justnotetaking/api exec wrangler rollback --env production
+pnpm --filter @justanotetaker/api exec wrangler rollback --env production
 ```
 
 That reverts to the previous deployment; combine with a follow-up migration if the rollback puts code and schema out of sync.

@@ -1,11 +1,11 @@
 {
-  "name": "justnotetaking-monorepo",
+  "name": "justanotetaker-monorepo",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "pnpm --filter @justnotetaking/web dev",
-    "dev:api": "pnpm --filter @justnotetaking/api dev",
-    "dev:marketing": "pnpm --filter @justnotetaking/marketing dev",
+    "dev": "pnpm --filter @justanotetaker/web dev",
+    "dev:api": "pnpm --filter @justanotetaker/api dev",
+    "dev:marketing": "pnpm --filter @justanotetaker/marketing dev",
     "build": "pnpm -r --parallel build",
     "lint": "pnpm -r --parallel lint",
     "tauri": "tauri",

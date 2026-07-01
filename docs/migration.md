@@ -110,7 +110,7 @@ Build the shape. No notes persist yet — the canvas still seeds from `SEED` on 
 - Tauri 2 + Rust
 - `tauri.conf.json`:
   - `frontendDist` → `../apps/web/dist`
-  - `beforeDevCommand` → `pnpm --filter @justnotetaking/web dev`
+  - `beforeDevCommand` → `pnpm --filter @justanotetaker/web dev`
   - `devUrl` → `http://localhost:5173`
 - Bearer-token storage: **decide between `tauri-plugin-stronghold` (encrypted file in app data dir) and the `keyring` crate (OS-native keychain)** during Phase 0 — leaning `keyring` for true OS integration on macOS
 - Phase 0 only needs Tauri to open a window with the canvas + obtain an anonymous session via bearer token — no notes wiring
@@ -124,8 +124,8 @@ Build the shape. No notes persist yet — the canvas still seeds from `SEED` on 
 ### Acceptance
 
 - `pnpm dev` boots Vite at `:5173`, canvas works identically to current `main`
-- `pnpm --filter @justnotetaking/api dev` runs Hono Worker at `:8787`; `POST /api/auth/sign-in/anonymous` returns a session and creates a row in `user`
-- `pnpm --filter @justnotetaking/marketing dev` runs Astro at `:4321`
+- `pnpm --filter @justanotetaker/api dev` runs Hono Worker at `:8787`; `POST /api/auth/sign-in/anonymous` returns a session and creates a row in `user`
+- `pnpm --filter @justanotetaker/marketing dev` runs Astro at `:4321`
 - `pnpm tauri:dev` opens a native window pointed at the Vite app, obtains an anonymous session on first boot, persists the bearer token, reuses it on subsequent launches
 - `wrangler d1 migrations apply justnotetaking-dev --local` applies Better Auth's generated schema cleanly
 - All four surfaces share TypeScript types via `packages/api-client`
@@ -246,7 +246,7 @@ Bring the dormant OAuth flows alive.
 OAuth callback can't land in the Tauri webview directly — Tauri uses a custom protocol (`tauri://`) that OAuth providers won't redirect to. Two viable patterns:
 
 1. **System-browser handoff + deep link** (preferred):
-   - Tauri opens the system browser to `https://justnotetaking.kreativekorna.com/auth/start?desktop=1`
+   - Tauri opens the system browser to `https://justanotetaker.kreativekorna.com/auth/start?desktop=1`
    - That route runs the standard OAuth flow, exchanges the code for a bearer token, then deep-links back to `justnotetaking://auth/callback?token=...`
    - Tauri stores the bearer token in OS keychain
 
@@ -272,9 +272,9 @@ OAuth callback can't land in the Tauri webview directly — Tauri uses a custom 
 | Track | Work |
 | --- | --- |
 | Tauri | Apple Developer ID signing, notarization, auto-update via `tauri-plugin-updater`, GitHub Releases as the update feed |
-| Workers | Production `wrangler.toml`, custom domain (`api.justnotetaking.kreativekorna.com`), secrets via `wrangler secret put` |
+| Workers | Production `wrangler.toml`, custom domain (`api.justanotetaker.kreativekorna.com`), secrets via `wrangler secret put` |
 | D1 | Production DB created via `wrangler d1 create justnotetaking-prod`, migrations run via `wrangler d1 migrations apply --remote` |
-| Marketing | Astro deployed to Cloudflare Pages, custom domain (`justnotetaking.kreativekorna.com`) |
+| Marketing | Astro deployed to Cloudflare Pages, custom domain (`justanotetaker.kreativekorna.com`) |
 | Observability | Wrangler analytics, Cloudflare Workers Logs for API errors, basic crash reporting for Tauri (Sentry or self-hosted) |
 | Cleanup | Soft-deleted rows past 30 days purged via a scheduled Worker |
 
