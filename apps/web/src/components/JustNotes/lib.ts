@@ -12,6 +12,33 @@ export type Recency = "fresh" | "recent" | "older" | "ancient";
 
 export const GRID = 28;
 
+// A view mode is a lens over the whole canvas; real note positions are kept
+// underneath and restored on return to "default".
+export type ViewMode = "default" | "sticky" | "paper";
+
+// Card geometry, canvas units. Paper is A4 portrait (1:√2).
+export const STICKY_SIZE = 190;
+export const STICKY_GAP = 30;
+export const PAPER_W = 420;
+export const PAPER_H = Math.round(PAPER_W * Math.SQRT2); // 594
+export const PAPER_GAP = 44;
+
+// Assigned per note stably by id, so a sticky keeps its color across renders.
+export const STICKY_COLORS: readonly { bg: string; ink: string }[] = [
+  { bg: "#fde68a", ink: "#713f12" }, // amber
+  { bg: "#fbcfe8", ink: "#831843" }, // pink
+  { bg: "#bfdbfe", ink: "#1e3a8a" }, // blue
+  { bg: "#bbf7d0", ink: "#14532d" }, // green
+  { bg: "#ddd6fe", ink: "#4c1d95" }, // violet
+  { bg: "#fed7aa", ink: "#7c2d12" }, // orange
+];
+
+export function stickyColorOf(id: string): { bg: string; ink: string } {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return STICKY_COLORS[h % STICKY_COLORS.length];
+}
+
 /**
  * Maps a note's `t` (last-touched timestamp) to one of four recency
  * buckets. Used to derive paper opacity + the recency-key legend in
@@ -93,6 +120,8 @@ export type Tweaks = {
   noteWidth: number;
   snap: boolean;
   editMode: "in place" | "focused";
+  // Canvas view mode. Persisted, so reopening restores the last mode.
+  viewMode: ViewMode;
   compass: boolean;
   // Desktop only: poll the OS clipboard and auto-create notes from new copies.
   clipboardCapture: boolean;
@@ -107,6 +136,7 @@ export const TWEAK_DEFAULTS: Tweaks = {
   noteWidth: 220,
   snap: true,
   editMode: "in place",
+  viewMode: "default",
   compass: true,
   clipboardCapture: false,
   clipboardSyncToCloud: true,

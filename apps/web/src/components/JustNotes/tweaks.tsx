@@ -365,6 +365,12 @@ export function TweaksUI({
 
       <TweakSection label="Canvas" />
       <TweakRadio
+        label="View"
+        value={t.viewMode}
+        options={["default", "sticky", "paper"] as const}
+        onChange={(v) => setTweak("viewMode", v)}
+      />
+      <TweakRadio
         label="Grid"
         value={t.grid}
         options={["dots", "lines", "off"] as const}

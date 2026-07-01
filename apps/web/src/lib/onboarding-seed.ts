@@ -21,7 +21,7 @@ export const ONBOARDING_SEED: SeedNote[] = [
   {
     x: -385,
     y: -20,
-    text: "Hold ⌘ / Ctrl and drag to fly around. Scroll to roam, ⌘ + scroll to zoom.",
+    text: "Drag anywhere to fly around. Scroll to roam, ⌘ + scroll to zoom. Hold ⌘ / Ctrl and drag to select.",
   },
   {
     x: -110,
