@@ -281,51 +281,61 @@ export default function JustNotes(props: JustNotesProps) {
     window.setTimeout(() => setSmooth(false), 400);
   }
 
-  // Display-only positions for the active mode: sticky/paper declump overlaps
-  // (real positions are never touched, so default restores the true layout).
-  // The dragged note is excluded so it follows the cursor and doesn't shove
-  // the others. Empty in default — NoteCard falls back to home x/y.
-  // Declump a note list into a display-only layout for the given mode's card
-  // size. Reading order anchors the top-left; later cards get nudged off the
-  // ones already placed. Pure — reads nothing it isn't handed, mutates nothing.
-  function computeModeLayout(list: Note[], mode: ViewMode) {
+  // Build the display-only layout for `mode`, seeded with positions to keep
+  // fixed (`seed`). Order: (1) keep seeded positions, (2) pin each note's own
+  // persisted `modePos`, (3) declump every remaining note into its nearest
+  // free spot avoiding all the above. So kept/pinned cards never move and
+  // newcomers can't overlap them. Reads notesRef; mutates nothing.
+  function buildModeLayout(
+    mode: "sticky" | "paper",
+    seed?: Map<string, { x: number; y: number }>,
+  ): Map<string, { x: number; y: number }> {
     const w = mode === "sticky" ? STICKY_SIZE : PAPER_W;
     const h = mode === "sticky" ? STICKY_SIZE : PAPER_H;
-    const placed: { x: number; y: number; w: number; h: number }[] = [];
-    const map = new Map<string, { x: number; y: number }>();
-    const ordered = [...list].sort((a, b) => a.y - b.y || a.x - b.x);
-    for (const n of ordered) {
+    const list = notesRef.current;
+    const ids = new Set(list.map((n) => n.id));
+    const map = new Map<string, { x: number; y: number }>(
+      seed ? [...seed].filter(([id]) => ids.has(id)) : [], // drop deleted notes
+    );
+    const placed = [...map.values()].map((p) => ({ x: p.x, y: p.y, w, h }));
+    for (const n of list) {
+      if (map.has(n.id)) continue;
+      const s = n.modePos?.[mode];
+      if (s) { map.set(n.id, s); placed.push({ x: s.x, y: s.y, w, h }); }
+    }
+    for (const n of [...list].sort((a, b) => a.y - b.y || a.x - b.x)) {
+      if (map.has(n.id)) continue;
       const spot = resolveFreePosition(n.x, n.y, w, h, placed);
-      placed.push({ x: spot.x, y: spot.y, w, h });
       map.set(n.id, spot);
+      placed.push({ x: spot.x, y: spot.y, w, h });
     }
     return map;
   }
 
-  // The mode layout for `mode`: each note uses its own persisted `modePos`
-  // (synced with the note) if it has one, else a freshly-declumped spot.
-  // Nothing is written here — only an explicit drag persists (see onUp).
-  function loadModeLayout(mode: "sticky" | "paper"): Map<string, { x: number; y: number }> {
-    const computed = computeModeLayout(notesRef.current, mode);
-    const map = new Map<string, { x: number; y: number }>();
-    for (const n of notesRef.current) {
-      map.set(n.id, n.modePos?.[mode] ?? computed.get(n.id) ?? { x: n.x, y: n.y });
-    }
-    return map;
-  }
-
-  // On a mode change: pulse the glide transition and load the persisted layout
-  // for the mode (default clears it, so cards fall back to their real x/y — the
-  // untouched canvas layout).
+  // On a mode change: pulse the glide transition and (re)build the layout.
+  // Default clears it, so cards fall back to their real x/y (the canvas).
   useEffect(() => {
     if (prevModeRef.current === viewMode) return;
     prevModeRef.current = viewMode;
     setLayoutAnimating(true);
     const stop = window.setTimeout(() => setLayoutAnimating(false), 620);
-    setModePos(viewMode === "default" ? new Map() : loadModeLayout(viewMode));
+    setModePos(viewMode === "default" ? new Map() : buildModeLayout(viewMode));
     return () => window.clearTimeout(stop);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode]);
+
+  // Keep the layout covering every note while in a mode: notes created or
+  // loaded after entry get a declumped slot (avoiding the placed ones), and
+  // deleted notes are dropped — without disturbing existing positions, so no
+  // reflow. No-op when nothing's missing (e.g. during a drag).
+  useEffect(() => {
+    if (viewMode === "default") return;
+    setModePos((prev) => {
+      const complete = notes.length === prev.size && notes.every((n) => prev.has(n.id));
+      return complete ? prev : buildModeLayout(viewMode, prev);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes, viewMode]);
 
   function screenToCanvas(sx: number, sy: number, v: View = viewRef.current) {
     return { x: (sx - v.pan.x) / v.zoom, y: (sy - v.pan.y) / v.zoom };
