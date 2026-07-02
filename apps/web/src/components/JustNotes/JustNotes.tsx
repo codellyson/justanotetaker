@@ -31,7 +31,6 @@ import { clipboardOrigin } from "../../lib/clipboard-origin";
 import { seedIdStore } from "../../lib/seed-ids";
 import { AmbientBar, Compass, TimeScrub } from "./cherries";
 import { TweaksUI } from "./tweaks";
-import { Button } from "@codellyson/justui/react";
 import { remoteStorage } from "../../lib/storage";
 import { authClient, clearKeychainToken } from "../../lib/auth-client";
 import { API_BASE_URL, isTauri } from "../../lib/runtime";
@@ -1345,18 +1344,25 @@ export default function JustNotes(props: JustNotesProps) {
         );
       })()}
 
-      <ModeSwitch mode={viewMode} onChange={(m) => { markInteracted(); setTweak("viewMode", m); }} />
-
-      <Chrome
-        count={notes.length}
-        sync={syncLabel(online, lastWriteAt, nowTick)}
-        syncState={!online ? "offline" : lastWriteAt && Date.now() - lastWriteAt < 4000 ? "writing" : "synced"}
-        hintVisible={!interacted}
-        overviewLabel={inOverview ? "overview · z to return" : relationsOn ? "relations · r to hide" : null}
+      <Toolbar
+        mode={viewMode}
+        onSetMode={(m) => { markInteracted(); setTweak("viewMode", m); }}
+        onNewNote={() => { markInteracted(); spawnAtCenter(""); }}
+        onSearch={() => { markInteracted(); openAmbient(""); }}
+        overviewActive={inOverview}
+        onOverview={() => { markInteracted(); toggleOverview(); }}
+        relationsActive={relationsOn}
+        onRelations={() => { markInteracted(); setRelationsOn((v) => !v); }}
+        onGraveyard={() => setGraveyardOpen(true)}
+        onTweaks={() => setTweaksOpen(true)}
+        onHelp={() => setHelpOpen(true)}
         isAnonymous={isAnonymous}
         identityLabel={identityLabel}
         onSignIn={() => setAuthPanelOpen(true)}
         onSignOut={onSignOut}
+        count={notes.length}
+        sync={syncLabel(online, lastWriteAt, nowTick)}
+        syncState={!online ? "offline" : lastWriteAt && Date.now() - lastWriteAt < 4000 ? "writing" : "synced"}
       />
 
       <AuthPanel
@@ -1633,8 +1639,7 @@ function NoteCard({
   );
 }
 
-// ── ModeSwitch ─────────────────────────────────────────────────────────
-// Top-center segmented control; writes the persisted `viewMode` tweak.
+// View-mode buttons for the toolbar; each writes the persisted `viewMode`.
 const MODE_META: { mode: ViewMode; label: string; icon: React.ReactNode }[] = [
   {
     mode: "default",
@@ -1669,28 +1674,6 @@ const MODE_META: { mode: ViewMode; label: string; icon: React.ReactNode }[] = [
   },
 ];
 
-function ModeSwitch({ mode, onChange }: { mode: ViewMode; onChange: (m: ViewMode) => void }) {
-  return (
-    <div className="chrome mode-switch" role="radiogroup" aria-label="canvas view mode">
-      {MODE_META.map((m) => (
-        <button
-          key={m.mode}
-          type="button"
-          role="radio"
-          aria-checked={m.mode === mode}
-          aria-label={m.label}
-          title={m.label}
-          className={"mode-switch-btn" + (m.mode === mode ? " active" : "")}
-          onClick={() => onChange(m.mode)}
-        >
-          {m.icon}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// ── Chrome ─────────────────────────────────────────────────────────────
 type SyncState = "synced" | "writing" | "offline";
 
 function syncLabel(online: boolean, lastWriteAt: number | null, _tick: number): string {
@@ -1703,70 +1686,115 @@ function syncLabel(online: boolean, lastWriteAt: number | null, _tick: number): 
   return "synced";
 }
 
-function Chrome({
-  count, sync, syncState, hintVisible, overviewLabel,
-  isAnonymous, identityLabel, onSignIn, onSignOut,
-}: {
-  count: number;
-  sync: string;
-  syncState: SyncState;
-  hintVisible: boolean;
-  overviewLabel: string | null;
+// ── Toolbar ────────────────────────────────────────────────────────────
+// Top-left vertical toolbar: view modes, primary actions, then a count/sync
+// footer. Everything here also has a keyboard shortcut and a ⌘K palette
+// entry — this is just the visible, one-click surface for the same handlers.
+const svg = (children: React.ReactNode, filled = false) => (
+  <svg
+    width="16" height="16" viewBox="0 0 24 24"
+    fill={filled ? "currentColor" : "none"}
+    stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    {children}
+  </svg>
+);
+const TB_ICON = {
+  plus: svg(<path d="M12 5v14M5 12h14" />),
+  search: svg(<><circle cx="11" cy="11" r="7" /><path d="m21 21-4-4" /></>),
+  overview: svg(<path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4" />),
+  relations: svg(<><circle cx="6.5" cy="6.5" r="2.5" /><circle cx="17.5" cy="17.5" r="2.5" /><path d="M8.4 8.4l7.2 7.2" /></>),
+  graveyard: svg(<><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" /><path d="M3 4v4h4" /><path d="M12 8v4.5l3 1.8" /></>),
+  tweaks: svg(<><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="2.2" /><circle cx="15" cy="17" r="2.2" /></>),
+  help: svg(<><circle cx="12" cy="12" r="9" /><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.3c-.9.4-1.4 1-1.4 2" /><path d="M12 17h.01" /></>),
+  account: svg(<><circle cx="12" cy="8.5" r="3.5" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></>),
+};
+
+function TbBtn({ label, active, onClick, children }: {
+  label: string; active?: boolean; onClick: () => void; children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className={"tb-btn" + (active ? " active" : "")}
+      title={label}
+      aria-label={label}
+      aria-pressed={active}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+type ToolbarProps = {
+  mode: ViewMode;
+  onSetMode: (m: ViewMode) => void;
+  onNewNote: () => void;
+  onSearch: () => void;
+  overviewActive: boolean;
+  onOverview: () => void;
+  relationsActive: boolean;
+  onRelations: () => void;
+  onGraveyard: () => void;
+  onTweaks: () => void;
+  onHelp: () => void;
   isAnonymous: boolean;
   identityLabel: string;
   onSignIn: () => void;
   onSignOut: () => void;
-}) {
+  count: number;
+  sync: string;
+  syncState: SyncState;
+};
+
+function Toolbar(p: ToolbarProps) {
   return (
-    <>
-      {isAnonymous ? (
-        <div className="chrome chrome-tr">
-          <span className="count-num">{count}</span>
-          <span className="count-lbl">notes</span>
-        </div>
-      ) : (
-        <div className="chrome chrome-id">
-          <span className="id-name">{identityLabel}</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onSignOut}
-            aria-label="sign out"
-            className="pointer-events-auto !px-2 font-mono text-[11px]"
+    <div className="chrome toolbar" role="toolbar" aria-label="tools">
+      <div className="tb-group" role="radiogroup" aria-label="canvas view mode">
+        {MODE_META.map((m) => (
+          <button
+            key={m.mode}
+            type="button"
+            role="radio"
+            aria-checked={m.mode === p.mode}
+            aria-label={m.label}
+            title={m.label}
+            className={"tb-btn" + (m.mode === p.mode ? " active" : "")}
+            onClick={() => p.onSetMode(m.mode)}
           >
-            sign out
-          </Button>
-        </div>
-      )}
-      <div className={"chrome chrome-br sync-status sync-" + syncState}>
-        <span className="sync-dot" aria-hidden="true" />
-        <span>{sync}</span>
+            {m.icon}
+          </button>
+        ))}
       </div>
-      <div className={
-        "chrome chrome-bl"
-        + (hintVisible || isAnonymous ? "" : " faded")
-        + (isAnonymous ? " persistent" : "")
-      }>
-        {isAnonymous ? (
-          <span className="hint">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onSignIn}
-              className="pointer-events-auto !px-1 text-accent underline decoration-accent/40 underline-offset-4 hover:decoration-accent"
-            >
-              sign in
-            </Button>
-            {" "}to sync across devices
-          </span>
-        ) : (
-          <span className="hint">
-            <kbd>click</kbd> to write &nbsp;·&nbsp; <kbd>drag</kbd> to pan &nbsp;·&nbsp; <kbd>/</kbd> search &nbsp;·&nbsp; <kbd>z</kbd> overview &nbsp;·&nbsp; <kbd>?</kbd> help
-          </span>
-        )}
+
+      <div className="tb-sep" aria-hidden="true" />
+
+      <TbBtn label="New note" onClick={p.onNewNote}>{TB_ICON.plus}</TbBtn>
+      <TbBtn label="Search" onClick={p.onSearch}>{TB_ICON.search}</TbBtn>
+      <TbBtn label="Overview" active={p.overviewActive} onClick={p.onOverview}>{TB_ICON.overview}</TbBtn>
+      <TbBtn label="Relations" active={p.relationsActive} onClick={p.onRelations}>{TB_ICON.relations}</TbBtn>
+      <TbBtn label="Recently deleted" onClick={p.onGraveyard}>{TB_ICON.graveyard}</TbBtn>
+
+      <div className="tb-sep" aria-hidden="true" />
+
+      <TbBtn label="Settings" onClick={p.onTweaks}>{TB_ICON.tweaks}</TbBtn>
+      <TbBtn label="Help" onClick={p.onHelp}>{TB_ICON.help}</TbBtn>
+      <TbBtn
+        label={p.isAnonymous ? "Sign in to sync" : `${p.identityLabel || "Account"} · sign out`}
+        onClick={p.isAnonymous ? p.onSignIn : p.onSignOut}
+      >
+        {TB_ICON.account}
+      </TbBtn>
+
+      <div className="tb-sep" aria-hidden="true" />
+
+      <div className={"tb-foot sync-" + p.syncState} title={p.sync}>
+        <span className="tb-count">{p.count}</span>
+        <span className="tb-sync" aria-label={p.sync} />
       </div>
-      {overviewLabel && <div className="chrome chrome-mode">{overviewLabel}</div>}
-    </>
+    </div>
   );
 }
 

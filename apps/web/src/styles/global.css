@@ -398,21 +398,28 @@ body {
   color: rgb(var(--text-muted));
   pointer-events: none;
 }
-/* Top-left — the view-mode switcher. A vertical stack of icon buttons. */
-.mode-switch {
+/* Top-left — the vertical toolbar. A stacked rail of icon buttons grouped by
+   view modes, actions, app controls, and a sync/count footer. */
+.toolbar {
   top: 16px;
   left: 16px;
   pointer-events: auto;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 4px;
-  padding: 4px;
-  border-radius: 12px;
-  background: rgb(var(--bg-secondary) / 0.82);
+  padding: 5px;
+  border-radius: 14px;
+  background: rgb(var(--bg-secondary) / 0.85);
   border: 1px solid rgb(var(--border));
   backdrop-filter: blur(8px);
 }
-.mode-switch-btn {
+.tb-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tb-btn {
   appearance: none;
   border: 0;
   background: transparent;
@@ -428,12 +435,47 @@ body {
     color 160ms ease,
     background 160ms ease;
 }
-.mode-switch-btn:hover {
+.tb-btn:hover {
   color: rgb(var(--text-primary));
+  background: rgb(var(--text-primary) / 0.06);
 }
-.mode-switch-btn.active {
+.tb-btn.active {
   color: rgb(var(--bg));
   background: rgb(var(--accent));
+}
+.tb-sep {
+  width: 20px;
+  height: 1px;
+  background: rgb(var(--border));
+  margin: 2px 0;
+}
+.tb-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding-top: 1px;
+}
+.tb-count {
+  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-size: 11px;
+  color: rgb(var(--text-muted));
+  line-height: 1;
+}
+.tb-sync {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgb(var(--text-muted));
+}
+.tb-foot.sync-synced .tb-sync {
+  background: rgb(var(--accent));
+}
+.tb-foot.sync-writing .tb-sync {
+  background: #d9a441;
+}
+.tb-foot.sync-offline .tb-sync {
+  background: rgb(var(--text-muted) / 0.5);
 }
 
 /* Bottom-center — clear of the bottom-left hint and bottom-right sync label. */
@@ -459,91 +501,6 @@ body {
 .chrome-clear-seeds:hover {
   color: rgb(var(--accent));
   border-color: rgb(var(--accent) / 0.5);
-}
-
-.chrome-tr {
-  top: 18px;
-  right: 24px;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-.chrome-tr .count-num {
-  font-family: var(--font-jn-sans), ui-sans-serif, sans-serif;
-  font-variant-numeric: tabular-nums;
-  font-size: 13px;
-  font-weight: 500;
-  color: rgb(var(--text-primary));
-}
-.chrome-tr .count-lbl {
-  font-size: 12px;
-  color: rgb(var(--text-muted));
-}
-
-.chrome-br {
-  bottom: 18px;
-  right: 24px;
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
-  font-size: 11.5px;
-  color: rgb(var(--text-muted));
-  letter-spacing: -0.005em;
-}
-.sync-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.sync-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: rgb(var(--text-secondary) / 0.6);
-  transition:
-    background 220ms ease,
-    box-shadow 220ms ease;
-}
-.sync-status.sync-synced .sync-dot {
-  background: rgb(var(--accent));
-  box-shadow: 0 0 8px 0 rgb(var(--accent) / 0.5);
-}
-.sync-status.sync-writing .sync-dot {
-  background: rgb(var(--accent));
-  animation: sync-pulse 1s ease-in-out infinite;
-}
-.sync-status.sync-offline .sync-dot {
-  background: rgb(var(--danger));
-  box-shadow: 0 0 8px 0 rgb(var(--danger) / 0.4);
-}
-@keyframes sync-pulse {
-  0%,
-  100% {
-    opacity: 0.4;
-    transform: scale(0.9);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.1);
-  }
-}
-
-.chrome-bl {
-  bottom: 18px;
-  left: 22px;
-  font-size: 12px;
-  color: rgb(var(--text-muted));
-  transition: opacity 700ms ease 200ms;
-}
-.chrome-bl.faded {
-  opacity: 0;
-}
-.chrome-bl kbd {
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: rgb(var(--bg-secondary));
-  color: rgb(var(--text-secondary));
-  margin-right: 1px;
 }
 
 /* ── Search overlay ─────────────────────────────────────────────── */
@@ -690,22 +647,6 @@ body {
 .note .md-code-fallback {
   background: rgb(var(--bg) / 0.55);
   color: rgb(var(--text-primary));
-}
-
-/* ── overview chrome label ────────────────────────────────────── */
-.chrome-mode {
-  top: 54px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
-  font-size: 11px;
-  color: rgb(var(--accent) / 0.78);
-  letter-spacing: 0.04em;
-  padding: 4px 10px;
-  border: 1px solid rgb(var(--accent) / 0.28);
-  border-radius: 999px;
-  background: rgb(var(--accent) / 0.05);
-  pointer-events: none;
 }
 
 /* ── help overlay ─────────────────────────────────────────────── */
@@ -1509,31 +1450,3 @@ body {
   color: rgb(var(--text-primary));
 }
 
-/* ── Identity badge (chrome) ───────────────────────────────────── */
-/* Positioning + pointer-events for the signed-in identity widget in
-   the top-right. The button inside is a justui <Button>, which brings
-   its own colors via DS tokens. */
-.chrome-id {
-  top: 18px;
-  right: 24px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  pointer-events: auto;
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
-  font-size: 11px;
-}
-.chrome-id .id-name {
-  color: rgb(var(--text-secondary));
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* When the bottom-left holds the sign-in CTA (anon mode), keep it
-   visible regardless of the post-interaction fade — the CTA isn't a
-   keyboard hint, it's the only way to upgrade the session. */
-.chrome-bl.persistent {
-  opacity: 1 !important;
-}
