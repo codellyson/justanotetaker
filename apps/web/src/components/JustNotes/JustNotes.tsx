@@ -21,6 +21,7 @@ import {
   PAPER_W,
   PAPER_H,
   type Note,
+  type ModePos,
   type Tweaks,
   type ViewMode,
 } from "./lib";
@@ -30,7 +31,6 @@ import { clipboardOrigin } from "../../lib/clipboard-origin";
 import { seedIdStore } from "../../lib/seed-ids";
 import { AmbientBar, Compass, TimeScrub } from "./cherries";
 import { TweaksUI } from "./tweaks";
-import { Button } from "@codellyson/justui/react";
 import { remoteStorage } from "../../lib/storage";
 import { authClient, clearKeychainToken } from "../../lib/auth-client";
 import { API_BASE_URL, isTauri } from "../../lib/runtime";
@@ -40,7 +40,7 @@ import { Graveyard } from "./Graveyard";
 
 type Persist = {
   onCreate: (note: Note, opts?: { localOnly?: boolean }) => void | Promise<void>;
-  onUpdate: (id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "modePos">>) => void;
   onDelete: (id: string) => void;
 };
 
@@ -84,6 +84,14 @@ export default function JustNotes(props: JustNotesProps) {
   // so ordinary dragging never lags.
   const viewMode = t.viewMode;
   const [layoutAnimating, setLayoutAnimating] = useState(false);
+
+  // Sticky/paper render from this ephemeral map (a declumped layout computed on
+  // mode entry), NOT from the notes' real x/y — so the canvas arrangement is
+  // never mutated and `default` always restores it. Dragging in a mode edits
+  // this map only; nothing writes back to the notes. Empty in default mode.
+  const [modePos, setModePos] = useState<Map<string, { x: number; y: number }>>(() => new Map());
+  const modePosRef = useRef(modePos);
+  useEffect(() => { modePosRef.current = modePos; }, [modePos]);
 
   const [ambientOpen, setAmbientOpen] = useState(false);
   const [recallQuery, setRecallQuery] = useState("");
@@ -216,6 +224,8 @@ export default function JustNotes(props: JustNotesProps) {
   const historyRef = useRef<UndoOp[]>([]);
   const editSnapshotRef = useRef<{ id: string; isNew: boolean; prevText: string; prevT: number } | null>(null);
   const prevViewRef = useRef<View | null>(null);
+  // The view to fly back to after editing a paper page (see focusPaper).
+  const focusReturnViewRef = useRef<View | null>(null);
   const tweakRef = useRef<Tweaks>(t);
   useEffect(() => { tweakRef.current = t; }, [t]);
 
@@ -270,41 +280,61 @@ export default function JustNotes(props: JustNotesProps) {
     window.setTimeout(() => setSmooth(false), 400);
   }
 
-  // Display-only positions for the active mode: sticky/paper declump overlaps
-  // (real positions are never touched, so default restores the true layout).
-  // The dragged note is excluded so it follows the cursor and doesn't shove
-  // the others. Empty in default — NoteCard falls back to home x/y.
-  const layout = useMemo(() => {
-    const map = new Map<string, { x: number; y: number }>();
-    if (viewMode === "default") return map;
-    const w = viewMode === "sticky" ? STICKY_SIZE : PAPER_W;
-    const h = viewMode === "sticky" ? STICKY_SIZE : PAPER_H;
-    const placed: { x: number; y: number; w: number; h: number }[] = [];
-    // Reading order anchors the top-left and only pushes later notes.
-    const ordered = notes
-      .filter((n) => n.id !== draggingId)
-      .sort((a, b) => a.y - b.y || a.x - b.x);
-    for (const n of ordered) {
+  // Build the display-only layout for `mode`, seeded with positions to keep
+  // fixed (`seed`). Order: (1) keep seeded positions, (2) pin each note's own
+  // persisted `modePos`, (3) declump every remaining note into its nearest
+  // free spot avoiding all the above. So kept/pinned cards never move and
+  // newcomers can't overlap them. Reads notesRef; mutates nothing.
+  function buildModeLayout(
+    mode: "sticky" | "paper",
+    seed?: Map<string, { x: number; y: number }>,
+  ): Map<string, { x: number; y: number }> {
+    const w = mode === "sticky" ? STICKY_SIZE : PAPER_W;
+    const h = mode === "sticky" ? STICKY_SIZE : PAPER_H;
+    const list = notesRef.current;
+    const ids = new Set(list.map((n) => n.id));
+    const map = new Map<string, { x: number; y: number }>(
+      seed ? [...seed].filter(([id]) => ids.has(id)) : [], // drop deleted notes
+    );
+    const placed = [...map.values()].map((p) => ({ x: p.x, y: p.y, w, h }));
+    for (const n of list) {
+      if (map.has(n.id)) continue;
+      const s = n.modePos?.[mode];
+      if (s) { map.set(n.id, s); placed.push({ x: s.x, y: s.y, w, h }); }
+    }
+    for (const n of [...list].sort((a, b) => a.y - b.y || a.x - b.x)) {
+      if (map.has(n.id)) continue;
       const spot = resolveFreePosition(n.x, n.y, w, h, placed);
-      placed.push({ x: spot.x, y: spot.y, w, h });
       map.set(n.id, spot);
+      placed.push({ x: spot.x, y: spot.y, w, h });
     }
     return map;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, notes, draggingId]);
+  }
 
-  // So the drag handler can read the current display layout.
-  const layoutRef = useRef(layout);
-  useEffect(() => { layoutRef.current = layout; }, [layout]);
-
-  // Pulse the glide transition on a mode change (no view/position changes).
+  // On a mode change: pulse the glide transition and (re)build the layout.
+  // Default clears it, so cards fall back to their real x/y (the canvas).
   useEffect(() => {
     if (prevModeRef.current === viewMode) return;
     prevModeRef.current = viewMode;
     setLayoutAnimating(true);
     const stop = window.setTimeout(() => setLayoutAnimating(false), 620);
+    setModePos(viewMode === "default" ? new Map() : buildModeLayout(viewMode));
     return () => window.clearTimeout(stop);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode]);
+
+  // Keep the layout covering every note while in a mode: notes created or
+  // loaded after entry get a declumped slot (avoiding the placed ones), and
+  // deleted notes are dropped — without disturbing existing positions, so no
+  // reflow. No-op when nothing's missing (e.g. during a drag).
+  useEffect(() => {
+    if (viewMode === "default") return;
+    setModePos((prev) => {
+      const complete = notes.length === prev.size && notes.every((n) => prev.has(n.id));
+      return complete ? prev : buildModeLayout(viewMode, prev);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes, viewMode]);
 
   function screenToCanvas(sx: number, sy: number, v: View = viewRef.current) {
     return { x: (sx - v.pan.x) / v.zoom, y: (sy - v.pan.y) / v.zoom };
@@ -330,20 +360,23 @@ export default function JustNotes(props: JustNotesProps) {
     const id = uid();
     const w = tweakRef.current.noteWidth;
     const spot = findFreeSpot(canvasX - w / 2, canvasY - 22);
-    setNotes((ns) => [...ns, { id, x: spot.x, y: spot.y, w: null, h: null, t: Date.now(), text: initialText }]);
+    setNotes((ns) => [...ns, { id, x: spot.x, y: spot.y, w: null, h: null, t: Date.now(), text: initialText, modePos: null }]);
     editSnapshotRef.current = { id, isNew: true, prevText: "", prevT: Date.now() };
     setEditingId(id);
   }
 
-  // On-screen rects (declumped display spot + DOM-measured size) for collision.
+  // Rects of every note but `excludeId`, for collision resolution on drop /
+  // spawn. Position is where the card actually sits — the mode map in a mode,
+  // else the note's real x/y — with size measured from the DOM.
   function measureRects(excludeId?: string) {
     const layer = canvasRef.current?.querySelector(".notes-layer");
-    const disp = layoutRef.current;
+    const managed = tweakRef.current.viewMode !== "default";
+    const mp = modePosRef.current;
     const rects: { x: number; y: number; w: number; h: number }[] = [];
     for (const n of notesRef.current) {
       if (n.id === excludeId) continue;
       const el = layer?.querySelector<HTMLElement>(`[data-note-id="${n.id}"]`);
-      const p = disp.get(n.id) ?? { x: n.x, y: n.y };
+      const p = managed ? mp.get(n.id) ?? { x: n.x, y: n.y } : { x: n.x, y: n.y };
       rects.push({
         x: p.x,
         y: p.y,
@@ -398,7 +431,7 @@ export default function JustNotes(props: JustNotesProps) {
     const x = spot.x;
     const y = spot.y;
     const now = Date.now();
-    const note: Note = { id, x, y, w: null, h: null, t: now, text };
+    const note: Note = { id, x, y, w: null, h: null, t: now, text, modePos: null };
     setNotes((ns) => [...ns, note]);
     pushOp({ type: "create", id });
     void onCreate(note, opts);
@@ -447,6 +480,24 @@ export default function JustNotes(props: JustNotesProps) {
     spawnAt(c.x, c.y, initialText);
   }
 
+  // Paper only: fly the canvas to center the page and fit its A4 height in the
+  // viewport, so editing a document-sized surface happens head-on. The current
+  // view is stashed so commitEditing can fly back.
+  function focusPaper(id: string) {
+    const el = canvasRef.current;
+    const W = el?.clientWidth ?? window.innerWidth;
+    const H = el?.clientHeight ?? window.innerHeight;
+    const n = notesRef.current.find((x) => x.id === id);
+    const p = modePosRef.current.get(id) ?? (n ? { x: n.x, y: n.y } : { x: 0, y: 0 });
+    // Zoom so the whole A4 page fits the viewport (contain) — this zooms IN
+    // when the page is smaller than the viewport, rather than capping at 1×.
+    const margin = 60;
+    const zoom = Math.max(0.32, Math.min(2.5, Math.min((W - margin * 2) / PAPER_W, (H - margin * 2) / PAPER_H)));
+    const cx = p.x + PAPER_W / 2, cy = p.y + PAPER_H / 2;
+    focusReturnViewRef.current = viewRef.current;
+    animateView({ pan: { x: W / 2 - cx * zoom, y: H / 2 - cy * zoom }, zoom });
+  }
+
   function startEditingExisting(id: string) {
     if (editingId === id) return;
     if (editingId) commitEditing();
@@ -454,6 +505,7 @@ export default function JustNotes(props: JustNotesProps) {
     if (!n) return;
     editSnapshotRef.current = { id, isNew: false, prevText: n.text, prevT: n.t };
     setEditingId(id);
+    if (tweakRef.current.viewMode === "paper") focusPaper(id);
   }
 
   function commitEditing() {
@@ -484,6 +536,11 @@ export default function JustNotes(props: JustNotesProps) {
     }
     setEditingId(null);
     editSnapshotRef.current = null;
+    // Fly back to where we were before focusing a paper page.
+    if (focusReturnViewRef.current) {
+      animateView(focusReturnViewRef.current);
+      focusReturnViewRef.current = null;
+    }
   }
 
   function updateNoteText(id: string, text: string) {
@@ -516,7 +573,7 @@ export default function JustNotes(props: JustNotesProps) {
   }
 
   function reinsertRestoredNote(note: { id: string; x: number; y: number; t: number; text: string }) {
-    setNotes((ns) => (ns.some((n) => n.id === note.id) ? ns : [...ns, { ...note, w: null, h: null }]));
+    setNotes((ns) => (ns.some((n) => n.id === note.id) ? ns : [...ns, { ...note, w: null, h: null, modePos: null }]));
   }
 
   function startResize(e: React.MouseEvent<HTMLDivElement>, id: string, dir: "e" | "s" | "se") {
@@ -688,24 +745,15 @@ export default function JustNotes(props: JustNotesProps) {
     if (!note) return;
     const isSelected = selectedIdsRef.current.has(id);
     const groupIds: string[] = isSelected ? Array.from(selectedIdsRef.current) : [id];
-    // Drag from the displayed spot: bake the declumped position into real so
-    // the card follows the cursor with no jump; origReals reverts on a plain
-    // click (no drag).
-    const disp = layoutRef.current;
+    // In a mode, a drag edits the ephemeral mode map (canvas x/y untouched, so
+    // nothing persists and default is unaffected). In default it edits the real
+    // x/y. Either way only the grabbed card(s) move — no reflow of the rest.
+    const managed = tweakRef.current.viewMode !== "default";
     const startPositions = new Map<string, { x: number; y: number }>();
-    const origReals = new Map<string, { x: number; y: number }>();
-    const bakes: { id: string; x: number; y: number }[] = [];
     for (const nid of groupIds) {
       const n = notesRef.current.find((x) => x.id === nid);
       if (!n) continue;
-      const p = disp.get(nid) ?? { x: n.x, y: n.y };
-      startPositions.set(nid, p);
-      origReals.set(nid, { x: n.x, y: n.y });
-      if (p.x !== n.x || p.y !== n.y) bakes.push({ id: nid, x: p.x, y: p.y });
-    }
-    if (bakes.length) {
-      const bakeById = new Map(bakes.map((b) => [b.id, b]));
-      setNotes((ns) => ns.map((n) => { const b = bakeById.get(n.id); return b ? { ...n, x: b.x, y: b.y } : n; }));
+      startPositions.set(nid, managed ? modePosRef.current.get(nid) ?? { x: n.x, y: n.y } : { x: n.x, y: n.y });
     }
     const startSX = e.clientX, startSY = e.clientY;
     let moved = false;
@@ -718,22 +766,28 @@ export default function JustNotes(props: JustNotesProps) {
       const z = viewRef.current.zoom;
       const dx = dxs / z, dy = dys / z;
       const useSnap = tweakRef.current.snap && !ev.shiftKey;
-      setNotes((ns) => ns.map((n) => {
-        const sp = startPositions.get(n.id);
-        if (!sp) return n;
-        const rx = sp.x + dx, ry = sp.y + dy;
-        return { ...n, x: useSnap ? snap(rx) : rx, y: useSnap ? snap(ry) : ry };
-      }));
+      const at = (sp: { x: number; y: number }) => ({
+        x: useSnap ? snap(sp.x + dx) : sp.x + dx,
+        y: useSnap ? snap(sp.y + dy) : sp.y + dy,
+      });
+      if (managed) {
+        setModePos((prev) => {
+          const next = new Map(prev);
+          startPositions.forEach((sp, nid) => next.set(nid, at(sp)));
+          return next;
+        });
+      } else {
+        setNotes((ns) => ns.map((n) => {
+          const sp = startPositions.get(n.id);
+          return sp ? { ...n, ...at(sp) } : n;
+        }));
+      }
     };
     const onUp = () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       setDraggingId(null);
       if (!moved) {
-        // A click, not a drag — undo the bake (stays at its declumped spot).
-        if (bakes.length) {
-          setNotes((ns) => ns.map((n) => { const o = origReals.get(n.id); return o ? { ...n, x: o.x, y: o.y } : n; }));
-        }
         // Single click selects; editing is on double-click (onDoubleClick).
         if (editingId && editingId !== id) commitEditing();
         if (ambientOpen) closeAmbient();
@@ -741,28 +795,57 @@ export default function JustNotes(props: JustNotesProps) {
         return;
       }
       // Single-card drops snap to the nearest free spot so cards never stack.
-      if (groupIds.length === 1) {
-        const nid = groupIds[0];
-        const orig = origReals.get(nid);
-        const cur = notesRef.current.find((n) => n.id === nid);
-        if (orig && cur) {
-          const el = canvasRef.current?.querySelector<HTMLElement>(`[data-note-id="${nid}"]`);
-          const selfW = el?.offsetWidth ?? cur.w ?? tweakRef.current.noteWidth;
-          const selfH = el?.offsetHeight ?? cur.h ?? 96;
-          const spot = resolveFreePosition(cur.x, cur.y, selfW, selfH, measureRects(nid));
-          pushOp({ type: "move", id: nid, prevX: orig.x, prevY: orig.y });
-          if (spot.x !== cur.x || spot.y !== cur.y) {
-            setNotes((ns) => ns.map((n) => (n.id === nid ? { ...n, x: spot.x, y: spot.y } : n)));
-            setSnappingId(nid);
-            window.setTimeout(() => setSnappingId((s) => (s === nid ? null : s)), 340);
+      const el = canvasRef.current?.querySelector<HTMLElement>(`[data-note-id="${id}"]`);
+      const selfW = el?.offsetWidth ?? note.w ?? tweakRef.current.noteWidth;
+      const selfH = el?.offsetHeight ?? note.h ?? 96;
+      if (managed) {
+        // Settle the dragged card, then persist the moved card(s)' positions
+        // onto their notes' `modePos` (canvas x/y untouched). This syncs.
+        const mode = tweakRef.current.viewMode as "sticky" | "paper";
+        const final = new Map(modePosRef.current);
+        if (groupIds.length === 1) {
+          const cur = final.get(id);
+          if (cur) {
+            const spot = resolveFreePosition(cur.x, cur.y, selfW, selfH, measureRects(id));
+            if (spot.x !== cur.x || spot.y !== cur.y) {
+              final.set(id, spot);
+              setModePos(new Map(final));
+              setSnappingId(id);
+              window.setTimeout(() => setSnappingId((s) => (s === id ? null : s)), 340);
+            }
           }
-          onUpdate(nid, { x: spot.x, y: spot.y });
+        }
+        const patches = new Map<string, ModePos>();
+        for (const nid of groupIds) {
+          const pos = final.get(nid);
+          if (!pos) continue;
+          const cur = notesRef.current.find((n) => n.id === nid);
+          patches.set(nid, { ...(cur?.modePos ?? {}), [mode]: pos });
+        }
+        if (patches.size) {
+          setNotes((ns) => ns.map((n) => { const p = patches.get(n.id); return p ? { ...n, modePos: p } : n; }));
+          for (const [nid, mp] of patches) onUpdate(nid, { modePos: mp });
+        }
+        return;
+      }
+      if (groupIds.length === 1) {
+        const sp = startPositions.get(id);
+        const cur = notesRef.current.find((n) => n.id === id);
+        if (sp && cur) {
+          const spot = resolveFreePosition(cur.x, cur.y, selfW, selfH, measureRects(id));
+          pushOp({ type: "move", id, prevX: sp.x, prevY: sp.y });
+          if (spot.x !== cur.x || spot.y !== cur.y) {
+            setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, x: spot.x, y: spot.y } : n)));
+            setSnappingId(id);
+            window.setTimeout(() => setSnappingId((s) => (s === id ? null : s)), 340);
+          }
+          onUpdate(id, { x: spot.x, y: spot.y });
         }
       } else {
         for (const nid of groupIds) {
-          const orig = origReals.get(nid);
-          if (!orig) continue;
-          pushOp({ type: "move", id: nid, prevX: orig.x, prevY: orig.y });
+          const sp = startPositions.get(nid);
+          if (!sp) continue;
+          pushOp({ type: "move", id: nid, prevX: sp.x, prevY: sp.y });
           const cur = notesRef.current.find((n) => n.id === nid);
           if (cur) onUpdate(nid, { x: cur.x, y: cur.y });
         }
@@ -1203,7 +1286,7 @@ export default function JustNotes(props: JustNotesProps) {
             <NoteCard
               key={n.id}
               note={n}
-              pos={layout.get(n.id) ?? { x: n.x, y: n.y }}
+              pos={viewMode === "default" ? { x: n.x, y: n.y } : modePos.get(n.id) ?? { x: n.x, y: n.y }}
               viewMode={viewMode}
               stickyColor={viewMode === "sticky" ? stickyColorOf(n.id) : null}
               fromClipboard={clipboardIds.has(n.id)}
@@ -1261,18 +1344,25 @@ export default function JustNotes(props: JustNotesProps) {
         );
       })()}
 
-      <ModeSwitch mode={viewMode} onChange={(m) => { markInteracted(); setTweak("viewMode", m); }} />
-
-      <Chrome
-        count={notes.length}
-        sync={syncLabel(online, lastWriteAt, nowTick)}
-        syncState={!online ? "offline" : lastWriteAt && Date.now() - lastWriteAt < 4000 ? "writing" : "synced"}
-        hintVisible={!interacted}
-        overviewLabel={inOverview ? "overview · z to return" : relationsOn ? "relations · r to hide" : null}
+      <Toolbar
+        mode={viewMode}
+        onSetMode={(m) => { markInteracted(); setTweak("viewMode", m); }}
+        onNewNote={() => { markInteracted(); spawnAtCenter(""); }}
+        onSearch={() => { markInteracted(); openAmbient(""); }}
+        overviewActive={inOverview}
+        onOverview={() => { markInteracted(); toggleOverview(); }}
+        relationsActive={relationsOn}
+        onRelations={() => { markInteracted(); setRelationsOn((v) => !v); }}
+        onGraveyard={() => setGraveyardOpen(true)}
+        onTweaks={() => setTweaksOpen(true)}
+        onHelp={() => setHelpOpen(true)}
         isAnonymous={isAnonymous}
         identityLabel={identityLabel}
         onSignIn={() => setAuthPanelOpen(true)}
         onSignOut={onSignOut}
+        count={notes.length}
+        sync={syncLabel(online, lastWriteAt, nowTick)}
+        syncState={!online ? "offline" : lastWriteAt && Date.now() - lastWriteAt < 4000 ? "writing" : "synced"}
       />
 
       <AuthPanel
@@ -1415,11 +1505,13 @@ function NoteCard({
   const taRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
-    if (!editing || !taRef.current) return;
+    // Sticky is a fixed square — don't auto-grow the textarea (it would spill
+    // out of the card); CSS fills it and scrolls instead. Default/paper grow.
+    if (!editing || !taRef.current || viewMode === "sticky") return;
     const ta = taRef.current;
     ta.style.height = "auto";
     ta.style.height = ta.scrollHeight + "px";
-  }, [editing, note.text]);
+  }, [editing, note.text, viewMode]);
 
   useEffect(() => {
     if (editing && taRef.current) {
@@ -1547,34 +1639,41 @@ function NoteCard({
   );
 }
 
-// ── ModeSwitch ─────────────────────────────────────────────────────────
-// Top-center segmented control; writes the persisted `viewMode` tweak.
-const MODE_LABELS: { mode: ViewMode; label: string }[] = [
-  { mode: "default", label: "canvas" },
-  { mode: "sticky", label: "sticky" },
-  { mode: "paper", label: "paper" },
+// View-mode buttons for the toolbar; each writes the persisted `viewMode`.
+const MODE_META: { mode: ViewMode; label: string; icon: React.ReactNode }[] = [
+  {
+    mode: "default",
+    label: "canvas",
+    // Dotted grid — the freeform infinite canvas.
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <circle cx="7" cy="7" r="1.7" /><circle cx="17" cy="7" r="1.7" />
+        <circle cx="7" cy="17" r="1.7" /><circle cx="17" cy="17" r="1.7" />
+      </svg>
+    ),
+  },
+  {
+    mode: "sticky",
+    label: "sticky",
+    // Square with a folded corner.
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" aria-hidden="true">
+        <path d="M5 4h14v9l-6 6H5z" /><path d="M19 13h-6v6" />
+      </svg>
+    ),
+  },
+  {
+    mode: "paper",
+    label: "paper",
+    // Page with text lines.
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect x="5" y="3" width="14" height="18" rx="1.6" /><path d="M8.5 8h7M8.5 12h7M8.5 16h4" />
+      </svg>
+    ),
+  },
 ];
 
-function ModeSwitch({ mode, onChange }: { mode: ViewMode; onChange: (m: ViewMode) => void }) {
-  return (
-    <div className="chrome mode-switch" role="radiogroup" aria-label="canvas view mode">
-      {MODE_LABELS.map((m) => (
-        <button
-          key={m.mode}
-          type="button"
-          role="radio"
-          aria-checked={m.mode === mode}
-          className={"mode-switch-btn" + (m.mode === mode ? " active" : "")}
-          onClick={() => onChange(m.mode)}
-        >
-          {m.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// ── Chrome ─────────────────────────────────────────────────────────────
 type SyncState = "synced" | "writing" | "offline";
 
 function syncLabel(online: boolean, lastWriteAt: number | null, _tick: number): string {
@@ -1587,70 +1686,115 @@ function syncLabel(online: boolean, lastWriteAt: number | null, _tick: number): 
   return "synced";
 }
 
-function Chrome({
-  count, sync, syncState, hintVisible, overviewLabel,
-  isAnonymous, identityLabel, onSignIn, onSignOut,
-}: {
-  count: number;
-  sync: string;
-  syncState: SyncState;
-  hintVisible: boolean;
-  overviewLabel: string | null;
+// ── Toolbar ────────────────────────────────────────────────────────────
+// Top-left vertical toolbar: view modes, primary actions, then a count/sync
+// footer. Everything here also has a keyboard shortcut and a ⌘K palette
+// entry — this is just the visible, one-click surface for the same handlers.
+const svg = (children: React.ReactNode, filled = false) => (
+  <svg
+    width="16" height="16" viewBox="0 0 24 24"
+    fill={filled ? "currentColor" : "none"}
+    stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    {children}
+  </svg>
+);
+const TB_ICON = {
+  plus: svg(<path d="M12 5v14M5 12h14" />),
+  search: svg(<><circle cx="11" cy="11" r="7" /><path d="m21 21-4-4" /></>),
+  overview: svg(<path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4" />),
+  relations: svg(<><circle cx="6.5" cy="6.5" r="2.5" /><circle cx="17.5" cy="17.5" r="2.5" /><path d="M8.4 8.4l7.2 7.2" /></>),
+  graveyard: svg(<><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" /><path d="M3 4v4h4" /><path d="M12 8v4.5l3 1.8" /></>),
+  tweaks: svg(<><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="2.2" /><circle cx="15" cy="17" r="2.2" /></>),
+  help: svg(<><circle cx="12" cy="12" r="9" /><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.3c-.9.4-1.4 1-1.4 2" /><path d="M12 17h.01" /></>),
+  account: svg(<><circle cx="12" cy="8.5" r="3.5" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></>),
+};
+
+function TbBtn({ label, active, onClick, children }: {
+  label: string; active?: boolean; onClick: () => void; children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className={"tb-btn" + (active ? " active" : "")}
+      title={label}
+      aria-label={label}
+      aria-pressed={active}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+type ToolbarProps = {
+  mode: ViewMode;
+  onSetMode: (m: ViewMode) => void;
+  onNewNote: () => void;
+  onSearch: () => void;
+  overviewActive: boolean;
+  onOverview: () => void;
+  relationsActive: boolean;
+  onRelations: () => void;
+  onGraveyard: () => void;
+  onTweaks: () => void;
+  onHelp: () => void;
   isAnonymous: boolean;
   identityLabel: string;
   onSignIn: () => void;
   onSignOut: () => void;
-}) {
+  count: number;
+  sync: string;
+  syncState: SyncState;
+};
+
+function Toolbar(p: ToolbarProps) {
   return (
-    <>
-      {isAnonymous ? (
-        <div className="chrome chrome-tr">
-          <span className="count-num">{count}</span>
-          <span className="count-lbl">notes</span>
-        </div>
-      ) : (
-        <div className="chrome chrome-id">
-          <span className="id-name">{identityLabel}</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onSignOut}
-            aria-label="sign out"
-            className="pointer-events-auto !px-2 font-mono text-[11px]"
+    <div className="chrome toolbar" role="toolbar" aria-label="tools">
+      <div className="tb-group" role="radiogroup" aria-label="canvas view mode">
+        {MODE_META.map((m) => (
+          <button
+            key={m.mode}
+            type="button"
+            role="radio"
+            aria-checked={m.mode === p.mode}
+            aria-label={m.label}
+            title={m.label}
+            className={"tb-btn" + (m.mode === p.mode ? " active" : "")}
+            onClick={() => p.onSetMode(m.mode)}
           >
-            sign out
-          </Button>
-        </div>
-      )}
-      <div className={"chrome chrome-br sync-status sync-" + syncState}>
-        <span className="sync-dot" aria-hidden="true" />
-        <span>{sync}</span>
+            {m.icon}
+          </button>
+        ))}
       </div>
-      <div className={
-        "chrome chrome-bl"
-        + (hintVisible || isAnonymous ? "" : " faded")
-        + (isAnonymous ? " persistent" : "")
-      }>
-        {isAnonymous ? (
-          <span className="hint">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onSignIn}
-              className="pointer-events-auto !px-1 text-accent underline decoration-accent/40 underline-offset-4 hover:decoration-accent"
-            >
-              sign in
-            </Button>
-            {" "}to sync across devices
-          </span>
-        ) : (
-          <span className="hint">
-            <kbd>click</kbd> to write &nbsp;·&nbsp; <kbd>drag</kbd> to pan &nbsp;·&nbsp; <kbd>/</kbd> search &nbsp;·&nbsp; <kbd>z</kbd> overview &nbsp;·&nbsp; <kbd>?</kbd> help
-          </span>
-        )}
+
+      <div className="tb-sep" aria-hidden="true" />
+
+      <TbBtn label="New note" onClick={p.onNewNote}>{TB_ICON.plus}</TbBtn>
+      <TbBtn label="Search" onClick={p.onSearch}>{TB_ICON.search}</TbBtn>
+      <TbBtn label="Overview" active={p.overviewActive} onClick={p.onOverview}>{TB_ICON.overview}</TbBtn>
+      <TbBtn label="Relations" active={p.relationsActive} onClick={p.onRelations}>{TB_ICON.relations}</TbBtn>
+      <TbBtn label="Recently deleted" onClick={p.onGraveyard}>{TB_ICON.graveyard}</TbBtn>
+
+      <div className="tb-sep" aria-hidden="true" />
+
+      <TbBtn label="Settings" onClick={p.onTweaks}>{TB_ICON.tweaks}</TbBtn>
+      <TbBtn label="Help" onClick={p.onHelp}>{TB_ICON.help}</TbBtn>
+      <TbBtn
+        label={p.isAnonymous ? "Sign in to sync" : `${p.identityLabel || "Account"} · sign out`}
+        onClick={p.isAnonymous ? p.onSignIn : p.onSignOut}
+      >
+        {TB_ICON.account}
+      </TbBtn>
+
+      <div className="tb-sep" aria-hidden="true" />
+
+      <div className={"tb-foot sync-" + p.syncState} title={p.sync}>
+        <span className="tb-count">{p.count}</span>
+        <span className="tb-sync" aria-label={p.sync} />
       </div>
-      {overviewLabel && <div className="chrome chrome-mode">{overviewLabel}</div>}
-    </>
+    </div>
   );
 }
 

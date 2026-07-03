@@ -1,4 +1,4 @@
-import type { Note, Tweaks } from "../components/JustNotes/lib";
+import type { ModePos, Note, Tweaks } from "../components/JustNotes/lib";
 import { api } from "./api-client";
 
 export type StoredNote = Note & { updatedAt: number };
@@ -14,8 +14,8 @@ export type StoredSettings = {
 
 export interface Storage {
   list(): Promise<StoredNote[]>;
-  create(input: { id?: string; x: number; y: number; w?: number | null; h?: number | null; t: number; text?: string }): Promise<StoredNote>;
-  update(id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text">>): Promise<StoredNote | null>;
+  create(input: { id?: string; x: number; y: number; w?: number | null; h?: number | null; t: number; text?: string; modePos?: ModePos | null }): Promise<StoredNote>;
+  update(id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "modePos">>): Promise<StoredNote | null>;
   remove(id: string): Promise<void>;
   listDeleted(): Promise<DeletedNote[]>;
   restore(id: string): Promise<StoredNote | null>;
@@ -34,6 +34,7 @@ function toUiNote(row: {
   t: number;
   text: string;
   updatedAt: number;
+  modePos?: ModePos | null;
 }): StoredNote {
   return {
     id: row.id,
@@ -44,6 +45,7 @@ function toUiNote(row: {
     t: row.t,
     text: row.text,
     updatedAt: row.updatedAt,
+    modePos: row.modePos ?? null,
   };
 }
 
@@ -65,6 +67,7 @@ export const remoteStorage: Storage = {
         ...(input.h !== undefined ? { h: input.h } : {}),
         t: input.t,
         ...(input.text !== undefined ? { text: input.text } : {}),
+        ...(input.modePos !== undefined ? { modePos: input.modePos } : {}),
       },
     });
     if (!res.ok) throw new Error(`create note: ${res.status}`);
@@ -100,6 +103,7 @@ export const remoteStorage: Storage = {
       t: n.t,
       text: n.text,
       updatedAt: n.updatedAt,
+      modePos: n.modePos ?? null,
       deletedAt: n.deletedAt ?? 0,
     }));
   },
@@ -146,6 +150,7 @@ export const remoteStorage: Storage = {
       t: m.t,
       text: m.text,
       updatedAt: m.updatedAt,
+      modePos: null,
       snippet: m.snippet,
     }));
   },

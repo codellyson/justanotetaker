@@ -1,3 +1,10 @@
+// Per-mode card positions, synced with the note. Absent ⇒ that mode falls
+// back to a freshly-declumped spot. Canvas (default) uses x/y, not this.
+export type ModePos = {
+  sticky?: { x: number; y: number };
+  paper?: { x: number; y: number };
+};
+
 export type Note = {
   id: string;
   x: number;
@@ -6,6 +13,7 @@ export type Note = {
   h: number | null;
   t: number;
   text: string;
+  modePos: ModePos | null;
 };
 
 export type Recency = "fresh" | "recent" | "older" | "ancient";

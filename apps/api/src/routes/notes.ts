@@ -3,6 +3,9 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import type { Env } from "../env";
 
+const posSchema = z.object({ x: z.number(), y: z.number() });
+const modePosSchema = z.object({ sticky: posSchema.optional(), paper: posSchema.optional() }).nullable().optional();
+
 const createSchema = z.object({
   id: z.string().optional(),
   x: z.number(),
@@ -11,6 +14,7 @@ const createSchema = z.object({
   h: z.number().nullable().optional(),
   t: z.number(),
   text: z.string().optional(),
+  modePos: modePosSchema,
 });
 
 const patchSchema = z.object({
@@ -20,6 +24,7 @@ const patchSchema = z.object({
   h: z.number().nullable().optional(),
   t: z.number().optional(),
   text: z.string().optional(),
+  modePos: modePosSchema,
 });
 
 const listQuery = z.object({
@@ -35,7 +40,7 @@ const searchQuery = z.object({
 
 const GRAVEYARD_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
-const NOTE_COLS = "id, user_id, x, y, w, h, t, text, updated_at, deleted_at";
+const NOTE_COLS = "id, user_id, x, y, w, h, t, text, updated_at, deleted_at, mode_pos";
 
 type NoteRow = {
   id: string;
@@ -48,7 +53,17 @@ type NoteRow = {
   text: string;
   updated_at: number;
   deleted_at: number | null;
+  mode_pos: string | null;
 };
+
+function safeParse(json: string | null) {
+  if (!json) return null;
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
 
 function toNote(r: NoteRow) {
   return {
@@ -62,6 +77,7 @@ function toNote(r: NoteRow) {
     text: r.text,
     updatedAt: r.updated_at,
     deletedAt: r.deleted_at,
+    modePos: safeParse(r.mode_pos),
   };
 }
 
@@ -172,11 +188,12 @@ export const notesRoutes = new Hono<Env>()
       text: body.text ?? "",
       updatedAt: now,
       deletedAt: null as number | null,
+      modePos: body.modePos ?? null,
     };
     await c.env.DB.prepare(
-      `INSERT INTO notes (${NOTE_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO notes (${NOTE_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-      .bind(note.id, note.userId, note.x, note.y, note.w, note.h, note.t, note.text, note.updatedAt, note.deletedAt)
+      .bind(note.id, note.userId, note.x, note.y, note.w, note.h, note.t, note.text, note.updatedAt, note.deletedAt, note.modePos ? JSON.stringify(note.modePos) : null)
       .run();
     return c.json({ note });
   })
@@ -193,6 +210,7 @@ export const notesRoutes = new Hono<Env>()
     if (body.h !== undefined) { sets.push("h = ?"); binds.push(body.h); }
     if (typeof body.t === "number") { sets.push("t = ?"); binds.push(body.t); }
     if (typeof body.text === "string") { sets.push("text = ?"); binds.push(body.text); }
+    if (body.modePos !== undefined) { sets.push("mode_pos = ?"); binds.push(body.modePos === null ? null : JSON.stringify(body.modePos)); }
 
     const { results } = await c.env.DB.prepare(
       `UPDATE notes SET ${sets.join(", ")} WHERE id = ? AND user_id = ? RETURNING ${NOTE_COLS}`,

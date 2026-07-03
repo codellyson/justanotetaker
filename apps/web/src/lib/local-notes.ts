@@ -38,7 +38,7 @@ export const localNotes = {
     writeAll(all);
   },
 
-  update(id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text">>): void {
+  update(id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "modePos">>): void {
     const all = readAll();
     const i = all.findIndex((n) => n.id === id);
     if (i === -1) return;

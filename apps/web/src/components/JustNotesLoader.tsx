@@ -37,6 +37,7 @@ function Session() {
         h: null,
         t: now - i * 1000,
         text: s.text,
+        modePos: null,
       }));
       // Render optimistically; persist in the background so the canvas isn't
       // gated on a handful of round-trips.

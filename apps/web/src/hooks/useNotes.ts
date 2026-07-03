@@ -36,6 +36,7 @@ export function useNotes() {
           h: s.h,
           t: s.t,
           text: s.text,
+          modePos: s.modePos ?? null,
         }));
         syncedRef.current = new Set(stripped.map((n) => n.id));
         setInitialNotes([...stripped, ...local]);
@@ -67,6 +68,7 @@ export function useNotes() {
         h: note.h,
         t: note.t,
         text: note.text,
+        modePos: note.modePos,
       });
       syncedRef.current.add(note.id);
     } catch (err) {
@@ -78,7 +80,7 @@ export function useNotes() {
   // ids; otherwise the server. No-op for ids that are neither yet synced nor
   // local — the next create call will pick up state from JustNotes' useState.
   const onUpdate = useCallback(
-    (id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text">>) => {
+    (id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "modePos">>) => {
       if (localRef.current.has(id)) {
         localNotes.update(id, patch);
         return;
