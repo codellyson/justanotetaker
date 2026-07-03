@@ -79,6 +79,11 @@ body {
 .notes-layer.smooth {
   transition: transform 400ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
+/* Composite only while moving — dropped when idle so text re-rasterizes crisp
+   at the current zoom instead of stretching a cached texture. */
+.notes-layer.moving {
+  will-change: transform;
+}
 .marquee {
   position: absolute;
   border: 1px solid rgb(var(--accent) / 0.85);

@@ -77,6 +77,19 @@ export default function JustNotes(props: JustNotesProps) {
   useEffect(() => { viewRef.current = view; }, [view]);
   const [smooth, setSmooth] = useState(false);
 
+  // Crisp text under zoom: promote the notes-layer (will-change) only while it's
+  // actively moving, then drop the hint when it settles. Compositing keeps
+  // pan/zoom smooth; dropping it makes Chrome re-rasterize the static text at
+  // the exact current scale instead of stretching a cached texture (blur).
+  const [moving, setMoving] = useState(false);
+  const movingTimer = useRef<number | null>(null);
+  const bumpMoving = (holdMs = 220) => {
+    setMoving(true);
+    if (movingTimer.current) clearTimeout(movingTimer.current);
+    movingTimer.current = window.setTimeout(() => setMoving(false), holdMs);
+  };
+  useEffect(() => () => { if (movingTimer.current) clearTimeout(movingTimer.current); }, []);
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const editingIdRef = useRef<string | null>(null);
   useEffect(() => { editingIdRef.current = editingId; }, [editingId]);
@@ -260,6 +273,7 @@ export default function JustNotes(props: JustNotesProps) {
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      bumpMoving();
       if (e.ctrlKey || e.metaKey) {
         const rect = el.getBoundingClientRect();
         // Normalize across input devices: line/page deltas → px, then clamp so
@@ -282,6 +296,7 @@ export default function JustNotes(props: JustNotesProps) {
 
   function animateView(next: View) {
     setSmooth(true);
+    bumpMoving(460);
     setView(next);
     window.setTimeout(() => setSmooth(false), 400);
   }
@@ -701,6 +716,7 @@ export default function JustNotes(props: JustNotesProps) {
       if (!moved && dx * dx + dy * dy > 9) moved = true;
       if (!moved) return;
       if (!wantsSelect) {
+        bumpMoving();
         setView((v) => ({ ...v, pan: { x: startPan.x + dx, y: startPan.y + dy } }));
       } else {
         const cur = screenToCanvas(ev.clientX, ev.clientY);
@@ -1280,7 +1296,7 @@ export default function JustNotes(props: JustNotesProps) {
         onMouseDown={onCanvasMouseDown}
       >
         <div
-          className={"notes-layer view-" + viewMode + (smooth ? " smooth" : "") + (inOverview ? " overview" : "") + (layoutAnimating ? " layout-animating" : "")}
+          className={"notes-layer view-" + viewMode + (smooth ? " smooth" : "") + (moving ? " moving" : "") + (inOverview ? " overview" : "") + (layoutAnimating ? " layout-animating" : "")}
           style={{ transform: `translate(${view.pan.x}px, ${view.pan.y}px) scale(${view.zoom})` }}
         >
           {marquee && (
