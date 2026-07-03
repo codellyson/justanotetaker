@@ -38,6 +38,9 @@ function Session() {
         board={active}
         settings={settings}
         onSetViewMode={(m) => boards.setBoardViewMode(active.id, m)}
+        // Onboarding may only seed a brand-new account's sole board — never a
+        // board the user created with +.
+        canSeed={boards.boards.length === 1}
       />
     </>
   );
@@ -45,10 +48,11 @@ function Session() {
 
 // One board's canvas. Keyed by board id in Session, so switching boards
 // remounts this with a fresh notes load for that board.
-function BoardCanvas({ board, settings, onSetViewMode }: {
+function BoardCanvas({ board, settings, onSetViewMode, canSeed }: {
   board: Board;
   settings: ReturnType<typeof useSettings>;
   onSetViewMode: (m: ViewMode) => void;
+  canSeed: boolean;
 }) {
   const notes = useNotes(board.id);
   const [resolved, setResolved] = useState<Note[] | null>(null);
@@ -60,8 +64,8 @@ function BoardCanvas({ board, settings, onSetViewMode }: {
     if (doneRef.current) return;
     doneRef.current = true;
 
-    // Onboarding seeds go into the first board a brand-new user lands on.
-    if (notes.initialNotes.length === 0 && !settings.seeded) {
+    // Onboarding seeds go into a brand-new account's sole empty board only.
+    if (canSeed && notes.initialNotes.length === 0 && !settings.seeded) {
       const now = Date.now();
       const seeds: Note[] = ONBOARDING_SEED.map((s, i) => ({
         id: uid(),
@@ -80,6 +84,9 @@ function BoardCanvas({ board, settings, onSetViewMode }: {
       setSeedIds(ids);
       setResolved(seeds);
     } else {
+      // Not seeding this board — but mark the account seeded so onboarding
+      // never fires again (e.g. on an empty board the user creates with +).
+      if (!settings.seeded) settings.markSeeded();
       setSeedIds(seedIdStore.list());
       setResolved(notes.initialNotes);
     }
