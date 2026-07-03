@@ -1,4 +1,4 @@
-import type { ModePos, Note, Tweaks } from "../components/JustNotes/lib";
+import type { Board, ModePos, Note, Tweaks, ViewMode } from "../components/JustNotes/lib";
 import { api } from "./api-client";
 
 export type StoredNote = Note & { updatedAt: number };
@@ -13,10 +13,14 @@ export type StoredSettings = {
 };
 
 export interface Storage {
-  list(): Promise<StoredNote[]>;
-  create(input: { id?: string; x: number; y: number; w?: number | null; h?: number | null; t: number; text?: string; modePos?: ModePos | null }): Promise<StoredNote>;
+  list(boardId: string): Promise<StoredNote[]>;
+  create(input: { id?: string; boardId: string; x: number; y: number; w?: number | null; h?: number | null; t: number; text?: string; modePos?: ModePos | null }): Promise<StoredNote>;
   update(id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "modePos">>): Promise<StoredNote | null>;
   remove(id: string): Promise<void>;
+  listBoards(): Promise<Board[]>;
+  createBoard(input: { name: string; viewMode?: ViewMode; sort?: number }): Promise<Board>;
+  updateBoard(id: string, patch: Partial<Pick<Board, "name" | "viewMode" | "sort">>): Promise<Board | null>;
+  deleteBoard(id: string): Promise<void>;
   listDeleted(): Promise<DeletedNote[]>;
   restore(id: string): Promise<StoredNote | null>;
   search(q: string, opts?: { limit?: number; signal?: AbortSignal }): Promise<SearchMatch[]>;
@@ -50,8 +54,8 @@ function toUiNote(row: {
 }
 
 export const remoteStorage: Storage = {
-  async list() {
-    const res = await api.api.notes.$get({ query: {} });
+  async list(boardId) {
+    const res = await api.api.notes.$get({ query: { board: boardId } });
     if (!res.ok) throw new Error(`list notes: ${res.status}`);
     const { notes } = await res.json();
     return notes.map(toUiNote);
@@ -61,6 +65,7 @@ export const remoteStorage: Storage = {
     const res = await api.api.notes.$post({
       json: {
         ...(input.id ? { id: input.id } : {}),
+        boardId: input.boardId,
         x: input.x,
         y: input.y,
         ...(input.w !== undefined ? { w: input.w } : {}),
@@ -88,6 +93,41 @@ export const remoteStorage: Storage = {
   async remove(id) {
     const res = await api.api.notes[":id"].$delete({ param: { id } });
     if (!res.ok && res.status !== 404) throw new Error(`delete note: ${res.status}`);
+  },
+
+  async listBoards() {
+    const res = await api.api.boards.$get();
+    if (!res.ok) throw new Error(`list boards: ${res.status}`);
+    const { boards } = await res.json();
+    return boards.map((b) => ({ ...b, viewMode: b.viewMode as ViewMode }));
+  },
+
+  async createBoard(input) {
+    const res = await api.api.boards.$post({
+      json: {
+        name: input.name,
+        ...(input.viewMode !== undefined ? { viewMode: input.viewMode } : {}),
+        ...(input.sort !== undefined ? { sort: input.sort } : {}),
+      },
+    });
+    if (!res.ok) throw new Error(`create board: ${res.status}`);
+    const { board } = await res.json();
+    return { ...board, viewMode: board.viewMode as ViewMode };
+  },
+
+  async updateBoard(id, patch) {
+    const res = await api.api.boards[":id"].$patch({ param: { id }, json: patch });
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      throw new Error(`update board: ${res.status}`);
+    }
+    const { board } = await res.json();
+    return { ...board, viewMode: board.viewMode as ViewMode };
+  },
+
+  async deleteBoard(id) {
+    const res = await api.api.boards[":id"].$delete({ param: { id } });
+    if (!res.ok && res.status !== 404) throw new Error(`delete board: ${res.status}`);
   },
 
   async listDeleted() {
