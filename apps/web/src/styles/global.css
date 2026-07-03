@@ -457,7 +457,7 @@ body {
   padding-top: 1px;
 }
 .tb-count {
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 11px;
   color: rgb(var(--text-muted));
   line-height: 1;
@@ -595,7 +595,7 @@ body {
   left: 50%;
   transform: translateX(-50%);
   pointer-events: auto;
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 11px;
   letter-spacing: 0.04em;
   color: rgb(var(--text-muted));
@@ -725,7 +725,7 @@ body {
   border-radius: 999px;
   background: rgb(var(--accent) / 0.16);
   color: rgb(var(--accent));
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 0.88em;
   line-height: 1.5;
   cursor: pointer;
@@ -831,7 +831,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 11.5px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -881,7 +881,7 @@ body {
   line-height: 1.45;
 }
 .help-row kbd {
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 10.5px;
   padding: 2px 7px;
   border-radius: 4px;
@@ -900,7 +900,7 @@ body {
   margin-top: 22px;
   padding-top: 16px;
   border-top: 1px solid rgb(var(--border) / 0.4);
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 11px;
   color: rgb(var(--text-secondary));
   line-height: 1.6;
@@ -957,7 +957,7 @@ body {
 .ghost-text {
   margin-top: 14px;
   text-align: center;
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 11.5px;
   color: rgb(var(--text-secondary));
   letter-spacing: 0.02em;
@@ -968,7 +968,7 @@ body {
   display: inline-flex;
   align-items: baseline;
   gap: 0;
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 11px;
   color: rgb(var(--text-secondary));
   font-variant-numeric: tabular-nums;
@@ -1061,7 +1061,7 @@ body {
   justify-content: space-between;
   padding-top: 12px;
   border-top: 1px solid rgba(0, 0, 0, 0.08);
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 10.5px;
   letter-spacing: 0.04em;
   color: rgba(0, 0, 0, 0.45);
@@ -1099,7 +1099,7 @@ body {
   -webkit-backdrop-filter: blur(8px) saturate(110%);
   backdrop-filter: blur(8px) saturate(110%);
   box-shadow: 0 14px 36px -10px rgba(0, 0, 0, 0.4);
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 12.5px;
   letter-spacing: -0.005em;
   color: rgb(var(--text-primary));
@@ -1202,7 +1202,7 @@ body {
   font-weight: 500;
 }
 .command-row .cmd-hint {
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 10.5px;
   color: rgb(var(--text-secondary));
   white-space: nowrap;
@@ -1252,7 +1252,7 @@ body {
   color: rgb(var(--danger));
 }
 .note-ctx-hint {
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 10.5px;
   color: rgb(var(--text-secondary));
 }
@@ -1291,7 +1291,7 @@ body {
 }
 .grave-meta {
   margin-top: 2px;
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 10.5px;
   color: rgb(var(--text-secondary));
 }
@@ -1333,7 +1333,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 11.5px;
   color: rgb(var(--text-secondary));
 }
@@ -1399,7 +1399,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 10px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1422,7 +1422,7 @@ body {
   appearance: none;
   border: 0;
   background: transparent;
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 11.5px;
   color: rgb(var(--text-secondary));
   cursor: pointer;
@@ -1494,7 +1494,7 @@ body {
   position: absolute;
   right: 28px;
   white-space: nowrap;
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 11px;
   letter-spacing: 0.04em;
   color: rgb(var(--accent) / 0.92);
@@ -1537,7 +1537,7 @@ body {
   background: rgb(var(--bg-secondary) / 0.85);
   border: 1px solid rgb(var(--accent) / 0.3);
   border-radius: 999px;
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 10.5px;
   letter-spacing: 0.04em;
   color: rgb(var(--text-secondary));
