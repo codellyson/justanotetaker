@@ -122,14 +122,20 @@ export function tagsOf(text: string): string[] {
   return [...out];
 }
 
+// A board is a separate infinite canvas with its own notes + view mode.
+export type Board = {
+  id: string;
+  name: string;
+  viewMode: ViewMode;
+  sort: number;
+};
+
 export type Tweaks = {
   grid: "dots" | "lines" | "off";
   radius: number;
   noteWidth: number;
   snap: boolean;
   editMode: "in place" | "focused";
-  // Canvas view mode. Persisted, so reopening restores the last mode.
-  viewMode: ViewMode;
   compass: boolean;
   // Desktop only: poll the OS clipboard and auto-create notes from new copies.
   clipboardCapture: boolean;
@@ -144,7 +150,6 @@ export const TWEAK_DEFAULTS: Tweaks = {
   noteWidth: 220,
   snap: true,
   editMode: "in place",
-  viewMode: "default",
   compass: true,
   clipboardCapture: false,
   clipboardSyncToCloud: true,

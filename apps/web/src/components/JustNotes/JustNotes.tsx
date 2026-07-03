@@ -49,6 +49,10 @@ export type JustNotesProps = Persist & {
   seedIds: string[];
   tweaks: Tweaks;
   setTweak: <K extends keyof Tweaks>(key: K, val: Tweaks[K]) => void;
+  // View mode is per-board now: it comes in from the active board, and
+  // changing it writes back to the board (persisted + synced).
+  viewMode: ViewMode;
+  onSetViewMode: (m: ViewMode) => void;
 };
 
 type View = { pan: { x: number; y: number }; zoom: number };
@@ -61,7 +65,7 @@ type UndoOp =
 
 // ── App ────────────────────────────────────────────────────────────────
 export default function JustNotes(props: JustNotesProps) {
-  const { initialNotes, seedIds, tweaks: t, setTweak, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete } = props;
+  const { initialNotes, seedIds, tweaks: t, setTweak, viewMode, onSetViewMode, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete } = props;
   const [tweaksOpen, setTweaksOpen] = useState(false);
 
   const [notes, setNotes] = useState<Note[]>(initialNotes);
@@ -81,8 +85,10 @@ export default function JustNotes(props: JustNotesProps) {
   const [snappingId, setSnappingId] = useState<string | null>(null);
 
   // `layoutAnimating` gates the left/top transition to mode-switch time only,
-  // so ordinary dragging never lags.
-  const viewMode = t.viewMode;
+  // so ordinary dragging never lags. viewModeRef lets event handlers read the
+  // current mode without going stale in their closures.
+  const viewModeRef = useRef(viewMode);
+  useEffect(() => { viewModeRef.current = viewMode; }, [viewMode]);
   const [layoutAnimating, setLayoutAnimating] = useState(false);
 
   // Sticky/paper render from this ephemeral map (a declumped layout computed on
@@ -370,7 +376,7 @@ export default function JustNotes(props: JustNotesProps) {
   // else the note's real x/y — with size measured from the DOM.
   function measureRects(excludeId?: string) {
     const layer = canvasRef.current?.querySelector(".notes-layer");
-    const managed = tweakRef.current.viewMode !== "default";
+    const managed = viewModeRef.current !== "default";
     const mp = modePosRef.current;
     const rects: { x: number; y: number; w: number; h: number }[] = [];
     for (const n of notesRef.current) {
@@ -505,7 +511,7 @@ export default function JustNotes(props: JustNotesProps) {
     if (!n) return;
     editSnapshotRef.current = { id, isNew: false, prevText: n.text, prevT: n.t };
     setEditingId(id);
-    if (tweakRef.current.viewMode === "paper") focusPaper(id);
+    if (viewModeRef.current === "paper") focusPaper(id);
   }
 
   function commitEditing() {
@@ -748,7 +754,7 @@ export default function JustNotes(props: JustNotesProps) {
     // In a mode, a drag edits the ephemeral mode map (canvas x/y untouched, so
     // nothing persists and default is unaffected). In default it edits the real
     // x/y. Either way only the grabbed card(s) move — no reflow of the rest.
-    const managed = tweakRef.current.viewMode !== "default";
+    const managed = viewModeRef.current !== "default";
     const startPositions = new Map<string, { x: number; y: number }>();
     for (const nid of groupIds) {
       const n = notesRef.current.find((x) => x.id === nid);
@@ -801,7 +807,7 @@ export default function JustNotes(props: JustNotesProps) {
       if (managed) {
         // Settle the dragged card, then persist the moved card(s)' positions
         // onto their notes' `modePos` (canvas x/y untouched). This syncs.
-        const mode = tweakRef.current.viewMode as "sticky" | "paper";
+        const mode = viewModeRef.current as "sticky" | "paper";
         const final = new Map(modePosRef.current);
         if (groupIds.length === 1) {
           const cur = final.get(id);
@@ -1346,7 +1352,7 @@ export default function JustNotes(props: JustNotesProps) {
 
       <Toolbar
         mode={viewMode}
-        onSetMode={(m) => { markInteracted(); setTweak("viewMode", m); }}
+        onSetMode={(m) => { markInteracted(); onSetViewMode(m); }}
         onNewNote={() => { markInteracted(); spawnAtCenter(""); }}
         onSearch={() => { markInteracted(); openAmbient(""); }}
         overviewActive={inOverview}

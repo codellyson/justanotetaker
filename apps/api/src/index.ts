@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { createAuth, hasGoogleProvider } from "./auth";
 import type { Env } from "./env";
+import { boardsRoutes } from "./routes/boards";
 import { notesRoutes } from "./routes/notes";
 import { previewRoutes } from "./routes/preview";
 import { settingsRoutes } from "./routes/settings";
@@ -138,9 +139,11 @@ const routes = app
   .use("/api/notes/*", requireUser as any)
   .use("/api/settings/*", requireUser as any)
   .use("/api/preview/*", requireUser as any)
+  .use("/api/boards/*", requireUser as any)
   .route("/api/notes", notesRoutes)
   .route("/api/settings", settingsRoutes)
-  .route("/api/preview", previewRoutes);
+  .route("/api/preview", previewRoutes)
+  .route("/api/boards", boardsRoutes);
 
 export default app;
 
