@@ -25,7 +25,7 @@ import {
   type Tweaks,
   type ViewMode,
 } from "./lib";
-import { renderBody, renderHeadline } from "./markdown";
+import { renderBody, renderHeadline, toggleTaskLine } from "./markdown";
 import { formatCapturedNote } from "./clipboard";
 import { clipboardOrigin } from "../../lib/clipboard-origin";
 import { seedIdStore } from "../../lib/seed-ids";
@@ -551,6 +551,19 @@ export default function JustNotes(props: JustNotesProps) {
 
   function updateNoteText(id: string, text: string) {
     setNotes((ns) => ns.map((n) => n.id === id ? { ...n, text } : n));
+  }
+
+  // Toggle a task checkbox (`- [ ]` ⇄ `- [x]`) in a note and persist right
+  // away — this happens outside an edit session, so it can't wait for commit.
+  function toggleTask(id: string, taskIndex: number) {
+    const cur = notesRef.current.find((n) => n.id === id);
+    if (!cur) return;
+    const nextText = toggleTaskLine(cur.text, taskIndex);
+    if (nextText === cur.text) return;
+    const now = Date.now();
+    setNotes((ns) => ns.map((n) => n.id === id ? { ...n, text: nextText, t: now } : n));
+    onUpdate(id, { text: nextText, t: now });
+    markInteracted();
   }
 
   function deleteNoteById(id: string) {
@@ -1320,6 +1333,7 @@ export default function JustNotes(props: JustNotesProps) {
                 markInteracted();
               }}
               onResizeStart={(e, dir) => startResize(e, n.id, dir)}
+              onToggleTask={toggleTask}
             />
           ))}
         </div>
@@ -1483,7 +1497,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 function NoteCard({
   note, pos, viewMode, stickyColor, fromClipboard, editing, dragging, snapping,
   dimmed, highlit, focused, selected, hidden, scrubFade,
-  onMouseDown, onEdit, onTextChange, onContextMenu, onTagClick, onResizeStart, onHover,
+  onMouseDown, onEdit, onTextChange, onContextMenu, onTagClick, onResizeStart, onHover, onToggleTask,
 }: {
   note: Note;
   pos: { x: number; y: number };
@@ -1506,6 +1520,7 @@ function NoteCard({
   onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
   onTagClick: (tag: string) => void;
   onResizeStart: (e: React.MouseEvent<HTMLDivElement>, dir: "e" | "s" | "se") => void;
+  onToggleTask: (id: string, taskIndex: number) => void;
 }) {
   const rec = recencyOf(note.t);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1531,7 +1546,12 @@ function NoteCard({
   const first = firstNonEmpty(note.text);
   const rest = restAfterFirst(note.text);
   const isHeading = first.trim().startsWith("#");
-  const startsWithFence = /^\s*`{3,}/.test(first);
+  // When the note opens with a block (code fence, list, task, quote, ordered
+  // item, rule, or image), render the whole text through renderBody rather
+  // than treating the first line as a headline — otherwise a task list's
+  // first item becomes an un-checkable title and the toggle indices drift.
+  const startsWithBlock = /^\s*(`{3,}|>|[-*]\s+\[[ xX]\]|[-*]\s|\d+\.\s|!\[[^\]]*\]\(|(-{3,}|\*{3,})\s*$)/.test(first);
+  const onToggle = (taskIndex: number) => onToggleTask(note.id, taskIndex);
 
   const cls = [
     "note",
@@ -1601,16 +1621,16 @@ function NoteCard({
           placeholder="just write."
           spellCheck={false}
         />
-      ) : startsWithFence ? (
+      ) : startsWithBlock ? (
         <div className="note-rest" style={{ color: "rgb(var(--text-secondary))" }}>
-          {renderBody(note.text)}
+          {renderBody(note.text, { onToggle })}
         </div>
       ) : (
         <>
           {first
             ? <div className="note-first">{renderHeadline(first)}</div>
             : <div className="note-first" style={{ opacity: 0.35 }}>empty</div>}
-          {rest && <div className="note-rest" style={{ color: "rgb(var(--text-secondary))" }}>{renderBody(rest)}</div>}
+          {rest && <div className="note-rest" style={{ color: "rgb(var(--text-secondary))" }}>{renderBody(rest, { onToggle })}</div>}
         </>
       )}
       {!editing && fromClipboard && (

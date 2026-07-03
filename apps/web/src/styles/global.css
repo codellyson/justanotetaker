@@ -764,6 +764,108 @@ body {
 .note strong {
   font-weight: 600;
 }
+
+/* ── Rich markdown ─────────────────────────────────────────────────── */
+.note em {
+  font-style: italic;
+}
+.note del {
+  opacity: 0.6;
+}
+.note .md-mark {
+  background: rgb(var(--accent) / 0.22);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+.note .md-h {
+  font-weight: 650;
+  line-height: 1.25;
+  margin: 2px 0;
+}
+.note .md-h1 {
+  font-size: 1.25em;
+}
+.note .md-h2 {
+  font-size: 1.12em;
+}
+.note .md-h3 {
+  font-size: 1.02em;
+  opacity: 0.9;
+}
+.note .md-hr {
+  border: 0;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.18;
+  margin: 7px 0;
+}
+.note .md-quote {
+  border-left: 2px solid rgb(var(--accent) / 0.5);
+  padding-left: 9px;
+  margin: 3px 0;
+  opacity: 0.85;
+  font-style: italic;
+}
+.note .md-ol .md-num {
+  color: currentColor;
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  min-width: 14px;
+}
+.note .md-task {
+  align-items: center;
+  gap: 7px;
+}
+.note .md-check {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  border: 1.5px solid currentColor;
+  opacity: 0.5;
+  cursor: pointer;
+  position: relative;
+  transition:
+    background 120ms ease,
+    opacity 120ms ease;
+}
+.note .md-check:hover {
+  opacity: 0.8;
+}
+.note .md-check:checked {
+  background: rgb(var(--accent));
+  border-color: rgb(var(--accent));
+  opacity: 1;
+}
+.note .md-check:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 3px;
+  height: 7px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.note .md-task.done > span:last-child {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+.note .md-img-wrap {
+  margin: 5px 0;
+}
+.note .md-img {
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: 6px;
+  display: block;
+  object-fit: contain;
+}
 .note code {
   font-family: var(--font-jn-mono), ui-monospace, monospace;
   font-size: 0.92em;
