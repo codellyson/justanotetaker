@@ -1,6 +1,17 @@
 import { useState } from "react";
 import type { Board } from "./JustNotes/lib";
 
+const XIcon = (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+    <path d="M6 6l12 12M18 6 6 18" />
+  </svg>
+);
+const PlusIcon = (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+
 // Horizontal top tab bar for switching between boards (canvases). Click to
 // switch, double-click to rename inline, × to arm an inline delete confirm
 // ("delete?"), + to add. No native dialogs — everything is in-canvas.
@@ -75,7 +86,7 @@ export function BoardTabs({ boards, activeBoardId, onSwitch, onNew, onRename, on
                   aria-label={`close ${b.name}`}
                   onClick={() => setConfirmId(b.id)}
                 >
-                  ×
+                  {XIcon}
                 </button>
               )
             )}
@@ -89,7 +100,7 @@ export function BoardTabs({ boards, activeBoardId, onSwitch, onNew, onRename, on
         title="New board"
         onClick={onNew}
       >
-        +
+        {PlusIcon}
       </button>
     </div>
   );
