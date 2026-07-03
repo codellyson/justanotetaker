@@ -502,6 +502,7 @@ body {
 .board-tab {
   display: flex;
   align-items: center;
+  padding-right: 4px;
   border-radius: 8px;
   color: rgb(var(--text-muted));
 }
@@ -516,8 +517,9 @@ body {
   cursor: pointer;
   font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 12px;
+  line-height: 1.4;
   color: inherit;
-  padding: 5px 10px;
+  padding: 5px 6px 5px 10px;
   border-radius: 8px;
   max-width: 160px;
   white-space: nowrap;
@@ -532,15 +534,22 @@ body {
   border: 0;
   background: transparent;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 5px;
   color: currentColor;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1;
-  padding: 2px 7px 2px 0;
   opacity: 0.5;
 }
 .board-tab-x:hover {
   opacity: 1;
   color: rgb(var(--accent));
+  background: rgb(var(--text-primary) / 0.08);
 }
 .board-tab-input {
   appearance: none;
