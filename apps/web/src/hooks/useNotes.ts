@@ -13,12 +13,24 @@ import { localNotes } from "../lib/local-notes";
 // It deliberately does NOT own the live notes array — JustNotes keeps
 // useState<Note[]> internally for the existing optimistic edit/drag/undo
 // loops to work unchanged. The hook is a side-channel for persistence.
-export function useNotes() {
+export function useNotes(boardId: string | null) {
   const [initialNotes, setInitialNotes] = useState<Note[] | null>(null);
   const syncedRef = useRef<Set<string>>(new Set());
   const localRef = useRef<Set<string>>(new Set());
+  // onCreate is a stable callback but needs the current board id — keep it in
+  // a ref updated each render so the callback identity never changes.
+  const boardIdRef = useRef(boardId);
+  boardIdRef.current = boardId;
 
   useEffect(() => {
+    // No active board yet — leave notes un-ready so a board switch re-gates.
+    if (boardId === null) {
+      setInitialNotes(null);
+      return;
+    }
+    // Reset to null at the start of a load so switching boards re-gates
+    // (ready flips back to false until the new board's notes arrive).
+    setInitialNotes(null);
     let cancelled = false;
     (async () => {
       // Device-local notes load synchronously and always show, even offline
@@ -26,7 +38,7 @@ export function useNotes() {
       const local = localNotes.list();
       localRef.current = new Set(local.map((n) => n.id));
       try {
-        const loaded = await remoteStorage.list();
+        const loaded = await remoteStorage.list(boardId);
         if (cancelled) return;
         const stripped: Note[] = loaded.map((s) => ({
           id: s.id,
@@ -48,7 +60,7 @@ export function useNotes() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [boardId]);
 
   // Persist a brand-new note. With { localOnly } the note is written to the
   // device-local store and never synced; otherwise it goes to the server and
@@ -59,9 +71,12 @@ export function useNotes() {
       localRef.current.add(note.id);
       return;
     }
+    const boardId = boardIdRef.current;
+    if (!boardId) return;
     try {
       await remoteStorage.create({
         id: note.id,
+        boardId,
         x: note.x,
         y: note.y,
         w: note.w,

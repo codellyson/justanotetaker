@@ -8,6 +8,7 @@ const modePosSchema = z.object({ sticky: posSchema.optional(), paper: posSchema.
 
 const createSchema = z.object({
   id: z.string().optional(),
+  boardId: z.string(),
   x: z.number(),
   y: z.number(),
   w: z.number().nullable().optional(),
@@ -30,6 +31,7 @@ const patchSchema = z.object({
 const listQuery = z.object({
   since: z.coerce.number().optional(),
   before: z.coerce.number().optional(),
+  board: z.string().optional(),
 });
 const idParam = z.object({ id: z.string() });
 
@@ -40,7 +42,7 @@ const searchQuery = z.object({
 
 const GRAVEYARD_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
-const NOTE_COLS = "id, user_id, x, y, w, h, t, text, updated_at, deleted_at, mode_pos";
+const NOTE_COLS = "id, user_id, x, y, w, h, t, text, updated_at, deleted_at, mode_pos, board_id";
 
 type NoteRow = {
   id: string;
@@ -54,6 +56,7 @@ type NoteRow = {
   updated_at: number;
   deleted_at: number | null;
   mode_pos: string | null;
+  board_id: string | null;
 };
 
 function safeParse(json: string | null) {
@@ -78,6 +81,7 @@ function toNote(r: NoteRow) {
     updatedAt: r.updated_at,
     deletedAt: r.deleted_at,
     modePos: safeParse(r.mode_pos),
+    boardId: r.board_id,
   };
 }
 
@@ -95,7 +99,7 @@ function toFtsQuery(raw: string): string {
 export const notesRoutes = new Hono<Env>()
   .get("/", zValidator("query", listQuery), async (c) => {
     const userId = c.get("userId");
-    const { since, before } = c.req.valid("query");
+    const { since, before, board } = c.req.valid("query");
 
     const conds = ["user_id = ?"];
     const binds: (string | number)[] = [userId];
@@ -108,6 +112,10 @@ export const notesRoutes = new Hono<Env>()
     if (before != null) {
       conds.push("t <= ?");
       binds.push(before);
+    }
+    if (board != null) {
+      conds.push("board_id = ?");
+      binds.push(board);
     }
 
     const { results } = await c.env.DB.prepare(
@@ -189,11 +197,12 @@ export const notesRoutes = new Hono<Env>()
       updatedAt: now,
       deletedAt: null as number | null,
       modePos: body.modePos ?? null,
+      boardId: body.boardId,
     };
     await c.env.DB.prepare(
-      `INSERT INTO notes (${NOTE_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO notes (${NOTE_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-      .bind(note.id, note.userId, note.x, note.y, note.w, note.h, note.t, note.text, note.updatedAt, note.deletedAt, note.modePos ? JSON.stringify(note.modePos) : null)
+      .bind(note.id, note.userId, note.x, note.y, note.w, note.h, note.t, note.text, note.updatedAt, note.deletedAt, note.modePos ? JSON.stringify(note.modePos) : null, note.boardId)
       .run();
     return c.json({ note });
   })
