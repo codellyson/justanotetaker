@@ -25,7 +25,7 @@ import {
   type Tweaks,
   type ViewMode,
 } from "./lib";
-import { renderBody, renderHeadline } from "./markdown";
+import { renderBody, renderHeadline, toggleTaskLine } from "./markdown";
 import { formatCapturedNote } from "./clipboard";
 import { clipboardOrigin } from "../../lib/clipboard-origin";
 import { seedIdStore } from "../../lib/seed-ids";
@@ -76,6 +76,19 @@ export default function JustNotes(props: JustNotesProps) {
   const viewRef = useRef(view);
   useEffect(() => { viewRef.current = view; }, [view]);
   const [smooth, setSmooth] = useState(false);
+
+  // Crisp text under zoom: promote the notes-layer (will-change) only while it's
+  // actively moving, then drop the hint when it settles. Compositing keeps
+  // pan/zoom smooth; dropping it makes Chrome re-rasterize the static text at
+  // the exact current scale instead of stretching a cached texture (blur).
+  const [moving, setMoving] = useState(false);
+  const movingTimer = useRef<number | null>(null);
+  const bumpMoving = (holdMs = 220) => {
+    setMoving(true);
+    if (movingTimer.current) clearTimeout(movingTimer.current);
+    movingTimer.current = window.setTimeout(() => setMoving(false), holdMs);
+  };
+  useEffect(() => () => { if (movingTimer.current) clearTimeout(movingTimer.current); }, []);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const editingIdRef = useRef<string | null>(null);
@@ -260,6 +273,7 @@ export default function JustNotes(props: JustNotesProps) {
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      bumpMoving();
       if (e.ctrlKey || e.metaKey) {
         const rect = el.getBoundingClientRect();
         // Normalize across input devices: line/page deltas → px, then clamp so
@@ -282,6 +296,7 @@ export default function JustNotes(props: JustNotesProps) {
 
   function animateView(next: View) {
     setSmooth(true);
+    bumpMoving(460);
     setView(next);
     window.setTimeout(() => setSmooth(false), 400);
   }
@@ -553,6 +568,19 @@ export default function JustNotes(props: JustNotesProps) {
     setNotes((ns) => ns.map((n) => n.id === id ? { ...n, text } : n));
   }
 
+  // Toggle a task checkbox (`- [ ]` ⇄ `- [x]`) in a note and persist right
+  // away — this happens outside an edit session, so it can't wait for commit.
+  function toggleTask(id: string, taskIndex: number) {
+    const cur = notesRef.current.find((n) => n.id === id);
+    if (!cur) return;
+    const nextText = toggleTaskLine(cur.text, taskIndex);
+    if (nextText === cur.text) return;
+    const now = Date.now();
+    setNotes((ns) => ns.map((n) => n.id === id ? { ...n, text: nextText, t: now } : n));
+    onUpdate(id, { text: nextText, t: now });
+    markInteracted();
+  }
+
   function deleteNoteById(id: string) {
     const cur = notesRef.current.find((n) => n.id === id);
     if (!cur) return;
@@ -688,6 +716,7 @@ export default function JustNotes(props: JustNotesProps) {
       if (!moved && dx * dx + dy * dy > 9) moved = true;
       if (!moved) return;
       if (!wantsSelect) {
+        bumpMoving();
         setView((v) => ({ ...v, pan: { x: startPan.x + dx, y: startPan.y + dy } }));
       } else {
         const cur = screenToCanvas(ev.clientX, ev.clientY);
@@ -1267,7 +1296,7 @@ export default function JustNotes(props: JustNotesProps) {
         onMouseDown={onCanvasMouseDown}
       >
         <div
-          className={"notes-layer view-" + viewMode + (smooth ? " smooth" : "") + (inOverview ? " overview" : "") + (layoutAnimating ? " layout-animating" : "")}
+          className={"notes-layer view-" + viewMode + (smooth ? " smooth" : "") + (moving ? " moving" : "") + (inOverview ? " overview" : "") + (layoutAnimating ? " layout-animating" : "")}
           style={{ transform: `translate(${view.pan.x}px, ${view.pan.y}px) scale(${view.zoom})` }}
         >
           {marquee && (
@@ -1320,6 +1349,7 @@ export default function JustNotes(props: JustNotesProps) {
                 markInteracted();
               }}
               onResizeStart={(e, dir) => startResize(e, n.id, dir)}
+              onToggleTask={toggleTask}
             />
           ))}
         </div>
@@ -1483,7 +1513,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 function NoteCard({
   note, pos, viewMode, stickyColor, fromClipboard, editing, dragging, snapping,
   dimmed, highlit, focused, selected, hidden, scrubFade,
-  onMouseDown, onEdit, onTextChange, onContextMenu, onTagClick, onResizeStart, onHover,
+  onMouseDown, onEdit, onTextChange, onContextMenu, onTagClick, onResizeStart, onHover, onToggleTask,
 }: {
   note: Note;
   pos: { x: number; y: number };
@@ -1506,6 +1536,7 @@ function NoteCard({
   onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
   onTagClick: (tag: string) => void;
   onResizeStart: (e: React.MouseEvent<HTMLDivElement>, dir: "e" | "s" | "se") => void;
+  onToggleTask: (id: string, taskIndex: number) => void;
 }) {
   const rec = recencyOf(note.t);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1531,7 +1562,12 @@ function NoteCard({
   const first = firstNonEmpty(note.text);
   const rest = restAfterFirst(note.text);
   const isHeading = first.trim().startsWith("#");
-  const startsWithFence = /^\s*`{3,}/.test(first);
+  // When the note opens with a block (code fence, list, task, quote, ordered
+  // item, rule, or image), render the whole text through renderBody rather
+  // than treating the first line as a headline — otherwise a task list's
+  // first item becomes an un-checkable title and the toggle indices drift.
+  const startsWithBlock = /^\s*(`{3,}|>|[-*]\s+\[[ xX]\]|[-*]\s|\d+\.\s|!\[[^\]]*\]\(|(-{3,}|\*{3,})\s*$)/.test(first);
+  const onToggle = (taskIndex: number) => onToggleTask(note.id, taskIndex);
 
   const cls = [
     "note",
@@ -1601,16 +1637,16 @@ function NoteCard({
           placeholder="just write."
           spellCheck={false}
         />
-      ) : startsWithFence ? (
+      ) : startsWithBlock ? (
         <div className="note-rest" style={{ color: "rgb(var(--text-secondary))" }}>
-          {renderBody(note.text)}
+          {renderBody(note.text, { onToggle })}
         </div>
       ) : (
         <>
           {first
             ? <div className="note-first">{renderHeadline(first)}</div>
             : <div className="note-first" style={{ opacity: 0.35 }}>empty</div>}
-          {rest && <div className="note-rest" style={{ color: "rgb(var(--text-secondary))" }}>{renderBody(rest)}</div>}
+          {rest && <div className="note-rest" style={{ color: "rgb(var(--text-secondary))" }}>{renderBody(rest, { onToggle })}</div>}
         </>
       )}
       {!editing && fromClipboard && (
