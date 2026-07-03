@@ -542,6 +542,32 @@ body {
   opacity: 1;
   color: rgb(var(--accent));
 }
+.board-tab-input {
+  appearance: none;
+  border: 0;
+  background: rgb(var(--bg) / 0.6);
+  outline: 1px solid rgb(var(--accent) / 0.6);
+  border-radius: 6px;
+  color: rgb(var(--text-primary));
+  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-size: 12px;
+  padding: 4px 8px;
+  margin: 1px;
+  width: 130px;
+}
+.board-tab-del {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-size: 11px;
+  color: rgb(var(--danger, 220 60 60));
+  padding: 2px 8px 2px 2px;
+}
+.board-tab-del:hover {
+  text-decoration: underline;
+}
 .board-tab-new {
   appearance: none;
   border: 0;
