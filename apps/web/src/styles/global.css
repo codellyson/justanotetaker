@@ -514,7 +514,7 @@ body {
   border: 0;
   background: transparent;
   cursor: pointer;
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 12px;
   color: inherit;
   padding: 5px 10px;
@@ -549,7 +549,7 @@ body {
   outline: 1px solid rgb(var(--accent) / 0.6);
   border-radius: 6px;
   color: rgb(var(--text-primary));
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 12px;
   padding: 4px 8px;
   margin: 1px;
@@ -560,7 +560,7 @@ body {
   border: 0;
   background: transparent;
   cursor: pointer;
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 11px;
   color: rgb(var(--danger, 220 60 60));
   padding: 2px 8px 2px 2px;
