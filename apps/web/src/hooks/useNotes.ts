@@ -14,7 +14,10 @@ import { localNotes } from "../lib/local-notes";
 // useState<Note[]> internally for the existing optimistic edit/drag/undo
 // loops to work unchanged. The hook is a side-channel for persistence.
 export function useNotes(boardId: string | null) {
-  const [initialNotes, setInitialNotes] = useState<Note[] | null>(null);
+  // `loaded` carries the notes AND the board they belong to, so a switch can
+  // tell whether the current notes match the requested board (ready) or are
+  // still the previous board's while the new one loads.
+  const [loaded, setLoaded] = useState<{ boardId: string; notes: Note[] } | null>(null);
   const syncedRef = useRef<Set<string>>(new Set());
   const localRef = useRef<Set<string>>(new Set());
   // onCreate is a stable callback but needs the current board id — keep it in
@@ -23,14 +26,7 @@ export function useNotes(boardId: string | null) {
   boardIdRef.current = boardId;
 
   useEffect(() => {
-    // No active board yet — leave notes un-ready so a board switch re-gates.
-    if (boardId === null) {
-      setInitialNotes(null);
-      return;
-    }
-    // Reset to null at the start of a load so switching boards re-gates
-    // (ready flips back to false until the new board's notes arrive).
-    setInitialNotes(null);
+    if (boardId === null) return;
     let cancelled = false;
     (async () => {
       // Device-local notes load synchronously and always show, even offline
@@ -38,9 +34,9 @@ export function useNotes(boardId: string | null) {
       const local = localNotes.list();
       localRef.current = new Set(local.map((n) => n.id));
       try {
-        const loaded = await remoteStorage.list(boardId);
+        const rows = await remoteStorage.list(boardId);
         if (cancelled) return;
-        const stripped: Note[] = loaded.map((s) => ({
+        const stripped: Note[] = rows.map((s) => ({
           id: s.id,
           x: s.x,
           y: s.y,
@@ -51,16 +47,20 @@ export function useNotes(boardId: string | null) {
           modePos: s.modePos ?? null,
         }));
         syncedRef.current = new Set(stripped.map((n) => n.id));
-        setInitialNotes([...stripped, ...local]);
+        setLoaded({ boardId, notes: [...stripped, ...local] });
       } catch (err) {
         console.error("[useNotes] initial load failed", err);
-        if (!cancelled) setInitialNotes(local);
+        if (!cancelled) setLoaded({ boardId, notes: local });
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [boardId]);
+
+  // Notes are "ready" only when what we hold matches the requested board —
+  // during a switch the previous board's notes are held but not surfaced.
+  const initialNotes = loaded && loaded.boardId === boardId ? loaded.notes : null;
 
   // Persist a brand-new note. With { localOnly } the note is written to the
   // device-local store and never synced; otherwise it goes to the server and

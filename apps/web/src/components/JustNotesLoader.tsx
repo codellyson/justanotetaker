@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import JustNotes from "./JustNotes/JustNotes";
-import type { Board, Note, ViewMode } from "./JustNotes/lib";
+import type { Note } from "./JustNotes/lib";
 import { uid } from "./JustNotes/lib";
 import { useNotes } from "../hooks/useNotes";
 import { useBoards } from "../hooks/useBoards";
@@ -22,7 +22,6 @@ function Session() {
   const settings = useSettings();
   if (!boards.ready || !settings.ready || !boards.activeBoard) return null;
 
-  const active = boards.activeBoard;
   return (
     <>
       <BoardTabs
@@ -33,39 +32,31 @@ function Session() {
         onRename={boards.renameBoard}
         onClose={boards.deleteBoard}
       />
-      <BoardCanvas
-        key={active.id}
-        board={active}
-        settings={settings}
-        onSetViewMode={(m) => boards.setBoardViewMode(active.id, m)}
-        // Onboarding may only seed a brand-new account's sole board — never a
-        // board the user created with +.
-        canSeed={boards.boards.length === 1}
-      />
+      <Canvas boards={boards} settings={settings} />
     </>
   );
 }
 
-// One board's canvas. Keyed by board id in Session, so switching boards
-// remounts this with a fresh notes load for that board.
-function BoardCanvas({ board, settings, onSetViewMode, canSeed }: {
-  board: Board;
+// Owns the notes for the active board and swaps the rendered canvas only once
+// the new board's notes have loaded — so switching keeps the current canvas up
+// (no blank flash) and JustNotes remounts cleanly in a single frame.
+function Canvas({ boards, settings }: {
+  boards: ReturnType<typeof useBoards>;
   settings: ReturnType<typeof useSettings>;
-  onSetViewMode: (m: ViewMode) => void;
-  canSeed: boolean;
 }) {
-  const notes = useNotes(board.id);
-  const [resolved, setResolved] = useState<Note[] | null>(null);
-  const [seedIds, setSeedIds] = useState<string[]>([]);
-  const doneRef = useRef(false);
+  const activeId = boards.activeBoardId as string;
+  const notes = useNotes(activeId);
+  const [shown, setShown] = useState<{ id: string; notes: Note[]; seedIds: string[] } | null>(null);
+  const seededRef = useRef<string | null>(null);
 
   useEffect(() => {
+    // ready ⇒ notes belong to activeId (see useNotes). Until then, hold `shown`.
     if (!notes.ready || !notes.initialNotes) return;
-    if (doneRef.current) return;
-    doneRef.current = true;
 
     // Onboarding seeds go into a brand-new account's sole empty board only.
-    if (canSeed && notes.initialNotes.length === 0 && !settings.seeded) {
+    const canSeed = boards.boards.length === 1;
+    if (canSeed && notes.initialNotes.length === 0 && !settings.seeded && seededRef.current !== activeId) {
+      seededRef.current = activeId;
       const now = Date.now();
       const seeds: Note[] = ONBOARDING_SEED.map((s, i) => ({
         id: uid(),
@@ -81,28 +72,28 @@ function BoardCanvas({ board, settings, onSetViewMode, canSeed }: {
       settings.markSeeded();
       const ids = seeds.map((n) => n.id);
       seedIdStore.write(ids);
-      setSeedIds(ids);
-      setResolved(seeds);
+      setShown({ id: activeId, notes: seeds, seedIds: ids });
     } else {
-      // Not seeding this board — but mark the account seeded so onboarding
-      // never fires again (e.g. on an empty board the user creates with +).
+      // Mark seeded once the first board resolves, so onboarding never fires
+      // for a board the user creates with +.
       if (!settings.seeded) settings.markSeeded();
-      setSeedIds(seedIdStore.list());
-      setResolved(notes.initialNotes);
+      setShown({ id: activeId, notes: notes.initialNotes, seedIds: seedIdStore.list() });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes.ready]);
+  }, [notes.ready, activeId]);
 
-  if (!resolved) return null;
+  if (!shown) return null;
 
+  const board = boards.boards.find((b) => b.id === shown.id) ?? boards.activeBoard!;
   return (
     <JustNotes
-      initialNotes={resolved}
-      seedIds={seedIds}
+      key={shown.id}
+      initialNotes={shown.notes}
+      seedIds={shown.seedIds}
       tweaks={settings.tweaks}
       setTweak={settings.setTweak}
       viewMode={board.viewMode}
-      onSetViewMode={onSetViewMode}
+      onSetViewMode={(m) => boards.setBoardViewMode(shown.id, m)}
       onCreate={notes.onCreate}
       onUpdate={notes.onUpdate}
       onDelete={notes.onDelete}
