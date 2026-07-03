@@ -516,15 +516,46 @@ body {
   background: rgb(var(--text-primary) / 0.05);
   color: rgb(var(--text-secondary));
 }
-/* Active tab: a lifted surface with an accent ring + accent name — the one
-   spot of color in the chrome, so the current board is unmistakable. */
+/* Active tab: a glass pill — accent-tinted, backdrop-blurred, with a top
+   sheen, a bright glass edge, and a specular streak that sweeps on hover. */
 .board-tab.active {
-  background: rgb(var(--bg-secondary));
+  position: relative;
+  overflow: hidden;
   color: rgb(var(--text-primary));
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0.02)),
+    rgb(var(--accent) / 0.16);
+  border: 1px solid rgb(var(--accent) / 0.4);
   box-shadow:
-    0 1px 2px rgb(0 0 0 / 0.35),
-    inset 0 1px 0 rgb(255 255 255 / 0.06),
-    0 0 0 1px rgb(var(--accent) / 0.4);
+    0 3px 12px -4px rgb(0 0 0 / 0.3),
+    inset 0 1px 0 rgb(255 255 255 / 0.4);
+  backdrop-filter: blur(6px) saturate(1.5);
+}
+/* Specular reflection — a diagonal light streak, parked off-screen and swept
+   across on hover for a glassy glint. */
+.board-tab.active::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 45%;
+  background: linear-gradient(100deg, transparent, rgb(255 255 255 / 0.3), transparent);
+  transform: translateX(-160%) skewX(-14deg);
+  pointer-events: none;
+}
+.board-tab.active:hover::before {
+  animation: tab-sheen 760ms ease;
+}
+@keyframes tab-sheen {
+  to {
+    transform: translateX(420%) skewX(-14deg);
+  }
+}
+.board-tab.active .board-tab-name,
+.board-tab.active .board-tab-x {
+  position: relative;
+  z-index: 1;
 }
 .board-tab.active .board-tab-name {
   color: rgb(var(--accent));
