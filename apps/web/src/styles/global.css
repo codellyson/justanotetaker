@@ -486,12 +486,14 @@ body {
   pointer-events: auto;
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   padding: 4px;
-  border-radius: 12px;
-  background: rgb(var(--bg-secondary) / 0.85);
-  border: 1px solid rgb(var(--border));
-  backdrop-filter: blur(8px);
+  border-radius: 13px;
+  /* A recessed track, so the active tab reads as a lifted pill sitting in it. */
+  background: rgb(var(--bg) / 0.55);
+  border: 1px solid rgb(var(--border) / 0.8);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.25);
+  backdrop-filter: blur(10px) saturate(1.3);
   max-width: 66vw;
   overflow-x: auto;
   scrollbar-width: none;
@@ -503,12 +505,30 @@ body {
   display: flex;
   align-items: center;
   padding-right: 4px;
-  border-radius: 8px;
+  border-radius: 9px;
   color: rgb(var(--text-muted));
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
 }
+.board-tab:not(.active):hover {
+  background: rgb(var(--text-primary) / 0.05);
+  color: rgb(var(--text-secondary));
+}
+/* Active tab: a lifted surface with an accent ring + accent name — the one
+   spot of color in the chrome, so the current board is unmistakable. */
 .board-tab.active {
-  background: rgb(var(--accent) / 0.16);
+  background: rgb(var(--bg-secondary));
   color: rgb(var(--text-primary));
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.35),
+    inset 0 1px 0 rgb(255 255 255 / 0.06),
+    0 0 0 1px rgb(var(--accent) / 0.4);
+}
+.board-tab.active .board-tab-name {
+  color: rgb(var(--accent));
+  font-weight: 600;
 }
 .board-tab-name {
   appearance: none;
