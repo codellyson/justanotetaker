@@ -54,6 +54,8 @@ body {
 .jn-root {
   position: fixed;
   inset: 0;
+  /* Soft fade when the canvas (re)mounts — smooths board switches. */
+  animation: justui-fade 140ms ease;
 }
 .canvas {
   position: absolute;
