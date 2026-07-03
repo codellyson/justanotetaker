@@ -24,11 +24,12 @@ export const GRID = 28;
 // underneath and restored on return to "default".
 export type ViewMode = "default" | "sticky" | "paper";
 
-// Card geometry, canvas units. Paper is A4 portrait (1:√2).
+// Card geometry, canvas units. Paper is true A4 portrait at 96 CSS px/in
+// (210×297mm ⇒ 8.27×11.69in ⇒ 794×1123px), the 1:√2 ratio.
 export const STICKY_SIZE = 190;
 export const STICKY_GAP = 30;
-export const PAPER_W = 420;
-export const PAPER_H = Math.round(PAPER_W * Math.SQRT2); // 594
+export const PAPER_W = 794;
+export const PAPER_H = Math.round(PAPER_W * Math.SQRT2); // 1123
 export const PAPER_GAP = 44;
 
 // Assigned per note stably by id, so a sticky keeps its color across renders.
