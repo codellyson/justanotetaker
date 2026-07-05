@@ -56,16 +56,25 @@ export function createAuth(env: AuthEnv) {
       : undefined,
     plugins: [
       anonymous({
-        // Fires when an anonymous user upgrades to a real account.
-        // Transfer FK rows (notes, settings) to the new user_id so the
-        // canvas state and tweaks follow them in. Better Auth deletes
-        // the anonymous user row after this hook returns.
+        // Fires when an anonymous user upgrades to a real account. Move every
+        // row the anon owns to the new user_id BEFORE Better Auth deletes the
+        // anon user row — otherwise the FK `ON DELETE CASCADE` on these tables
+        // hard-deletes them. boards especially: miss it and the upgrade wipes
+        // the user's canvases, stranding their (transferred) notes on board
+        // ids that no longer exist, and they land on a fresh empty board.
         onLinkAccount: async ({ anonymousUser, newUser }) => {
           const from = anonymousUser.user.id;
           const to = newUser.user.id;
           await env.DB.batch([
             env.DB.prepare("UPDATE notes SET user_id = ? WHERE user_id = ?").bind(to, from),
-            env.DB.prepare("UPDATE settings SET user_id = ? WHERE user_id = ?").bind(to, from),
+            env.DB.prepare("UPDATE boards SET user_id = ? WHERE user_id = ?").bind(to, from),
+            // settings.user_id is the PRIMARY KEY. Signing IN to an existing
+            // account (not just signing up) also links, and that account may
+            // already have a settings row — a plain UPDATE would collide on
+            // the PK and, because batch() is one transaction, roll back the
+            // notes/boards transfer too. OR IGNORE keeps the existing account's
+            // settings and drops the anon row (cascade-removed with the user).
+            env.DB.prepare("UPDATE OR IGNORE settings SET user_id = ? WHERE user_id = ?").bind(to, from),
           ]);
         },
       }),
