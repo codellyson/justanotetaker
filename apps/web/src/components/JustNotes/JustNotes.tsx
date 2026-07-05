@@ -35,6 +35,7 @@ import { remoteStorage } from "../../lib/storage";
 import { authClient, clearKeychainToken } from "../../lib/auth-client";
 import { API_BASE_URL, isTauri } from "../../lib/runtime";
 import { AuthPanel } from "../AuthPanel";
+import { ApiTokensPanel } from "./api-tokens";
 import { filterCommands, type Command } from "../../lib/commands";
 import { Graveyard } from "./Graveyard";
 
@@ -72,6 +73,7 @@ type UndoOp =
 export default function JustNotes(props: JustNotesProps) {
   const { initialNotes, seedIds, tweaks: t, setTweak, viewMode, onSetViewMode, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete, refresh } = props;
   const [tweaksOpen, setTweaksOpen] = useState(false);
+  const [tokensOpen, setTokensOpen] = useState(false);
 
   const [notes, setNotes] = useState<Note[]>(initialNotes);
   const notesRef = useRef(notes);
@@ -965,6 +967,12 @@ export default function JustNotes(props: JustNotesProps) {
       run: () => setGraveyardOpen(true),
     });
     list.push({
+      id: "api-tokens",
+      label: "API tokens",
+      hint: "let an agent pipe notes here",
+      run: () => setTokensOpen(true),
+    });
+    list.push({
       id: "relations",
       label: relationsOn ? "Hide relations" : "Show relations",
       hint: "r · threads to notes sharing a tag",
@@ -1102,6 +1110,7 @@ export default function JustNotes(props: JustNotesProps) {
         else if (selectedIdsRef.current.size > 0) setSelectedIds(new Set());
         else if (graveyardOpen) setGraveyardOpen(false);
         else if (authPanelOpen) setAuthPanelOpen(false);
+        else if (tokensOpen) setTokensOpen(false);
         else if (tweaksOpen) setTweaksOpen(false);
         else if (helpOpen) setHelpOpen(false);
         else if (ambientOpen) closeAmbient();
@@ -1493,6 +1502,8 @@ export default function JustNotes(props: JustNotesProps) {
       />
 
       <TweaksUI t={t} setTweak={setTweak} open={tweaksOpen} onClose={() => setTweaksOpen(false)} />
+
+      <ApiTokensPanel open={tokensOpen} onClose={() => setTokensOpen(false)} />
     </div>
   );
 }
