@@ -40,3 +40,6 @@ yarn-error.log*
 # Tauri / Rust build artifacts
 src-tauri/target/
 src-tauri/gen/
+
+# local MCP config (contains a personal dev token)
+.mcp.json

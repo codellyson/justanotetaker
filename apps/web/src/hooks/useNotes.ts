@@ -3,6 +3,21 @@ import type { Note } from "../components/JustNotes/lib";
 import { remoteStorage } from "../lib/storage";
 import { localNotes } from "../lib/local-notes";
 
+// Server rows carry a few persistence-only fields; the canvas only wants the
+// Note shape. Shared by the initial load and refresh so they never drift.
+function strip(rows: Awaited<ReturnType<typeof remoteStorage.list>>): Note[] {
+  return rows.map((s) => ({
+    id: s.id,
+    x: s.x,
+    y: s.y,
+    w: s.w,
+    h: s.h,
+    t: s.t,
+    text: s.text,
+    modePos: s.modePos ?? null,
+  }));
+}
+
 // useNotes is the bridge between server state and the canvas. It owns:
 //   - the one-time initial fetch (for JustNotes' initialNotes prop)
 //   - the "synced ids" ref that tracks which notes the server knows about
@@ -36,16 +51,7 @@ export function useNotes(boardId: string | null) {
       try {
         const rows = await remoteStorage.list(boardId);
         if (cancelled) return;
-        const stripped: Note[] = rows.map((s) => ({
-          id: s.id,
-          x: s.x,
-          y: s.y,
-          w: s.w,
-          h: s.h,
-          t: s.t,
-          text: s.text,
-          modePos: s.modePos ?? null,
-        }));
+        const stripped = strip(rows);
         syncedRef.current = new Set(stripped.map((n) => n.id));
         setLoaded({ boardId, notes: [...stripped, ...local] });
       } catch (err) {
@@ -106,6 +112,23 @@ export function useNotes(boardId: string | null) {
     [],
   );
 
+  // Re-fetch the server notes for the current board and return them. Used to
+  // pull in notes created out-of-band (another device, or an agent via the
+  // MCP server) without a full reload. Marks every returned note as synced so
+  // subsequent edits reach the server; the caller decides how to merge.
+  const refresh = useCallback(async (): Promise<Note[]> => {
+    const boardId = boardIdRef.current;
+    if (!boardId) return [];
+    try {
+      const stripped = strip(await remoteStorage.list(boardId));
+      stripped.forEach((n) => syncedRef.current.add(n.id));
+      return stripped;
+    } catch (err) {
+      console.error("[useNotes] refresh failed", err);
+      return [];
+    }
+  }, []);
+
   // Delete. Local-only ids are removed from the device store; synced ids are
   // soft-deleted on the server. No-op if neither.
   const onDelete = useCallback((id: string) => {
@@ -125,5 +148,6 @@ export function useNotes(boardId: string | null) {
     onCreate,
     onUpdate,
     onDelete,
+    refresh,
   };
 }

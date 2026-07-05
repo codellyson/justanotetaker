@@ -53,6 +53,11 @@ export type JustNotesProps = Persist & {
   // changing it writes back to the board (persisted + synced).
   viewMode: ViewMode;
   onSetViewMode: (m: ViewMode) => void;
+  // Re-fetch server notes for the active board. Returns the current server
+  // set; the canvas merges in any it doesn't already have (notes created on
+  // another device or piped in by an agent). Optional so JustNotes can be
+  // rendered without a live backend.
+  refresh?: () => Promise<Note[]>;
 };
 
 type View = { pan: { x: number; y: number }; zoom: number };
@@ -65,12 +70,48 @@ type UndoOp =
 
 // ── App ────────────────────────────────────────────────────────────────
 export default function JustNotes(props: JustNotesProps) {
-  const { initialNotes, seedIds, tweaks: t, setTweak, viewMode, onSetViewMode, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete } = props;
+  const { initialNotes, seedIds, tweaks: t, setTweak, viewMode, onSetViewMode, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete, refresh } = props;
   const [tweaksOpen, setTweaksOpen] = useState(false);
 
   const [notes, setNotes] = useState<Note[]>(initialNotes);
   const notesRef = useRef(notes);
   useEffect(() => { notesRef.current = notes; }, [notes]);
+
+  // Ids deleted this session. A background refresh() can race a just-issued
+  // server soft-delete (list() may still return the row for a beat); the merge
+  // consults this so a deleted note is never resurrected.
+  const deletedRef = useRef<Set<string>>(new Set());
+
+  // Pull in notes created out-of-band — another device, or an agent piping via
+  // the MCP server. The app has no realtime channel, so we poll gently while
+  // the tab is visible and refetch on focus. Only notes we don't already have
+  // are merged: an in-progress edit/drag is never clobbered, and a just-deleted
+  // note is never resurrected (deletedRef guards the soft-delete race).
+  useEffect(() => {
+    if (!refresh) return;
+    let cancelled = false;
+    const pull = async () => {
+      if (document.hidden) return;
+      const server = await refresh();
+      if (cancelled || server.length === 0) return;
+      setNotes((prev) => {
+        const have = new Set(prev.map((n) => n.id));
+        const additions = server.filter((n) => !have.has(n.id) && !deletedRef.current.has(n.id));
+        return additions.length ? [...prev, ...additions] : prev;
+      });
+    };
+    const onFocus = () => void pull();
+    const onVisible = () => { if (!document.hidden) void pull(); };
+    const id = window.setInterval(() => void pull(), 20000);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refresh]);
 
   const [view, setView] = useState<View>({ pan: { x: 0, y: 0 }, zoom: 1 });
   const viewRef = useRef(view);
@@ -541,7 +582,7 @@ export default function JustNotes(props: JustNotesProps) {
       setNotes((ns) => ns.filter((n) => n.id !== id));
       // Empty-commit on a previously-synced note → soft-delete on server.
       // No-op if never synced (spawned then never given text).
-      if (!snap?.isNew) onDelete(id);
+      if (!snap?.isNew) { deletedRef.current.add(id); onDelete(id); }
     } else {
       const now = Date.now();
       if (snap?.isNew) pushOp({ type: "create", id });
@@ -585,6 +626,7 @@ export default function JustNotes(props: JustNotesProps) {
     const cur = notesRef.current.find((n) => n.id === id);
     if (!cur) return;
     pushOp({ type: "delete", note: { ...cur } });
+    deletedRef.current.add(id);
     setNotes((ns) => ns.filter((n) => n.id !== id));
     if (editingId === id) {
       setEditingId(null);
