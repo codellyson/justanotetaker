@@ -68,6 +68,10 @@ export function createAuth(env: AuthEnv) {
           await env.DB.batch([
             env.DB.prepare("UPDATE notes SET user_id = ? WHERE user_id = ?").bind(to, from),
             env.DB.prepare("UPDATE boards SET user_id = ? WHERE user_id = ?").bind(to, from),
+            // Personal API tokens are FK'd to the user with the same cascade —
+            // a token minted while anonymous would die on upgrade otherwise,
+            // silently breaking any agent/MCP client using it.
+            env.DB.prepare("UPDATE api_tokens SET user_id = ? WHERE user_id = ?").bind(to, from),
             // settings.user_id is the PRIMARY KEY. Signing IN to an existing
             // account (not just signing up) also links, and that account may
             // already have a settings row — a plain UPDATE would collide on

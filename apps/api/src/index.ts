@@ -6,6 +6,7 @@ import { boardsRoutes } from "./routes/boards";
 import { notesRoutes } from "./routes/notes";
 import { previewRoutes } from "./routes/preview";
 import { settingsRoutes } from "./routes/settings";
+import { tokensRoutes, resolveApiToken } from "./routes/tokens";
 
 const app = new Hono<Env>();
 
@@ -38,8 +39,15 @@ app.on(["POST", "GET"], "/api/auth/**", (c) => {
 app.use("*", async (c, next) => {
   const auth = createAuth(c.env);
   const result = await auth.api.getSession({ headers: c.req.raw.headers });
+  // Fall back to a personal API token (jnt_…) when there's no Better Auth
+  // session — this is how agents/scripts authenticate over the MCP server.
+  let user = result?.user ?? null;
+  if (!user) {
+    const tokenUser = await resolveApiToken(c.env.DB, c.req.raw.headers);
+    if (tokenUser) user = tokenUser as Env["Variables"]["user"];
+  }
   c.set("auth", auth);
-  c.set("user", (result?.user ?? null) as Env["Variables"]["user"]);
+  c.set("user", user as Env["Variables"]["user"]);
   c.set("session", (result?.session ?? null) as Env["Variables"]["session"]);
   await next();
 });
@@ -140,10 +148,12 @@ const routes = app
   .use("/api/settings/*", requireUser as any)
   .use("/api/preview/*", requireUser as any)
   .use("/api/boards/*", requireUser as any)
+  .use("/api/tokens/*", requireUser as any)
   .route("/api/notes", notesRoutes)
   .route("/api/settings", settingsRoutes)
   .route("/api/preview", previewRoutes)
-  .route("/api/boards", boardsRoutes);
+  .route("/api/boards", boardsRoutes)
+  .route("/api/tokens", tokensRoutes);
 
 export default app;
 

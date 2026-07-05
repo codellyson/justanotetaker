@@ -97,6 +97,7 @@ function Canvas({ boards, settings }: {
       onCreate={notes.onCreate}
       onUpdate={notes.onUpdate}
       onDelete={notes.onDelete}
+      refresh={notes.refresh}
     />
   );
 }
