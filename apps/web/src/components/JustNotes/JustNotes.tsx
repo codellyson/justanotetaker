@@ -1445,8 +1445,7 @@ export default function JustNotes(props: JustNotesProps) {
         onHelp={() => setHelpOpen(true)}
         isAnonymous={isAnonymous}
         identityLabel={identityLabel}
-        onSignIn={() => setAuthPanelOpen(true)}
-        onSignOut={onSignOut}
+        onAccount={() => setAuthPanelOpen(true)}
         count={notes.length}
         sync={syncLabel(online, lastWriteAt, nowTick)}
         syncState={!online ? "offline" : lastWriteAt && Date.now() - lastWriteAt < 4000 ? "writing" : "synced"}
@@ -1456,6 +1455,10 @@ export default function JustNotes(props: JustNotesProps) {
         open={authPanelOpen}
         onClose={() => setAuthPanelOpen(false)}
         hasGoogle={hasGoogle}
+        signedIn={!isAnonymous}
+        identityLabel={identityLabel}
+        accountEmail={user?.email}
+        onSignOut={() => { void onSignOut(); setAuthPanelOpen(false); }}
       />
 
       {ambientOpen && (
@@ -1806,19 +1809,20 @@ const TB_ICON = {
   account: svg(<><circle cx="12" cy="8.5" r="3.5" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></>),
 };
 
-function TbBtn({ label, active, onClick, children }: {
-  label: string; active?: boolean; onClick: () => void; children: React.ReactNode;
+function TbBtn({ label, active, dot, onClick, children }: {
+  label: string; active?: boolean; dot?: boolean; onClick: () => void; children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
-      className={"tb-btn" + (active ? " active" : "")}
+      className={"tb-btn" + (active ? " active" : "") + (dot ? " signed-in" : "")}
       title={label}
       aria-label={label}
       aria-pressed={active}
       onClick={onClick}
     >
       {children}
+      {dot && <span className="tb-dot" aria-hidden="true" />}
     </button>
   );
 }
@@ -1837,8 +1841,7 @@ type ToolbarProps = {
   onHelp: () => void;
   isAnonymous: boolean;
   identityLabel: string;
-  onSignIn: () => void;
-  onSignOut: () => void;
+  onAccount: () => void;
   count: number;
   sync: string;
   syncState: SyncState;
@@ -1877,8 +1880,9 @@ function Toolbar(p: ToolbarProps) {
       <TbBtn label="Settings" onClick={p.onTweaks}>{TB_ICON.tweaks}</TbBtn>
       <TbBtn label="Help" onClick={p.onHelp}>{TB_ICON.help}</TbBtn>
       <TbBtn
-        label={p.isAnonymous ? "Sign in to sync" : `${p.identityLabel || "Account"} · sign out`}
-        onClick={p.isAnonymous ? p.onSignIn : p.onSignOut}
+        label={p.isAnonymous ? "Sign in to sync" : `Signed in as ${p.identityLabel || "you"}`}
+        dot={!p.isAnonymous}
+        onClick={p.onAccount}
       >
         {TB_ICON.account}
       </TbBtn>

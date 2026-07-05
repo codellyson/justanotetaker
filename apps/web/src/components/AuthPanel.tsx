@@ -10,10 +10,18 @@ export function AuthPanel({
   open,
   onClose,
   hasGoogle,
+  signedIn,
+  identityLabel,
+  accountEmail,
+  onSignOut,
 }: {
   open: boolean;
   onClose: () => void;
   hasGoogle: boolean;
+  signedIn: boolean;
+  identityLabel: string;
+  accountEmail?: string;
+  onSignOut: () => void;
 }) {
   const [mode, setMode] = useState<Mode>("sign-in");
   const [email, setEmail] = useState("");
@@ -95,6 +103,26 @@ export function AuthPanel({
           </button>
         </header>
 
+        {signedIn ? (
+          <>
+            <div className="auth-rail-headline">
+              <h2>you’re signed in.</h2>
+              <p>your canvas syncs across devices.</p>
+            </div>
+            <div className="auth-account">
+              <div className="auth-account-id">
+                <span className="auth-account-name">{identityLabel || "your account"}</span>
+                {accountEmail && accountEmail !== identityLabel && (
+                  <span className="auth-account-email">{accountEmail}</span>
+                )}
+              </div>
+              <Button variant="secondary" size="sm" onClick={onSignOut} className="w-full">
+                sign out
+              </Button>
+            </div>
+          </>
+        ) : (
+        <>
         <div className="auth-rail-headline">
           <h2>{mode === "sign-in" ? "welcome back." : "make a home for your notes."}</h2>
           <p>
@@ -171,6 +199,8 @@ export function AuthPanel({
             {mode === "sign-in" ? "new here? create an account" : "already have one? sign in"}
           </button>
         </div>
+        </>
+        )}
       </div>
     </aside>
   );
