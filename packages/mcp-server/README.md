@@ -15,19 +15,9 @@ deployed API over HTTPS, exposing three tools:
 
 ## 1. Mint a token
 
-Sign into the app, open the browser console, and run:
-
-```js
-await fetch("/api/tokens", {
-  method: "POST",
-  headers: { "content-type": "application/json" },
-  credentials: "include",
-  body: JSON.stringify({ name: "claude-code" }),
-}).then((r) => r.json());
-```
-
-Copy the `secret` (`jnt_…`) — it's shown **once**. (A settings-panel UI for
-this is a planned follow-up.)
+In the app, open the command palette (`⌘K` / `Ctrl-K`), run **API tokens**,
+name the token, and hit **Create**. Copy the `jnt_…` secret — it's shown
+**once** and can't be retrieved again. Revoke tokens from the same panel.
 
 ## 2. Build
 
