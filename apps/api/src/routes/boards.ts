@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
+import type { D1Database } from "@cloudflare/workers-types";
 import type { Env } from "../env";
 
 const viewModeEnum = z.enum(["default", "sticky", "paper"]);
@@ -36,6 +37,26 @@ function toBoard(r: BoardRow) {
   return { id: r.id, name: r.name, viewMode: r.view_mode, sort: r.sort };
 }
 
+// Create the account's first canvas. Called when the board list is empty so
+// every client (browser, desktop, or a token-only agent) always has a board
+// to write to. A concurrent first request could in theory create two; that's
+// benign (the user can delete one) and far cheaper than locking.
+async function ensureFirstBoard(db: D1Database, userId: string) {
+  const board = {
+    id: crypto.randomUUID(),
+    name: "Canvas",
+    viewMode: "default",
+    sort: 0,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  await db
+    .prepare(`INSERT INTO boards (${BOARD_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(board.id, userId, board.name, board.viewMode, board.sort, board.createdAt, board.updatedAt, null)
+    .run();
+  return { id: board.id, name: board.name, viewMode: board.viewMode, sort: board.sort };
+}
+
 export const boardsRoutes = new Hono<Env>()
   .get("/", async (c) => {
     const userId = c.get("userId");
@@ -44,7 +65,16 @@ export const boardsRoutes = new Hono<Env>()
     )
       .bind(userId)
       .all<BoardRow>();
-    return c.json({ boards: (results ?? []).map(toBoard) });
+    // Every account owns at least one canvas. This invariant used to be the
+    // web client's job (useBoards bootstrapped on an empty list), which left
+    // token-only clients — an agent hitting the API before the human ever
+    // opened the app — with nowhere to create a note. Own it server-side so
+    // the guarantee holds for any client.
+    if (!results || results.length === 0) {
+      const board = await ensureFirstBoard(c.env.DB, userId);
+      return c.json({ boards: [board] });
+    }
+    return c.json({ boards: results.map(toBoard) });
   })
   .post("/", zValidator("json", createSchema), async (c) => {
     const userId = c.get("userId");

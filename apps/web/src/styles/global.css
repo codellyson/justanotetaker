@@ -431,6 +431,7 @@ body {
   border: 0;
   background: transparent;
   cursor: pointer;
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -449,6 +450,21 @@ body {
 .tb-btn.active {
   color: rgb(var(--bg));
   background: rgb(var(--accent));
+}
+/* Signed-in state on the account button: accent tint + a small dot badge
+   so it's clear at a glance you're logged in (anonymous shows neither). */
+.tb-btn.signed-in {
+  color: rgb(var(--accent));
+}
+.tb-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgb(var(--accent));
+  box-shadow: 0 0 0 1.5px rgb(var(--bg));
 }
 .tb-sep {
   width: 20px;
@@ -1557,6 +1573,35 @@ body {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+/* Signed-in account view (replaces the form when a real account is active). */
+.auth-account {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.auth-account-id {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgb(var(--bg-secondary) / 0.5);
+  border: 0.5px solid rgb(var(--border) / 0.6);
+}
+.auth-account-name {
+  font-weight: 600;
+  color: rgb(var(--text-primary));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.auth-account-email {
+  font-size: 11px;
+  color: rgb(var(--text-secondary));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .auth-google {
   margin-top: 18px;
