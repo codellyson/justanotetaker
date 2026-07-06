@@ -100,16 +100,15 @@ const mark = `<svg viewBox="0 0 48 48"><defs><mask id="jn-gap"><rect width="48" 
     <!-- ░░░ HERO — the live canvas, framed. A real, interactive embed of the
          web app (PUBLIC_WEB_URL) rather than a static mock. Needs the web
          app to permit framing from this origin (frame-ancestors). ░░░ -->
-    <div class="mx-auto mt-[72px] max-w-[880px] px-12">
+    <div class="mt-[72px] w-full px-6">
       <div
         class="overflow-hidden rounded-2xl border border-border bg-bg-secondary"
-        style="box-shadow:0 40px 80px -44px rgba(60,40,20,.45), 0 2px 6px rgba(60,40,20,.04);"
       >
         <iframe
           src={webUrl}
           title="the justanotetaker canvas"
           loading="lazy"
-          class="block h-[480px] w-full border-0"
+          class="block h-[78vh] min-h-[620px] w-full border-0"
           allow="clipboard-write"
         ></iframe>
       </div>
