@@ -742,14 +742,24 @@ export default function JustNotes(props: JustNotesProps) {
     const W = window.innerWidth, H = window.innerHeight;
     const fit = Math.min(((W - FILE_TREE_EDGE) * 0.7) / NW, (H * 0.7) / NH);
     const zoom = Math.max(0.9, Math.min(1.2, fit));
-    const cx = p.x + NW / 2, cy = p.y + NH / 2;
+    const cx = p.x + NW / 2;
     const visibleCx = (FILE_TREE_EDGE + W) / 2;
-    animateView({ pan: { x: visibleCx - cx * zoom, y: H / 2 - cy * zoom }, zoom });
+    // Vertically: center a note that fits, but for one taller than the viewport
+    // pin its top near the top edge so the *start* of the card is always in
+    // view — centering a tall card/page pushes its beginning off the top.
+    const TOP_INSET = 96;
+    const panY = NH * zoom <= H - TOP_INSET - 40
+      ? H / 2 - (p.y + NH / 2) * zoom
+      : TOP_INSET - p.y * zoom;
+    animateView({ pan: { x: visibleCx - cx * zoom, y: panY }, zoom });
   }
 
   // File-tree click on a note in the current board: fly to it (zoomed in to
   // type), select it, and drop into edit mode — the "take me there" jump.
   function jumpToNote(n: Note) {
+    // Committing to this note — leave any overview so its framing/dimming
+    // doesn't fight the focus (otherwise the jump lands under overview state).
+    prevViewRef.current = null;
     setSelectedIds(new Set([n.id]));
     focusNoteForEdit(n);
     startEditingExisting(n.id);
@@ -880,11 +890,6 @@ export default function JustNotes(props: JustNotesProps) {
     if (editingId === id) return;
     e.stopPropagation();
     markInteracted();
-    if (prevViewRef.current) {
-      const n = notesRef.current.find((x) => x.id === id);
-      if (n) flyTo(n);
-      return;
-    }
     const note = notesRef.current.find((n) => n.id === id);
     if (!note) return;
     const isSelected = selectedIdsRef.current.has(id);
@@ -932,8 +937,8 @@ export default function JustNotes(props: JustNotesProps) {
       window.removeEventListener("mouseup", onUp);
       setDraggingId(null);
       if (!moved) {
-        // Single click selects; editing is on double-click (onDoubleClick).
-        if (editingId && editingId !== id) commitEditing();
+        // Single click only selects — navigation and editing live on the file
+        // tree now, so a canvas click never commits an open editor or flies.
         if (ambientOpen) closeAmbient();
         setSelectedIds(new Set([id]));
         return;
@@ -1452,7 +1457,6 @@ export default function JustNotes(props: JustNotesProps) {
               hidden={editingId === n.id && t.editMode === "focused"}
               scrubFade={scrubFadeFor(n)}
               onMouseDown={(e) => onNoteMouseDown(e, n.id)}
-              onEdit={() => startEditingExisting(n.id)}
               onTextChange={(v) => updateNoteText(n.id, v)}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -1643,7 +1647,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 function NoteCard({
   note, pos, viewMode, stickyColor, fromClipboard, editing, dragging, snapping,
   dimmed, highlit, focused, selected, hidden, scrubFade,
-  onMouseDown, onEdit, onTextChange, onContextMenu, onTagClick, onResizeStart, onHover, onToggleTask,
+  onMouseDown, onTextChange, onContextMenu, onTagClick, onResizeStart, onHover, onToggleTask,
 }: {
   note: Note;
   pos: { x: number; y: number };
@@ -1661,7 +1665,6 @@ function NoteCard({
   hidden: boolean;
   scrubFade: number;
   onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void;
-  onEdit: () => void;
   onTextChange: (v: string) => void;
   onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
   onTagClick: (tag: string) => void;
@@ -1754,7 +1757,6 @@ function NoteCard({
         }
         onMouseDown(e);
       }}
-      onDoubleClick={() => { if (!editing) onEdit(); }}
       onMouseEnter={() => onHover(note.id)}
       onMouseLeave={() => onHover(null)}
       onContextMenu={onContextMenu}
