@@ -5,7 +5,6 @@ import { remoteStorage } from "../lib/storage";
 
 export function useSettings(debounceMs = 400) {
   const [tweaks, setTweaksLocal] = useState<Tweaks>(TWEAK_DEFAULTS);
-  const [seeded, setSeeded] = useState(false);
   const [ready, setReady] = useState(false);
   const timer = useRef<number | null>(null);
   const pendingRef = useRef<{ tweaks?: Tweaks }>({});
@@ -17,7 +16,6 @@ export function useSettings(debounceMs = 400) {
         const loaded = await remoteStorage.getSettings();
         if (cancelled) return;
         if (loaded.tweaks) setTweaksLocal({ ...TWEAK_DEFAULTS, ...loaded.tweaks });
-        setSeeded(loaded.seeded);
       } catch (err) {
         console.error("[useSettings] load failed", err);
       } finally {
@@ -28,14 +26,6 @@ export function useSettings(debounceMs = 400) {
       cancelled = true;
       if (timer.current) window.clearTimeout(timer.current);
     };
-  }, []);
-
-  // Persist immediately (not debounced) so a fast reload can't double-seed.
-  const markSeeded = useCallback(() => {
-    setSeeded(true);
-    void remoteStorage.putSettings({ seeded: true }).catch((err) =>
-      console.error("[useSettings] markSeeded failed", err),
-    );
   }, []);
 
   const flush = useCallback(async () => {
@@ -69,5 +59,5 @@ export function useSettings(debounceMs = 400) {
     [schedule],
   );
 
-  return { tweaks, seeded, ready, setTweak, markSeeded };
+  return { tweaks, ready, setTweak };
 }

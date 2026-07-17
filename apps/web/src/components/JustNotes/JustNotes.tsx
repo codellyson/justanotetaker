@@ -36,7 +36,6 @@ import type { NotesByBoard } from "../../hooks/useAllNotes";
 import { renderBody, renderHeadline, toggleTaskLine } from "./markdown";
 import { formatCapturedNote } from "./clipboard";
 import { clipboardOrigin } from "../../lib/clipboard-origin";
-import { seedIdStore } from "../../lib/seed-ids";
 import { AmbientBar, Compass, TimeScrub } from "./cherries";
 import { TweaksUI } from "./tweaks";
 import { remoteStorage } from "../../lib/storage";
@@ -55,7 +54,6 @@ type Persist = {
 
 export type JustNotesProps = Persist & {
   initialNotes: Note[];
-  seedIds: string[];
   tweaks: Tweaks;
   setTweak: <K extends keyof Tweaks>(key: K, val: Tweaks[K]) => void;
   // View mode is per-board now: it comes in from the active board, and
@@ -99,7 +97,7 @@ type UndoOp =
 
 // ── App ────────────────────────────────────────────────────────────────
 export default function JustNotes(props: JustNotesProps) {
-  const { initialNotes, seedIds, tweaks: t, setTweak, viewMode, onSetViewMode, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete, refresh, boards, activeBoardId, notesByBoard, onBoardJump, focusNoteId, onFocusConsumed, onBoardCreate, spawnRequested, onSpawnConsumed } = props;
+  const { initialNotes, tweaks: t, setTweak, viewMode, onSetViewMode, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete, refresh, boards, activeBoardId, notesByBoard, onBoardJump, focusNoteId, onFocusConsumed, onBoardCreate, spawnRequested, onSpawnConsumed } = props;
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [tokensOpen, setTokensOpen] = useState(false);
 
@@ -321,7 +319,7 @@ export default function JustNotes(props: JustNotesProps) {
 
   const prevModeRef = useRef<ViewMode>("default");
 
-  // Center the canvas around the seed cluster on first paint.
+  // Center the canvas on first paint.
   useEffect(() => {
     if (!canvasRef.current) return;
     const r = canvasRef.current.getBoundingClientRect();
@@ -663,19 +661,6 @@ export default function JustNotes(props: JustNotesProps) {
       editSnapshotRef.current = null;
     }
     onDelete(id);
-  }
-
-  const seedIdSet = useMemo(() => new Set(seedIds), [seedIds]);
-  const remainingSeeds = notes.filter((n) => seedIdSet.has(n.id));
-
-  // Drop the on-device record once no seeds remain, so it doesn't linger.
-  useEffect(() => {
-    if (seedIds.length > 0 && remainingSeeds.length === 0) seedIdStore.clear();
-  }, [seedIds.length, remainingSeeds.length]);
-
-  function clearStarterNotes() {
-    for (const n of notes.filter((x) => seedIdSet.has(x.id))) deleteNoteById(n.id);
-    seedIdStore.clear();
   }
 
   function reinsertRestoredNote(note: { id: string; x: number; y: number; t: number; text: string }) {
@@ -1504,17 +1489,6 @@ export default function JustNotes(props: JustNotesProps) {
       </Canvas>
 
       {notes.length === 0 && <GhostCard />}
-
-      {remainingSeeds.length > 0 && (
-        <button
-          type="button"
-          className="chrome chrome-clear-seeds"
-          onClick={clearStarterNotes}
-          title="Remove the welcome notes"
-        >
-          clear starter notes
-        </button>
-      )}
 
       <FileTree
         boards={boards}

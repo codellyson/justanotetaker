@@ -1,14 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import JustNotes from "./JustNotes/JustNotes";
 import type { Note } from "./JustNotes/lib";
-import { uid } from "./JustNotes/lib";
 import { useNotes } from "../hooks/useNotes";
 import { useBoards } from "../hooks/useBoards";
 import { useAllNotes } from "../hooks/useAllNotes";
 import { useSettings } from "../hooks/useSettings";
 import { authClient } from "../lib/auth-client";
-import { ONBOARDING_SEED } from "../lib/onboarding-seed";
-import { seedIdStore } from "../lib/seed-ids";
 import { BoardTabs } from "./BoardTabs";
 
 export function JustNotesLoader() {
@@ -49,8 +46,7 @@ function Canvas({ boards, settings, allNotes }: {
 }) {
   const activeId = boards.activeBoardId as string;
   const notes = useNotes(activeId);
-  const [shown, setShown] = useState<{ id: string; notes: Note[]; seedIds: string[] } | null>(null);
-  const seededRef = useRef<string | null>(null);
+  const [shown, setShown] = useState<{ id: string; notes: Note[] } | null>(null);
   // A cross-board file-tree click: switch to the target board, then focus the
   // note once that board's canvas has mounted (JustNotes remounts per board).
   const [focusReq, setFocusReq] = useState<{ boardId: string; noteId: string } | null>(null);
@@ -68,33 +64,7 @@ function Canvas({ boards, settings, allNotes }: {
   useEffect(() => {
     // ready ⇒ notes belong to activeId (see useNotes). Until then, hold `shown`.
     if (!notes.ready || !notes.initialNotes) return;
-
-    // Onboarding seeds go into a brand-new account's sole empty board only.
-    const canSeed = boards.boards.length === 1;
-    if (canSeed && notes.initialNotes.length === 0 && !settings.seeded && seededRef.current !== activeId) {
-      seededRef.current = activeId;
-      const now = Date.now();
-      const seeds: Note[] = ONBOARDING_SEED.map((s, i) => ({
-        id: uid(),
-        x: s.x,
-        y: s.y,
-        w: null,
-        h: null,
-        t: now - i * 1000,
-        text: s.text,
-        modePos: null,
-      }));
-      seeds.forEach((n) => void notes.onCreate(n));
-      settings.markSeeded();
-      const ids = seeds.map((n) => n.id);
-      seedIdStore.write(ids);
-      setShown({ id: activeId, notes: seeds, seedIds: ids });
-    } else {
-      // Mark seeded once the first board resolves, so onboarding never fires
-      // for a board the user creates with +.
-      if (!settings.seeded) settings.markSeeded();
-      setShown({ id: activeId, notes: notes.initialNotes, seedIds: seedIdStore.list() });
-    }
+    setShown({ id: activeId, notes: notes.initialNotes });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notes.ready, activeId]);
 
@@ -125,7 +95,6 @@ function Canvas({ boards, settings, allNotes }: {
     <JustNotes
       key={shown.id}
       initialNotes={shown.notes}
-      seedIds={shown.seedIds}
       tweaks={settings.tweaks}
       setTweak={settings.setTweak}
       viewMode={board.viewMode}
