@@ -54,6 +54,9 @@ function Canvas({ boards, settings, allNotes }: {
   // A cross-board file-tree click: switch to the target board, then focus the
   // note once that board's canvas has mounted (JustNotes remounts per board).
   const [focusReq, setFocusReq] = useState<{ boardId: string; noteId: string } | null>(null);
+  // A file-tree "+" on another board: switch there, then spawn a note once that
+  // board's canvas has mounted.
+  const [spawnReq, setSpawnReq] = useState<string | null>(null);
 
   // Keep the all-boards snapshot reasonably fresh: refetch when the active
   // board changes (the active board itself renders from live notes).
@@ -110,6 +113,14 @@ function Canvas({ boards, settings, allNotes }: {
   const focusNoteId =
     focusReq && shown.id === focusReq.boardId ? focusReq.noteId : undefined;
 
+  // "+" on another board's tree row: switch to it, then spawn on mount.
+  const requestBoardCreate = (boardId: string) => {
+    setSpawnReq(boardId);
+    boards.setActiveBoard(boardId);
+  };
+
+  const spawnRequested = spawnReq != null && shown.id === spawnReq;
+
   return (
     <JustNotes
       key={shown.id}
@@ -129,6 +140,9 @@ function Canvas({ boards, settings, allNotes }: {
       onBoardJump={requestBoardJump}
       focusNoteId={focusNoteId}
       onFocusConsumed={() => setFocusReq(null)}
+      onBoardCreate={requestBoardCreate}
+      spawnRequested={spawnRequested}
+      onSpawnConsumed={() => setSpawnReq(null)}
     />
   );
 }

@@ -20,6 +20,7 @@ export function FileTree({
   notesByBoard,
   selectedIds,
   onSelectNote,
+  onCreateNote,
 }: {
   boards: Board[];
   activeBoardId: string;
@@ -27,6 +28,7 @@ export function FileTree({
   notesByBoard: NotesByBoard;
   selectedIds: Set<string>;
   onSelectNote: (boardId: string, noteId: string) => void;
+  onCreateNote: (boardId: string) => void;
 }) {
   // The active board starts open; others collapsed. Toggling is per-session.
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([activeBoardId]));
@@ -62,16 +64,30 @@ export function FileTree({
           const open = expanded.has(b.id);
           return (
             <div className="ft-board" key={b.id}>
-              <button
-                type="button"
-                className={"ft-board-row" + (b.id === activeBoardId ? " active" : "")}
-                onClick={() => toggle(b.id)}
-                aria-expanded={open}
-              >
-                <span className={"ft-caret" + (open ? " open" : "")} aria-hidden="true">›</span>
-                <span className="ft-board-name">{b.name}</span>
+              <div className={"ft-board-row" + (b.id === activeBoardId ? " active" : "")}>
+                <button
+                  type="button"
+                  className="ft-board-toggle"
+                  onClick={() => toggle(b.id)}
+                  aria-expanded={open}
+                >
+                  <span className={"ft-caret" + (open ? " open" : "")} aria-hidden="true">›</span>
+                  <span className="ft-board-name">{b.name}</span>
+                </button>
+                <button
+                  type="button"
+                  className="ft-add"
+                  title={"New note in " + b.name}
+                  aria-label={"New note in " + b.name}
+                  onClick={() => {
+                    setExpanded((prev) => new Set(prev).add(b.id));
+                    onCreateNote(b.id);
+                  }}
+                >
+                  +
+                </button>
                 <span className="ft-count">{entries.length}</span>
-              </button>
+              </div>
               {open && (
                 <ul className="ft-notes">
                   {entries.length === 0 ? (

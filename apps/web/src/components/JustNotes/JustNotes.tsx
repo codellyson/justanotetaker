@@ -71,6 +71,12 @@ export type JustNotesProps = Persist & {
   onBoardJump: (boardId: string, noteId: string) => void;
   focusNoteId?: string;
   onFocusConsumed: () => void;
+  // File-tree "+": create a note under a board. Same board spawns here;
+  // another board defers to the loader, which switches boards then spawns via
+  // `spawnRequested` once that canvas mounts (mirrors the focus handoff).
+  onBoardCreate: (boardId: string) => void;
+  spawnRequested?: boolean;
+  onSpawnConsumed: () => void;
 };
 
 type View = { pan: { x: number; y: number }; zoom: number };
@@ -88,7 +94,7 @@ type UndoOp =
 
 // ── App ────────────────────────────────────────────────────────────────
 export default function JustNotes(props: JustNotesProps) {
-  const { initialNotes, seedIds, tweaks: t, setTweak, viewMode, onSetViewMode, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete, refresh, boards, activeBoardId, notesByBoard, onBoardJump, focusNoteId, onFocusConsumed } = props;
+  const { initialNotes, seedIds, tweaks: t, setTweak, viewMode, onSetViewMode, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete, refresh, boards, activeBoardId, notesByBoard, onBoardJump, focusNoteId, onFocusConsumed, onBoardCreate, spawnRequested, onSpawnConsumed } = props;
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [tokensOpen, setTokensOpen] = useState(false);
 
@@ -772,6 +778,23 @@ export default function JustNotes(props: JustNotesProps) {
     const n = notesRef.current.find((x) => x.id === noteId);
     if (n) jumpToNote(n);
   }
+
+  // Tree "+" dispatcher: same board spawns a note now; another board defers to
+  // the loader, which switches boards then spawns via `spawnRequested`.
+  function createTreeNote(boardId: string) {
+    if (boardId !== activeBoardId) { onBoardCreate(boardId); return; }
+    spawnAtCenter("");
+  }
+
+  // Consume a pending cross-board create once this board's canvas has mounted.
+  const spawnHandledRef = useRef(false);
+  useEffect(() => {
+    if (!spawnRequested || spawnHandledRef.current) return;
+    spawnHandledRef.current = true;
+    spawnAtCenter("");
+    onSpawnConsumed();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spawnRequested]);
 
   // Consume a pending cross-board focus once this board's notes are present.
   const focusHandledRef = useRef<string | null>(null);
@@ -1507,6 +1530,7 @@ export default function JustNotes(props: JustNotesProps) {
         notesByBoard={notesByBoard}
         selectedIds={selectedIds}
         onSelectNote={selectTreeNote}
+        onCreateNote={createTreeNote}
       />
 
       <Toolbar

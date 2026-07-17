@@ -537,22 +537,56 @@ body {
   align-items: center;
   gap: 6px;
   padding: 5px 6px;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
   border-radius: 8px;
   color: rgb(var(--text-secondary));
-  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
-  font-size: 12.5px;
-  text-align: left;
 }
 .ft-board-row:hover {
   background: rgb(var(--text-primary) / 0.06);
   color: rgb(var(--text-primary));
 }
+.ft-board-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 12.5px;
+  text-align: left;
+}
 .ft-board-row.active .ft-board-name {
   color: rgb(var(--text-primary));
   font-weight: 600;
+}
+.ft-add {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: rgb(var(--text-muted));
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+.ft-board-row:hover .ft-add {
+  opacity: 1;
+}
+.ft-add:hover {
+  background: rgb(var(--accent) / 0.16);
+  color: rgb(var(--accent));
 }
 .ft-caret {
   display: inline-flex;
