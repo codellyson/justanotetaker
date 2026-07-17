@@ -126,14 +126,14 @@ export function TimeScrub({
     const track = trackRef.current;
     if (!track) return;
     const rect = track.getBoundingClientRect();
-    const set = (clientY: number) => {
-      const raw = (clientY - rect.top) / rect.height;
+    const set = (clientX: number) => {
+      const raw = (clientX - rect.left) / rect.width;
       const p = Math.max(0, Math.min(1, raw));
       setPos(p);
       setScrubMoment(posToMoment(p));
     };
-    set(e.clientY);
-    const onMove = (ev: PointerEvent) => set(ev.clientY);
+    set(e.clientX);
+    const onMove = (ev: PointerEvent) => set(ev.clientX);
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
@@ -160,7 +160,7 @@ export function TimeScrub({
     return `${Math.round(d / 30)}mo ago`;
   }, [active, hover, scrubMoment, now]);
 
-  const thumbY = `${pos * 100}%`;
+  const thumbX = `${pos * 100}%`;
 
   return (
     <div
@@ -172,8 +172,8 @@ export function TimeScrub({
       aria-label="Rewind canvas through time"
     >
       <span className="scrub-baseline" />
-      <div className="scrub-thumb" style={{ top: thumbY }} />
-      <div className="scrub-label" style={{ top: thumbY }}>
+      <div className="scrub-thumb" style={{ left: thumbX }} />
+      <div className="scrub-label" style={{ left: thumbX }}>
         <span className="lbl-text">{label}</span>
       </div>
     </div>

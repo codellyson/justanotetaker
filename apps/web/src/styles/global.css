@@ -405,11 +405,11 @@ body {
   color: rgb(var(--text-muted));
   pointer-events: none;
 }
-/* Top-left — the vertical toolbar. A stacked rail of icon buttons grouped by
+/* Top-right — the vertical toolbar. A stacked rail of icon buttons grouped by
    view modes, actions, app controls, and a sync/count footer. */
 .toolbar {
   top: 16px;
-  left: 16px;
+  right: 16px;
   pointer-events: auto;
   display: flex;
   flex-direction: column;
@@ -499,6 +499,115 @@ body {
 }
 .tb-foot.sync-offline .tb-sync {
   background: rgb(var(--text-muted) / 0.5);
+}
+
+/* Left edge — the file tree: every board and its notes; click a note to fly
+   the canvas there. Always visible, mirrors the toolbar's translucent chrome. */
+.file-tree {
+  top: 16px;
+  left: 16px;
+  bottom: 40px;
+  width: 232px;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  background: rgb(var(--bg-secondary) / 0.85);
+  border: 1px solid rgb(var(--border));
+  backdrop-filter: blur(8px);
+  overflow: hidden;
+}
+.ft-head {
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgb(var(--text-muted));
+  padding: 10px 12px 6px;
+}
+.ft-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2px 6px 8px;
+  scrollbar-width: thin;
+}
+.ft-board-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 8px;
+  color: rgb(var(--text-secondary));
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 12.5px;
+  text-align: left;
+}
+.ft-board-row:hover {
+  background: rgb(var(--text-primary) / 0.06);
+  color: rgb(var(--text-primary));
+}
+.ft-board-row.active .ft-board-name {
+  color: rgb(var(--text-primary));
+  font-weight: 600;
+}
+.ft-caret {
+  display: inline-flex;
+  justify-content: center;
+  width: 12px;
+  color: rgb(var(--text-muted));
+  transition: transform 150ms ease;
+}
+.ft-caret.open {
+  transform: rotate(90deg);
+}
+.ft-board-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ft-count {
+  font-size: 11px;
+  color: rgb(var(--text-muted));
+}
+.ft-notes {
+  list-style: none;
+  margin: 0 0 2px;
+  padding: 0;
+}
+.ft-note {
+  width: 100%;
+  display: block;
+  padding: 4px 8px 4px 24px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 7px;
+  color: rgb(var(--text-muted));
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 12px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ft-note:hover {
+  background: rgb(var(--text-primary) / 0.06);
+  color: rgb(var(--text-primary));
+}
+.ft-note.selected {
+  background: rgb(var(--accent) / 0.16);
+  color: rgb(var(--accent));
+}
+.ft-empty {
+  padding: 3px 8px 3px 24px;
+  font-size: 11.5px;
+  font-style: italic;
+  color: rgb(var(--text-muted) / 0.7);
 }
 
 /* Top-center — board tabs (multi-canvas switcher). */
@@ -1649,41 +1758,44 @@ body {
 }
 
 /* ── Time scrub ─────────────────────────────────────────────────── */
+/* A horizontal rewind rail along the bottom edge. Left = now, dragging right
+   rewinds the canvas further back in time. */
 .scrub-track {
   position: fixed;
-  top: 80px;
-  bottom: 80px;
-  right: 0;
-  width: 22px;
+  left: 80px;
+  right: 80px;
+  bottom: 0;
+  height: 22px;
   z-index: 90;
-  cursor: ns-resize;
+  cursor: ew-resize;
 }
 .scrub-track::before {
   content: "";
   position: absolute;
-  top: 0;
-  bottom: 0;
-  right: 6px;
-  width: 1px;
+  left: 0;
+  right: 0;
+  bottom: 6px;
+  height: 1px;
   background: rgb(var(--border) / 0.5);
   transition:
     background 220ms ease,
-    width 220ms ease;
+    height 220ms ease;
 }
 .scrub-track:hover::before,
 .scrub-track.active::before {
   background: rgb(var(--accent) / 0.42);
-  width: 1.5px;
+  height: 1.5px;
 }
 .scrub-thumb {
   position: absolute;
-  right: 0;
+  bottom: 0;
   width: 16px;
   height: 16px;
+  transform: translateX(-50%);
   pointer-events: none;
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
+  align-items: flex-end;
+  justify-content: center;
 }
 .scrub-thumb::after {
   content: "";
@@ -1692,7 +1804,7 @@ body {
   background: rgb(var(--accent));
   border-radius: 1px;
   box-shadow: 0 0 8px 0 rgb(var(--accent) / 0.55);
-  margin-right: 5px;
+  margin-bottom: 5px;
   opacity: 0;
   transform: scaleY(0.6);
   transition:
@@ -1706,14 +1818,14 @@ body {
 }
 .scrub-label {
   position: absolute;
-  right: 28px;
+  bottom: 28px;
   white-space: nowrap;
   font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 11px;
   letter-spacing: 0.04em;
   color: rgb(var(--accent) / 0.92);
   pointer-events: none;
-  transform: translateY(-50%);
+  transform: translateX(-50%);
   opacity: 0;
   transition: opacity 180ms ease;
   text-shadow: 0 0 12px rgba(0, 0, 0, 0.7);
@@ -1727,10 +1839,10 @@ body {
 }
 .scrub-track .scrub-baseline {
   position: absolute;
-  top: 0;
-  right: 4px;
-  width: 5px;
-  height: 1px;
+  left: 0;
+  bottom: 4px;
+  width: 1px;
+  height: 5px;
   background: rgb(var(--accent) / 0.4);
   opacity: 0;
   transition: opacity 220ms ease;

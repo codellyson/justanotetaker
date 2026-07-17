@@ -21,10 +21,13 @@ import {
   PAPER_W,
   PAPER_H,
   type Note,
+  type Board,
   type ModePos,
   type Tweaks,
   type ViewMode,
 } from "./lib";
+import { FileTree } from "./FileTree";
+import type { NotesByBoard } from "../../hooks/useAllNotes";
 import { renderBody, renderHeadline, toggleTaskLine } from "./markdown";
 import { formatCapturedNote } from "./clipboard";
 import { clipboardOrigin } from "../../lib/clipboard-origin";
@@ -59,9 +62,23 @@ export type JustNotesProps = Persist & {
   // another device or piped in by an agent). Optional so JustNotes can be
   // rendered without a live backend.
   refresh?: () => Promise<Note[]>;
+  // File-tree navigation. `boards` + `notesByBoard` feed the left tree;
+  // `onBoardJump` handles a click on a note that lives on another board
+  // (switch there, then focus it via `focusNoteId` once that canvas mounts).
+  boards: Board[];
+  activeBoardId: string;
+  notesByBoard: NotesByBoard;
+  onBoardJump: (boardId: string, noteId: string) => void;
+  focusNoteId?: string;
+  onFocusConsumed: () => void;
 };
 
 type View = { pan: { x: number; y: number }; zoom: number };
+
+// Right edge of the left file-tree panel (CSS: 16px inset + 232px width) plus a
+// gap. Used to keep note-focus jumps centered in the visible canvas, not behind
+// the tree.
+const FILE_TREE_EDGE = 264;
 
 type UndoOp =
   | { type: "create"; id: string }
@@ -71,7 +88,7 @@ type UndoOp =
 
 // ── App ────────────────────────────────────────────────────────────────
 export default function JustNotes(props: JustNotesProps) {
-  const { initialNotes, seedIds, tweaks: t, setTweak, viewMode, onSetViewMode, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete, refresh } = props;
+  const { initialNotes, seedIds, tweaks: t, setTweak, viewMode, onSetViewMode, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete, refresh, boards, activeBoardId, notesByBoard, onBoardJump, focusNoteId, onFocusConsumed } = props;
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [tokensOpen, setTokensOpen] = useState(false);
 
@@ -709,6 +726,54 @@ export default function JustNotes(props: JustNotesProps) {
     const pan = { x: window.innerWidth / 2 - cx * v.zoom, y: window.innerHeight / 2 - cy * v.zoom };
     animateView({ pan, zoom: v.zoom });
   }
+
+  // Pan+zoom the canvas onto a single note and center it in the visible area
+  // (right of the file tree so the panel never covers it). Zooms to a gentle,
+  // comfortable typing level — noticeably in from a zoomed-out view, but not so
+  // close it feels cramped.
+  function focusNoteForEdit(n: Note) {
+    const mode = viewModeRef.current;
+    // Fly to where the card actually renders — its mode position in a view mode,
+    // else its canvas x/y (mirrors NoteCard's `pos` in render). Using n.x/n.y in
+    // sticky/paper aimed the camera at empty space while the card sat elsewhere.
+    const p = mode === "default" ? { x: n.x, y: n.y } : modePosRef.current.get(n.id) ?? { x: n.x, y: n.y };
+    const NW = mode === "sticky" ? STICKY_SIZE : mode === "paper" ? PAPER_W : (n.w ?? tweakRef.current.noteWidth);
+    const NH = mode === "sticky" ? STICKY_SIZE : mode === "paper" ? PAPER_H : (n.h ?? 220);
+    const W = window.innerWidth, H = window.innerHeight;
+    const fit = Math.min(((W - FILE_TREE_EDGE) * 0.7) / NW, (H * 0.7) / NH);
+    const zoom = Math.max(0.9, Math.min(1.2, fit));
+    const cx = p.x + NW / 2, cy = p.y + NH / 2;
+    const visibleCx = (FILE_TREE_EDGE + W) / 2;
+    animateView({ pan: { x: visibleCx - cx * zoom, y: H / 2 - cy * zoom }, zoom });
+  }
+
+  // File-tree click on a note in the current board: fly to it (zoomed in to
+  // type), select it, and drop into edit mode — the "take me there" jump.
+  function jumpToNote(n: Note) {
+    setSelectedIds(new Set([n.id]));
+    focusNoteForEdit(n);
+    startEditingExisting(n.id);
+  }
+
+  // Tree click dispatcher: same board jumps directly; another board defers to
+  // the loader, which switches boards then re-focuses via `focusNoteId`.
+  function selectTreeNote(boardId: string, noteId: string) {
+    if (boardId !== activeBoardId) { onBoardJump(boardId, noteId); return; }
+    const n = notesRef.current.find((x) => x.id === noteId);
+    if (n) jumpToNote(n);
+  }
+
+  // Consume a pending cross-board focus once this board's notes are present.
+  const focusHandledRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusNoteId || focusHandledRef.current === focusNoteId) return;
+    const n = notesRef.current.find((x) => x.id === focusNoteId);
+    if (!n) return; // notes for the new board may not have merged yet
+    focusHandledRef.current = focusNoteId;
+    jumpToNote(n);
+    onFocusConsumed();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusNoteId, notes]);
   function toggleOverview() {
     const v = viewRef.current;
     if (prevViewRef.current) {
@@ -1431,6 +1496,15 @@ export default function JustNotes(props: JustNotesProps) {
         );
       })()}
 
+      <FileTree
+        boards={boards}
+        activeBoardId={activeBoardId}
+        liveNotes={notes}
+        notesByBoard={notesByBoard}
+        selectedIds={selectedIds}
+        onSelectNote={selectTreeNote}
+      />
+
       <Toolbar
         mode={viewMode}
         onSetMode={(m) => { markInteracted(); onSetViewMode(m); }}
@@ -1609,7 +1683,9 @@ function NoteCard({
   useEffect(() => {
     if (editing && taRef.current) {
       const ta = taRef.current;
-      ta.focus();
+      // preventScroll: focusing off-screen text otherwise scrolls it into view,
+      // which cancels an in-flight pan/zoom (e.g. a file-tree jump to this note).
+      ta.focus({ preventScroll: true });
       const len = ta.value.length;
       ta.setSelectionRange(len, len);
     }
@@ -1983,7 +2059,7 @@ function FocusedEditor({
   useEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
-    ta.focus();
+    ta.focus({ preventScroll: true });
     ta.setSelectionRange(ta.value.length, ta.value.length);
   }, []);
   useEffect(() => {

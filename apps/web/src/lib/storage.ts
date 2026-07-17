@@ -3,6 +3,10 @@ import { api } from "./api-client";
 
 export type StoredNote = Note & { updatedAt: number };
 
+// A note tagged with the board it lives on — used to build the cross-board
+// file tree, which needs every board's notes at once (not just the active one).
+export type BoardNote = StoredNote & { boardId: string | null };
+
 export type DeletedNote = StoredNote & { deletedAt: number };
 
 export type SearchMatch = StoredNote & { snippet: string };
@@ -14,6 +18,7 @@ export type StoredSettings = {
 
 export interface Storage {
   list(boardId: string): Promise<StoredNote[]>;
+  listAll(): Promise<BoardNote[]>;
   create(input: { id?: string; boardId: string; x: number; y: number; w?: number | null; h?: number | null; t: number; text?: string; modePos?: ModePos | null }): Promise<StoredNote>;
   update(id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "modePos">>): Promise<StoredNote | null>;
   remove(id: string): Promise<void>;
@@ -59,6 +64,15 @@ export const remoteStorage: Storage = {
     if (!res.ok) throw new Error(`list notes: ${res.status}`);
     const { notes } = await res.json();
     return notes.map(toUiNote);
+  },
+
+  // Every board's notes in one call — the API returns all of the user's notes
+  // when no board filter is given, each carrying its board_id.
+  async listAll() {
+    const res = await api.api.notes.$get({ query: {} });
+    if (!res.ok) throw new Error(`list all notes: ${res.status}`);
+    const { notes } = await res.json();
+    return notes.map((n) => ({ ...toUiNote(n), boardId: n.boardId ?? null }));
   },
 
   async create(input) {
