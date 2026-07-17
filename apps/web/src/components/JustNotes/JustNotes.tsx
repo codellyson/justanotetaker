@@ -1,5 +1,7 @@
 import React, {
   forwardRef,
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -27,6 +29,9 @@ import {
   type ViewMode,
 } from "./lib";
 import { FileTree } from "./FileTree";
+// CodeMirror pulls in ~65KB gzipped; load it only when the focused editor
+// opens so it never touches the initial bundle or the canvas cards.
+const CmEditor = lazy(() => import("./CmEditor"));
 import type { NotesByBoard } from "../../hooks/useAllNotes";
 import { renderBody, renderHeadline, toggleTaskLine } from "./markdown";
 import { formatCapturedNote } from "./clipboard";
@@ -1477,10 +1482,10 @@ export default function JustNotes(props: JustNotesProps) {
               highlit={!!matchSet && matchSet.has(n.id)}
               focused={!!matchIds && matchIds[recallIdx] === n.id}
               selected={selectedIds.has(n.id)}
-              hidden={editingId === n.id && t.editMode === "focused"}
               scrubFade={scrubFadeFor(n)}
               onMouseDown={(e) => onNoteMouseDown(e, n.id)}
               onTextChange={(v) => updateNoteText(n.id, v)}
+              onCommitEdit={commitEditing}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1510,18 +1515,6 @@ export default function JustNotes(props: JustNotesProps) {
           clear starter notes
         </button>
       )}
-
-      {editingId && t.editMode === "focused" && (() => {
-        const n = notes.find((x) => x.id === editingId);
-        if (!n) return null;
-        return (
-          <FocusedEditor
-            note={n}
-            onTextChange={(v) => updateNoteText(n.id, v)}
-            onCommit={commitEditing}
-          />
-        );
-      })()}
 
       <FileTree
         boards={boards}
@@ -1670,8 +1663,8 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 // ── NoteCard ───────────────────────────────────────────────────────────
 function NoteCard({
   note, pos, viewMode, stickyColor, fromClipboard, editing, dragging, snapping,
-  dimmed, highlit, focused, selected, hidden, scrubFade,
-  onMouseDown, onTextChange, onContextMenu, onTagClick, onResizeStart, onHover, onToggleTask,
+  dimmed, highlit, focused, selected, scrubFade,
+  onMouseDown, onTextChange, onCommitEdit, onContextMenu, onTagClick, onResizeStart, onHover, onToggleTask,
 }: {
   note: Note;
   pos: { x: number; y: number };
@@ -1686,37 +1679,16 @@ function NoteCard({
   highlit: boolean;
   focused: boolean;
   selected: boolean;
-  hidden: boolean;
   scrubFade: number;
   onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void;
   onTextChange: (v: string) => void;
+  onCommitEdit: () => void;
   onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
   onTagClick: (tag: string) => void;
   onResizeStart: (e: React.MouseEvent<HTMLDivElement>, dir: "e" | "s" | "se") => void;
   onToggleTask: (id: string, taskIndex: number) => void;
 }) {
   const rec = recencyOf(note.t);
-  const taRef = useRef<HTMLTextAreaElement | null>(null);
-
-  useEffect(() => {
-    // Sticky is a fixed square — don't auto-grow the textarea (it would spill
-    // out of the card); CSS fills it and scrolls instead. Default/paper grow.
-    if (!editing || !taRef.current || viewMode === "sticky") return;
-    const ta = taRef.current;
-    ta.style.height = "auto";
-    ta.style.height = ta.scrollHeight + "px";
-  }, [editing, note.text, viewMode]);
-
-  useEffect(() => {
-    if (editing && taRef.current) {
-      const ta = taRef.current;
-      // preventScroll: focusing off-screen text otherwise scrolls it into view,
-      // which cancels an in-flight pan/zoom (e.g. a file-tree jump to this note).
-      ta.focus({ preventScroll: true });
-      const len = ta.value.length;
-      ta.setSelectionRange(len, len);
-    }
-  }, [editing]);
 
   const first = firstNonEmpty(note.text);
   const rest = restAfterFirst(note.text);
@@ -1738,7 +1710,6 @@ function NoteCard({
     highlit ? "hit" : "",
     focused ? "focused" : "",
     selected ? "selected" : "",
-    hidden ? "is-hidden" : "",
     isHeading && !editing ? "has-heading" : "",
   ].filter(Boolean).join(" ");
 
@@ -1786,15 +1757,14 @@ function NoteCard({
       onContextMenu={onContextMenu}
     >
       {editing ? (
-        <textarea
-          ref={taRef}
-          className="note-ta"
-          value={note.text}
-          onChange={(e) => onTextChange(e.target.value)}
-          onMouseDown={(e) => e.stopPropagation()}
-          placeholder="just write."
-          spellCheck={false}
-        />
+        <Suspense fallback={<div className="note-cm note-cm-loading" />}>
+          <CmEditor
+            value={note.text}
+            onChange={onTextChange}
+            onCommit={onCommitEdit}
+            className="note-cm"
+          />
+        </Suspense>
       ) : startsWithBlock ? (
         <div className="note-rest" style={{ color: "rgb(var(--text-secondary))" }}>
           {renderBody(note.text, { onToggle })}
@@ -2066,63 +2036,6 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
         <div className="help-foot">
           one markdown file per note. position lives in frontmatter. <br />
           sync = whatever your folder is synced with.
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── FocusedEditor ──────────────────────────────────────────────────────
-function FocusedEditor({
-  note, onTextChange, onCommit,
-}: {
-  note: Note;
-  onTextChange: (v: string) => void;
-  onCommit: () => void;
-}) {
-  const rec = recencyOf(note.t);
-  const taRef = useRef<HTMLTextAreaElement | null>(null);
-  useEffect(() => {
-    const ta = taRef.current;
-    if (!ta) return;
-    ta.focus({ preventScroll: true });
-    ta.setSelectionRange(ta.value.length, ta.value.length);
-  }, []);
-  useEffect(() => {
-    const ta = taRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 0.6 * window.innerHeight) + "px";
-  }, [note.text]);
-  return (
-    <div
-      className="focus-shroud"
-      onMouseDown={(e) => {
-        if ((e.target as HTMLElement).classList.contains("focus-shroud")) onCommit();
-      }}
-    >
-      <div
-        className="focus-note"
-        style={{
-          background: "rgb(var(--bg-secondary))",
-          color: "rgb(var(--text-primary))",
-          opacity: RECENCY_ALPHA[rec],
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <textarea
-          ref={taRef}
-          className="focus-ta"
-          value={note.text}
-          onChange={(e) => onTextChange(e.target.value)}
-          placeholder="just write."
-          spellCheck={false}
-        />
-        <div className="focus-meta">
-          <span className="focus-meta-time">{recencyOf(note.t)}</span>
-          <span className="focus-meta-keys">
-            <kbd>⌘</kbd><kbd>↵</kbd> commit &nbsp; · &nbsp; <kbd>esc</kbd> done
-          </span>
         </div>
       </div>
     </div>

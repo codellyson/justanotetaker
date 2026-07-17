@@ -371,12 +371,6 @@ export function TweaksUI({
         onChange={(v) => setTweak("grid", v)}
       />
       <TweakToggle label="Snap to grid" value={t.snap} onChange={(v) => setTweak("snap", v)} />
-      <TweakRadio
-        label="Edit"
-        value={t.editMode}
-        options={["in place", "focused"] as const}
-        onChange={(v) => setTweak("editMode", v)}
-      />
 
       <TweakSection label="Paper" />
       {/* Tone + Body removed in the v2 design — color comes from the

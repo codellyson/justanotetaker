@@ -398,6 +398,51 @@ body {
   font-style: italic;
 }
 
+/* CodeMirror live-preview editor, standing in for the textarea while editing a
+   note in place. Inherits the card's colour; font is set per view mode below. */
+.note-cm {
+  width: 100%;
+  color: inherit;
+}
+.note-cm .cm-editor {
+  background: transparent;
+}
+.note-cm .cm-scroller {
+  font-size: 14.5px;
+  line-height: 1.36;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.18) transparent;
+}
+.note-cm .cm-content {
+  padding: 0;
+}
+.note-cm .cm-scroller::-webkit-scrollbar {
+  width: 6px;
+}
+.note-cm .cm-scroller::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+}
+.note-cm-loading {
+  min-height: 28px;
+}
+/* Sticky keeps its fixed square: the editor fills it and scrolls inside. */
+.notes-layer.view-sticky .note.editing .note-cm,
+.notes-layer.view-sticky .note.editing .note-cm .cm-editor {
+  height: 100%;
+}
+.notes-layer.view-sticky .note.editing .note-cm .cm-scroller {
+  max-height: 100%;
+}
+/* Paper reads like a page: serif face at the body reading size. */
+.notes-layer.view-paper .note-cm .cm-scroller {
+  font-family:
+    "Iowan Old Style", "Palatino Linotype", Palatino, Georgia,
+    "Times New Roman", serif;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
 /* ── Chrome ─────────────────────────────────────────────────────── */
 .chrome {
   position: fixed;
@@ -1307,107 +1352,6 @@ body {
 }
 .meta-keys {
   color: rgb(var(--text-secondary) / 0.6);
-}
-
-/* ── Focused editor (modal) ────────────────────────────────────── */
-.note.is-hidden {
-  visibility: hidden;
-}
-
-.focus-shroud {
-  position: fixed;
-  inset: 0;
-  z-index: 220;
-  background: rgb(var(--bg) / 0.6);
-  -webkit-backdrop-filter: blur(10px) saturate(110%);
-  backdrop-filter: blur(10px) saturate(110%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4vh 4vw;
-  animation: jn-fade 160ms ease-out;
-}
-.focus-note {
-  width: min(640px, 92vw);
-  padding: 28px 32px 22px;
-  border-radius: var(--radius, 2px);
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.4),
-    0 30px 80px -16px rgba(0, 0, 0, 0.55);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  animation: jn-pop 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-@keyframes jn-pop {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-.focus-ta {
-  width: 100%;
-  min-height: 240px;
-  max-height: 60vh;
-  overflow-y: auto;
-  background: transparent;
-  border: 0;
-  outline: 0;
-  resize: none;
-  padding: 0;
-  margin: 0;
-  font: inherit;
-  font-size: 19px;
-  line-height: 1.5;
-  color: inherit;
-  white-space: pre-wrap;
-  text-wrap: pretty;
-  user-select: text;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
-}
-.focus-ta::placeholder {
-  color: currentColor;
-  opacity: 0.3;
-  font-style: italic;
-}
-.focus-ta::-webkit-scrollbar {
-  width: 6px;
-}
-.focus-ta::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.18);
-  border-radius: 3px;
-}
-
-.focus-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 12px;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
-  color: rgba(0, 0, 0, 0.45);
-  text-transform: uppercase;
-}
-.focus-meta kbd {
-  font-family: inherit;
-  font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: rgba(0, 0, 0, 0.07);
-  color: rgba(0, 0, 0, 0.72);
-  text-transform: none;
-  letter-spacing: 0;
-  margin-right: 1px;
-}
-.focus-meta-keys {
-  color: rgba(0, 0, 0, 0.4);
 }
 
 /* ── Ambient recall bar ────────────────────────────────────────── */

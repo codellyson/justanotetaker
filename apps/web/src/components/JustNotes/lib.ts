@@ -136,7 +136,6 @@ export type Tweaks = {
   radius: number;
   noteWidth: number;
   snap: boolean;
-  editMode: "in place" | "focused";
   compass: boolean;
   // Desktop only: poll the OS clipboard and auto-create notes from new copies.
   clipboardCapture: boolean;
@@ -150,7 +149,6 @@ export const TWEAK_DEFAULTS: Tweaks = {
   radius: 6,
   noteWidth: 220,
   snap: true,
-  editMode: "in place",
   compass: true,
   clipboardCapture: false,
   clipboardSyncToCloud: true,
