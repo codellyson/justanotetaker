@@ -1377,6 +1377,34 @@ export default function JustNotes(props: JustNotesProps) {
   // tight cluster). prevViewRef flips alongside a setView, so it's safe here.
   const inOverview = view.zoom < 0.95 || prevViewRef.current != null;
 
+  // Viewport culling: with hundreds of notes, mounting every card tanks pan/zoom.
+  // Render only cards whose (over-estimated) box intersects the viewport plus a
+  // buffer; the active/dragged/selected notes always render so interactions never
+  // break. `viewportTick` re-runs this on resize (window dims are read live).
+  const [viewportTick, setViewportTick] = useState(0);
+  useEffect(() => {
+    const onResize = () => setViewportTick((v) => v + 1);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const visibleNotes = useMemo(() => {
+    const W = window.innerWidth, H = window.innerHeight;
+    const z = view.zoom;
+    const MARGIN = 500;
+    const left = -view.pan.x / z - MARGIN;
+    const top = -view.pan.y / z - MARGIN;
+    const right = (W - view.pan.x) / z + MARGIN;
+    const bottom = (H - view.pan.y) / z + MARGIN;
+    return notes.filter((n) => {
+      if (n.id === editingId || n.id === draggingId || selectedIds.has(n.id)) return true;
+      const p = viewMode === "default" ? { x: n.x, y: n.y } : modePos.get(n.id) ?? { x: n.x, y: n.y };
+      const w = viewMode === "sticky" ? STICKY_SIZE : viewMode === "paper" ? PAPER_W : (n.w ?? t.noteWidth);
+      const h = viewMode === "sticky" ? STICKY_SIZE : viewMode === "paper" ? PAPER_H : (n.h ?? 500);
+      return p.x < right && p.x + w > left && p.y < bottom && p.y + h > top;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes, view, viewMode, modePos, editingId, draggingId, selectedIds, t.noteWidth, viewportTick]);
+
   function scrubFadeFor(n: Note) {
     if (scrubMoment == null) return 1;
     return n.t <= scrubMoment ? 1 : 0;
@@ -1451,7 +1479,7 @@ export default function JustNotes(props: JustNotesProps) {
               ))}
             </svg>
           )}
-          {notes.map((n) => (
+          {visibleNotes.map((n) => (
             <NoteCard
               key={n.id}
               note={n}
