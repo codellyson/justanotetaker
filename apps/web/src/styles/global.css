@@ -403,6 +403,11 @@ body {
 .note-cm {
   width: 100%;
   color: inherit;
+  /* `.note` sets user-select:none; the old textarea ignored it, but CodeMirror's
+     contenteditable inherits it and a contenteditable with user-select:none has
+     no visible caret and no selection. Re-enable text selection for the editor. */
+  -webkit-user-select: text;
+  user-select: text;
 }
 .note-cm .cm-editor {
   background: transparent;
@@ -426,11 +431,28 @@ body {
 .note-cm-loading {
   min-height: 28px;
 }
-/* Sticky keeps its fixed square: the editor fills it and scrolls inside. */
-.notes-layer.view-sticky .note.editing .note-cm,
-.notes-layer.view-sticky .note.editing .note-cm .cm-editor {
-  height: 100%;
+/* While editing, the editor fills the whole card so a click anywhere on it —
+   including the empty area of a paper page below the text — lands in the editor
+   and gets a caret (an empty-area click snaps to the end of the text). Without
+   this the editor is only as tall as the text and the rest of the card is dead
+   space that swallows clicks. */
+.note.editing {
+  display: flex;
+  flex-direction: column;
 }
+.note.editing .note-cm {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.note.editing .note-cm .cm-editor {
+  flex: 1;
+}
+.note.editing .note-cm .cm-content {
+  min-height: 100%;
+}
+/* Sticky keeps its fixed square: the editor scrolls inside it. */
 .notes-layer.view-sticky .note.editing .note-cm .cm-scroller {
   max-height: 100%;
 }

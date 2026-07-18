@@ -312,8 +312,6 @@ export default function JustNotes(props: JustNotesProps) {
   const historyRef = useRef<UndoOp[]>([]);
   const editSnapshotRef = useRef<{ id: string; isNew: boolean; prevText: string; prevT: number } | null>(null);
   const prevViewRef = useRef<View | null>(null);
-  // The view to fly back to after editing a paper page (see focusPaper).
-  const focusReturnViewRef = useRef<View | null>(null);
   // Viewport point of the click that opened the current editor (a card click),
   // so the caret lands there. Null for tree jumps / new notes (caret → end).
   const editClickRef = useRef<{ x: number; y: number } | null>(null);
@@ -574,24 +572,6 @@ export default function JustNotes(props: JustNotesProps) {
     spawnAt(c.x, c.y, initialText);
   }
 
-  // Paper only: fly the canvas to center the page and fit its A4 height in the
-  // viewport, so editing a document-sized surface happens head-on. The current
-  // view is stashed so commitEditing can fly back.
-  function focusPaper(id: string) {
-    const el = canvasRef.current;
-    const W = el?.clientWidth ?? window.innerWidth;
-    const H = el?.clientHeight ?? window.innerHeight;
-    const n = notesRef.current.find((x) => x.id === id);
-    const p = modePosRef.current.get(id) ?? (n ? { x: n.x, y: n.y } : { x: 0, y: 0 });
-    // Zoom so the whole A4 page fits the viewport (contain) — this zooms IN
-    // when the page is smaller than the viewport, rather than capping at 1×.
-    const margin = 60;
-    const zoom = Math.max(0.32, Math.min(2.5, Math.min((W - margin * 2) / PAPER_W, (H - margin * 2) / PAPER_H)));
-    const cx = p.x + PAPER_W / 2, cy = p.y + PAPER_H / 2;
-    focusReturnViewRef.current = viewRef.current;
-    animateView({ pan: { x: W / 2 - cx * zoom, y: H / 2 - cy * zoom }, zoom });
-  }
-
   function startEditingExisting(id: string) {
     if (editingId === id) return;
     if (editingId) commitEditing();
@@ -599,7 +579,6 @@ export default function JustNotes(props: JustNotesProps) {
     if (!n) return;
     editSnapshotRef.current = { id, isNew: false, prevText: n.text, prevT: n.t };
     setEditingId(id);
-    if (viewModeRef.current === "paper") focusPaper(id);
   }
 
   function commitEditing() {
@@ -630,11 +609,6 @@ export default function JustNotes(props: JustNotesProps) {
     }
     setEditingId(null);
     editSnapshotRef.current = null;
-    // Fly back to where we were before focusing a paper page.
-    if (focusReturnViewRef.current) {
-      animateView(focusReturnViewRef.current);
-      focusReturnViewRef.current = null;
-    }
   }
 
   function updateNoteText(id: string, text: string) {

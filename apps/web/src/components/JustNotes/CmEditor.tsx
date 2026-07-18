@@ -160,18 +160,29 @@ export default function CmEditor({
     });
     const view = new EditorView({ state, parent: hostRef.current });
     viewRef.current = view;
+    // Focus + caret placement is deferred one frame. On a re-edit the editor
+    // mounts synchronously with the click, so doing this now would (a) read
+    // stale geometry in posAtCoords — the card is still reflowing from the
+    // rendered markdown to the editor — and (b) lose the focus race with the
+    // browser's own click handling, leaving the caret invisible. One rAF lands
+    // it after the reflow and after the click settles, on every mount.
+    let raf = 0;
     if (autoFocus) {
-      // preventScroll: focusing an off-screen card otherwise scrolls it into
-      // view and cancels the in-flight fly-to-note pan/zoom.
-      view.contentDOM.focus({ preventScroll: true });
-      // Place the caret at the click point when we have one (a card click). The
-      // `false` makes posAtCoords snap to the nearest position rather than
-      // returning null when the click lands just off CM's line — the rendered
-      // view the user clicked and the editor's layout don't line up exactly.
-      const at = clickPos ? view.posAtCoords(clickPos, false) : null;
-      view.dispatch({ selection: { anchor: at ?? state.doc.length } });
+      raf = requestAnimationFrame(() => {
+        if (viewRef.current !== view) return;
+        // preventScroll: focusing an off-screen card otherwise scrolls it into
+        // view and cancels the in-flight fly-to-note pan/zoom.
+        view.contentDOM.focus({ preventScroll: true });
+        // Place the caret at the click point when we have one (a card click).
+        // `false` snaps to the nearest position rather than returning null when
+        // the click lands just off the editor's line (the rendered view the
+        // user clicked and the editor's layout don't line up exactly).
+        const at = clickPos ? view.posAtCoords(clickPos, false) : null;
+        view.dispatch({ selection: { anchor: at ?? view.state.doc.length } });
+      });
     }
     return () => {
+      if (raf) cancelAnimationFrame(raf);
       view.destroy();
       viewRef.current = null;
     };
