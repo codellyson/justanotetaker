@@ -28,6 +28,47 @@ function isBlockedHost(host: string): boolean {
   return false;
 }
 
+// SSRF guard applied to every hop. `isBlockedHost` alone only covers the URL
+// the user typed; a page can 302 to an internal address, so we follow redirects
+// manually and re-check protocol + host on each Location. (Hostnames that
+// *resolve* to a private IP — DNS rebinding — remain a residual risk on runtimes
+// whose fetch can reach private networks; on Cloudflare Workers it can't.)
+const MAX_REDIRECTS = 4;
+
+function guardUrl(u: URL): string | null {
+  if (u.protocol !== "http:" && u.protocol !== "https:") return "unsupported protocol";
+  if (isBlockedHost(u.hostname)) return "blocked host";
+  return null;
+}
+
+async function fetchGuarded(
+  start: URL,
+  signal: AbortSignal,
+): Promise<Response | { error: string }> {
+  let current = start;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const bad = guardUrl(current);
+    if (bad) return { error: bad };
+    const res = await fetch(current.toString(), {
+      signal,
+      redirect: "manual",
+      headers: { "User-Agent": UA, Accept: "text/html,*/*;q=0.5" },
+    });
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get("location");
+      if (!loc) return res;
+      try {
+        current = new URL(loc, current);
+      } catch {
+        return { error: "invalid redirect" };
+      }
+      continue;
+    }
+    return res;
+  }
+  return { error: "too many redirects" };
+}
+
 function decodeEntities(s: string): string {
   return s
     .replace(/&amp;/g, "&")
@@ -82,11 +123,10 @@ export const previewRoutes = new Hono<Env>().get(
     const timer = setTimeout(() => ac.abort(), TIMEOUT_MS);
     let title: string | null = null;
     try {
-      const res = await fetch(parsed.toString(), {
-        signal: ac.signal,
-        redirect: "follow",
-        headers: { "User-Agent": UA, Accept: "text/html,*/*;q=0.5" },
-      });
+      const res = await fetchGuarded(parsed, ac.signal);
+      if ("error" in res) {
+        return c.json({ url, title: null, error: res.error });
+      }
       if (!res.ok || !res.body) {
         return c.json({ url, title: null, error: `upstream ${res.status}` });
       }
