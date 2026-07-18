@@ -536,11 +536,9 @@ export default function JustNotes(props: JustNotesProps) {
   }
 
   function setNoteKind(id: string, kind: NoteKind) {
-    // Switching to sticky with no color yet → default to amber so it's colored.
-    // Clear any custom w/h so the note takes the new type's canonical size (an
-    // A4 page, a square sticky) instead of keeping a stale card resize.
     const cur = notesRef.current.find((n) => n.id === id);
     const color = kind === "sticky" && !cur?.color ? "amber" : cur?.color ?? null;
+    // Clear w/h so the note takes the new kind's canonical size, not a stale resize.
     setNotes((ns) => ns.map((n) => n.id === id ? { ...n, kind, color, w: null, h: null } : n));
     onUpdate(id, { kind, color, w: null, h: null });
   }
@@ -1532,9 +1530,6 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       data-canvas="1"
       style={gridStyle}
       onMouseDown={onMouseDown}
-      // Suppress the browser's native context menu on the canvas — a note's
-      // right-click opens our own menu (and stops propagation); empty-canvas
-      // right-clicks would otherwise pop Chrome's page menu.
       onContextMenu={(e) => e.preventDefault()}
     >
       {children}
@@ -1573,7 +1568,9 @@ function NoteCard({
 
   const first = firstNonEmpty(note.text);
   const rest = restAfterFirst(note.text);
-  const isHeading = first.trim().startsWith("#");
+  const headingMatch = first.trim().match(/^(#{1,6})\s+/);
+  const headingLevel = headingMatch ? Math.min(headingMatch[1].length, 3) : 0;
+  const isHeading = headingLevel > 0;
   // When the note opens with a block (code fence, list, task, quote, ordered
   // item, rule, or image), render the whole text through renderBody rather
   // than treating the first line as a headline — otherwise a task list's
@@ -1595,8 +1592,6 @@ function NoteCard({
     isHeading && !editing ? "has-heading" : "",
   ].filter(Boolean).join(" ");
 
-  // A card wears the theme background + a recency fade; a sticky wears its
-  // palette color at full opacity; a page is a theme-backed A4 surface.
   const sticky = note.kind === "sticky" ? resolveStickyColor(note.color) : null;
   const style: CSSProperties = {
     left: pos.x,
@@ -1658,7 +1653,7 @@ function NoteCard({
       ) : (
         <>
           {first
-            ? <div className="note-first">{renderHeadline(first)}</div>
+            ? <div className={"note-first" + (headingLevel ? ` md-h md-h${headingLevel}` : "")}>{renderHeadline(first)}</div>
             : <div className="note-first" style={{ opacity: 0.35 }}>empty</div>}
           {rest && <div className="note-rest" style={{ color: "rgb(var(--text-secondary))" }}>{renderBody(rest, { onToggle })}</div>}
         </>

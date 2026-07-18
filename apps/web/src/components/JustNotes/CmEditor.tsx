@@ -18,10 +18,10 @@ import { tags as t } from "@lezer/highlight";
 // Render markdown formatting live: headings grow, bold/italic/code style up.
 // Colours come from the app's CSS vars so it tracks the light/dark theme.
 const mdHighlight = HighlightStyle.define([
-  { tag: t.heading1, fontSize: "1.5em", fontWeight: "700", lineHeight: "1.35" },
-  { tag: t.heading2, fontSize: "1.3em", fontWeight: "700", lineHeight: "1.35" },
-  { tag: t.heading3, fontSize: "1.15em", fontWeight: "700" },
-  { tag: [t.heading4, t.heading5, t.heading6], fontWeight: "700" },
+  { tag: t.heading1, fontSize: "1.25em", fontWeight: "650", lineHeight: "1.25" },
+  { tag: t.heading2, fontSize: "1.12em", fontWeight: "650", lineHeight: "1.25" },
+  { tag: t.heading3, fontSize: "1.02em", fontWeight: "650" },
+  { tag: [t.heading4, t.heading5, t.heading6], fontWeight: "650" },
   { tag: t.strong, fontWeight: "700" },
   { tag: t.emphasis, fontStyle: "italic" },
   { tag: t.strikethrough, textDecoration: "line-through", color: "rgb(var(--text-muted))" },

@@ -95,7 +95,8 @@ const IMG_URL_RE = /^https?:\/\/\S+\.(?:png|jpe?g|gif|webp|svg|avif)(?:\?\S*)?$/
 const IMG_MD_RE = /^!\[([^\]]*)\]\(([^)\s]+)\)$/;
 
 export function renderHeadline(line: string): React.ReactNode[] {
-  return renderInlineMd(line.replace(/^#+\s*/, ""), "h");
+  const h = line.match(/^(#{1,6})\s+(.*)$/);
+  return renderInlineMd(h ? h[2] : line, "h");
 }
 
 // onToggle(taskIndex) fires when the Nth task checkbox in this text is clicked
