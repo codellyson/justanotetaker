@@ -314,6 +314,9 @@ export default function JustNotes(props: JustNotesProps) {
   const prevViewRef = useRef<View | null>(null);
   // The view to fly back to after editing a paper page (see focusPaper).
   const focusReturnViewRef = useRef<View | null>(null);
+  // Viewport point of the click that opened the current editor (a card click),
+  // so the caret lands there. Null for tree jumps / new notes (caret → end).
+  const editClickRef = useRef<{ x: number; y: number } | null>(null);
   const tweakRef = useRef<Tweaks>(t);
   useEffect(() => { tweakRef.current = t; }, [t]);
 
@@ -452,6 +455,7 @@ export default function JustNotes(props: JustNotesProps) {
     const spot = findFreeSpot(canvasX - w / 2, canvasY - 22);
     setNotes((ns) => [...ns, { id, x: spot.x, y: spot.y, w: null, h: null, t: Date.now(), text: initialText, modePos: null }]);
     editSnapshotRef.current = { id, isNew: true, prevText: "", prevT: Date.now() };
+    editClickRef.current = null; // new note → caret at end, not a stale click point
     setEditingId(id);
   }
 
@@ -756,6 +760,7 @@ export default function JustNotes(props: JustNotesProps) {
     // Committing to this note — leave any overview so its framing/dimming
     // doesn't fight the focus (otherwise the jump lands under overview state).
     prevViewRef.current = null;
+    editClickRef.current = null; // tree jump has no click point → caret at end
     setSelectedIds(new Set([n.id]));
     focusNoteForEdit(n);
     startEditingExisting(n.id);
@@ -950,10 +955,14 @@ export default function JustNotes(props: JustNotesProps) {
       window.removeEventListener("mouseup", onUp);
       setDraggingId(null);
       if (!moved) {
-        // Single click only selects — navigation and editing live on the file
-        // tree now, so a canvas click never commits an open editor or flies.
+        // Single click drops straight into editing the note in place (a drag,
+        // handled below, moves it instead). startEditingExisting commits any
+        // other open editor first. Remember where the click landed so the caret
+        // opens there rather than jumping to the end of the text.
         if (ambientOpen) closeAmbient();
         setSelectedIds(new Set([id]));
+        editClickRef.current = { x: startSX, y: startSY };
+        startEditingExisting(id);
         return;
       }
       // Single-card drops snap to the nearest free spot so cards never stack.
@@ -1497,6 +1506,7 @@ export default function JustNotes(props: JustNotesProps) {
               selected={selectedIds.has(n.id)}
               scrubFade={scrubFadeFor(n)}
               onMouseDown={(e) => onNoteMouseDown(e, n.id)}
+              clickPos={editingId === n.id ? editClickRef.current : null}
               onTextChange={(v) => updateNoteText(n.id, v)}
               onCommitEdit={commitEditing}
               onContextMenu={(e) => {
@@ -1666,7 +1676,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 function NoteCard({
   note, pos, viewMode, stickyColor, fromClipboard, editing, dragging, snapping,
   dimmed, highlit, focused, selected, scrubFade,
-  onMouseDown, onTextChange, onCommitEdit, onContextMenu, onTagClick, onResizeStart, onHover, onToggleTask,
+  onMouseDown, onTextChange, onCommitEdit, onContextMenu, onTagClick, onResizeStart, onHover, onToggleTask, clickPos,
 }: {
   note: Note;
   pos: { x: number; y: number };
@@ -1689,6 +1699,7 @@ function NoteCard({
   onTagClick: (tag: string) => void;
   onResizeStart: (e: React.MouseEvent<HTMLDivElement>, dir: "e" | "s" | "se") => void;
   onToggleTask: (id: string, taskIndex: number) => void;
+  clickPos?: { x: number; y: number } | null;
 }) {
   const rec = recencyOf(note.t);
 
@@ -1765,6 +1776,7 @@ function NoteCard({
             onChange={onTextChange}
             onCommit={onCommitEdit}
             className="note-cm"
+            clickPos={clickPos}
           />
         </Suspense>
       ) : startsWithBlock ? (

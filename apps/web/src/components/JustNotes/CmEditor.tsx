@@ -115,6 +115,7 @@ export default function CmEditor({
   autoFocus = true,
   placeholder = "just write.",
   className,
+  clickPos,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -122,6 +123,9 @@ export default function CmEditor({
   autoFocus?: boolean;
   placeholder?: string;
   className?: string;
+  // Viewport point of the click that opened the editor, so the caret lands
+  // where the user clicked instead of jumping to the end of the text.
+  clickPos?: { x: number; y: number } | null;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -160,7 +164,12 @@ export default function CmEditor({
       // preventScroll: focusing an off-screen card otherwise scrolls it into
       // view and cancels the in-flight fly-to-note pan/zoom.
       view.contentDOM.focus({ preventScroll: true });
-      view.dispatch({ selection: { anchor: state.doc.length } });
+      // Place the caret at the click point when we have one (a card click). The
+      // `false` makes posAtCoords snap to the nearest position rather than
+      // returning null when the click lands just off CM's line — the rendered
+      // view the user clicked and the editor's layout don't line up exactly.
+      const at = clickPos ? view.posAtCoords(clickPos, false) : null;
+      view.dispatch({ selection: { anchor: at ?? state.doc.length } });
     }
     return () => {
       view.destroy();
