@@ -5,6 +5,7 @@ import type { Env } from "../env";
 
 const posSchema = z.object({ x: z.number(), y: z.number() });
 const modePosSchema = z.object({ sticky: posSchema.optional(), paper: posSchema.optional() }).nullable().optional();
+const kindSchema = z.enum(["card", "sticky", "page"]);
 
 const createSchema = z.object({
   id: z.string().optional(),
@@ -15,6 +16,8 @@ const createSchema = z.object({
   h: z.number().nullable().optional(),
   t: z.number(),
   text: z.string().optional(),
+  kind: kindSchema.optional(),
+  color: z.string().max(32).nullable().optional(),
   modePos: modePosSchema,
 });
 
@@ -25,6 +28,8 @@ const patchSchema = z.object({
   h: z.number().nullable().optional(),
   t: z.number().optional(),
   text: z.string().optional(),
+  kind: kindSchema.optional(),
+  color: z.string().max(32).nullable().optional(),
   modePos: modePosSchema,
 });
 
@@ -42,7 +47,7 @@ const searchQuery = z.object({
 
 const GRAVEYARD_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
-const NOTE_COLS = "id, user_id, x, y, w, h, t, text, updated_at, deleted_at, mode_pos, board_id";
+const NOTE_COLS = "id, user_id, x, y, w, h, t, text, updated_at, deleted_at, mode_pos, board_id, kind, color";
 
 type NoteRow = {
   id: string;
@@ -57,6 +62,8 @@ type NoteRow = {
   deleted_at: number | null;
   mode_pos: string | null;
   board_id: string | null;
+  kind: string;
+  color: string | null;
 };
 
 function safeParse(json: string | null) {
@@ -82,6 +89,8 @@ function toNote(r: NoteRow) {
     deletedAt: r.deleted_at,
     modePos: safeParse(r.mode_pos),
     boardId: r.board_id,
+    kind: r.kind,
+    color: r.color,
   };
 }
 
@@ -198,11 +207,13 @@ export const notesRoutes = new Hono<Env>()
       deletedAt: null as number | null,
       modePos: body.modePos ?? null,
       boardId: body.boardId,
+      kind: body.kind ?? "card",
+      color: body.color ?? null,
     };
     await c.env.DB.prepare(
-      `INSERT INTO notes (${NOTE_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO notes (${NOTE_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-      .bind(note.id, note.userId, note.x, note.y, note.w, note.h, note.t, note.text, note.updatedAt, note.deletedAt, note.modePos ? JSON.stringify(note.modePos) : null, note.boardId)
+      .bind(note.id, note.userId, note.x, note.y, note.w, note.h, note.t, note.text, note.updatedAt, note.deletedAt, note.modePos ? JSON.stringify(note.modePos) : null, note.boardId, note.kind, note.color)
       .run();
     return c.json({ note });
   })
@@ -219,6 +230,8 @@ export const notesRoutes = new Hono<Env>()
     if (body.h !== undefined) { sets.push("h = ?"); binds.push(body.h); }
     if (typeof body.t === "number") { sets.push("t = ?"); binds.push(body.t); }
     if (typeof body.text === "string") { sets.push("text = ?"); binds.push(body.text); }
+    if (body.kind !== undefined) { sets.push("kind = ?"); binds.push(body.kind); }
+    if (body.color !== undefined) { sets.push("color = ?"); binds.push(body.color); }
     if (body.modePos !== undefined) { sets.push("mode_pos = ?"); binds.push(body.modePos === null ? null : JSON.stringify(body.modePos)); }
 
     const { results } = await c.env.DB.prepare(

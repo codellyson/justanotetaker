@@ -23,6 +23,7 @@ import {
   PAPER_W,
   PAPER_H,
   type Note,
+  type NoteKind,
   type Board,
   type ModePos,
   type Tweaks,
@@ -451,7 +452,7 @@ export default function JustNotes(props: JustNotesProps) {
     const id = uid();
     const w = tweakRef.current.noteWidth;
     const spot = findFreeSpot(canvasX - w / 2, canvasY - 22);
-    setNotes((ns) => [...ns, { id, x: spot.x, y: spot.y, w: null, h: null, t: Date.now(), text: initialText, modePos: null }]);
+    setNotes((ns) => [...ns, { id, x: spot.x, y: spot.y, w: null, h: null, t: Date.now(), text: initialText, kind: "card", color: null, modePos: null }]);
     editSnapshotRef.current = { id, isNew: true, prevText: "", prevT: Date.now() };
     editClickRef.current = null; // new note → caret at end, not a stale click point
     setEditingId(id);
@@ -523,7 +524,7 @@ export default function JustNotes(props: JustNotesProps) {
     const x = spot.x;
     const y = spot.y;
     const now = Date.now();
-    const note: Note = { id, x, y, w: null, h: null, t: now, text, modePos: null };
+    const note: Note = { id, x, y, w: null, h: null, t: now, text, kind: "card", color: null, modePos: null };
     setNotes((ns) => [...ns, note]);
     pushOp({ type: "create", id });
     void onCreate(note, opts);
@@ -641,8 +642,8 @@ export default function JustNotes(props: JustNotesProps) {
     onDelete(id);
   }
 
-  function reinsertRestoredNote(note: { id: string; x: number; y: number; t: number; text: string }) {
-    setNotes((ns) => (ns.some((n) => n.id === note.id) ? ns : [...ns, { ...note, w: null, h: null, modePos: null }]));
+  function reinsertRestoredNote(note: { id: string; x: number; y: number; t: number; text: string; kind?: NoteKind; color?: string | null }) {
+    setNotes((ns) => (ns.some((n) => n.id === note.id) ? ns : [...ns, { ...note, w: null, h: null, kind: note.kind ?? "card", color: note.color ?? null, modePos: null }]));
   }
 
   function startResize(e: React.MouseEvent<HTMLDivElement>, id: string, dir: "e" | "s" | "se") {

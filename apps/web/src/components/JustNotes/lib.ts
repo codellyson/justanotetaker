@@ -5,6 +5,11 @@ export type ModePos = {
   paper?: { x: number; y: number };
 };
 
+// How a single note presents itself — replaces the old board-level view modes.
+// `card` is the everyday note; `sticky` a colored square; `page` a document
+// surface. Configured per note (context menu), not per board.
+export type NoteKind = "card" | "sticky" | "page";
+
 export type Note = {
   id: string;
   x: number;
@@ -13,6 +18,8 @@ export type Note = {
   h: number | null;
   t: number;
   text: string;
+  kind: NoteKind;
+  color: string | null;
   modePos: ModePos | null;
 };
 

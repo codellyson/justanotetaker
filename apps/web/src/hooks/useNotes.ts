@@ -14,6 +14,8 @@ function strip(rows: Awaited<ReturnType<typeof remoteStorage.list>>): Note[] {
     h: s.h,
     t: s.t,
     text: s.text,
+    kind: s.kind,
+    color: s.color,
     modePos: s.modePos ?? null,
   }));
 }

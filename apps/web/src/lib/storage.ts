@@ -1,4 +1,4 @@
-import type { Board, ModePos, Note, Tweaks, ViewMode } from "../components/JustNotes/lib";
+import type { Board, ModePos, Note, NoteKind, Tweaks, ViewMode } from "../components/JustNotes/lib";
 import { api } from "./api-client";
 
 export type StoredNote = Note & { updatedAt: number };
@@ -19,8 +19,8 @@ export type StoredSettings = {
 export interface Storage {
   list(boardId: string): Promise<StoredNote[]>;
   listAll(): Promise<BoardNote[]>;
-  create(input: { id?: string; boardId: string; x: number; y: number; w?: number | null; h?: number | null; t: number; text?: string; modePos?: ModePos | null }): Promise<StoredNote>;
-  update(id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "modePos">>): Promise<StoredNote | null>;
+  create(input: { id?: string; boardId: string; x: number; y: number; w?: number | null; h?: number | null; t: number; text?: string; kind?: NoteKind; color?: string | null; modePos?: ModePos | null }): Promise<StoredNote>;
+  update(id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "kind" | "color" | "modePos">>): Promise<StoredNote | null>;
   remove(id: string): Promise<void>;
   listBoards(): Promise<Board[]>;
   createBoard(input: { name: string; viewMode?: ViewMode; sort?: number }): Promise<Board>;
@@ -43,6 +43,8 @@ function toUiNote(row: {
   t: number;
   text: string;
   updatedAt: number;
+  kind?: string | null;
+  color?: string | null;
   modePos?: ModePos | null;
 }): StoredNote {
   return {
@@ -54,6 +56,8 @@ function toUiNote(row: {
     t: row.t,
     text: row.text,
     updatedAt: row.updatedAt,
+    kind: (row.kind as NoteKind) ?? "card",
+    color: row.color ?? null,
     modePos: row.modePos ?? null,
   };
 }
@@ -86,6 +90,8 @@ export const remoteStorage: Storage = {
         ...(input.h !== undefined ? { h: input.h } : {}),
         t: input.t,
         ...(input.text !== undefined ? { text: input.text } : {}),
+        ...(input.kind !== undefined ? { kind: input.kind } : {}),
+        ...(input.color !== undefined ? { color: input.color } : {}),
         ...(input.modePos !== undefined ? { modePos: input.modePos } : {}),
       },
     });
@@ -149,15 +155,7 @@ export const remoteStorage: Storage = {
     if (!res.ok) throw new Error(`list deleted: ${res.status}`);
     const { notes } = await res.json();
     return notes.map((n) => ({
-      id: n.id,
-      x: n.x,
-      y: n.y,
-      w: n.w ?? null,
-      h: n.h ?? null,
-      t: n.t,
-      text: n.text,
-      updatedAt: n.updatedAt,
-      modePos: n.modePos ?? null,
+      ...toUiNote(n),
       deletedAt: n.deletedAt ?? 0,
     }));
   },
@@ -204,6 +202,8 @@ export const remoteStorage: Storage = {
       t: m.t,
       text: m.text,
       updatedAt: m.updatedAt,
+      kind: "card" as NoteKind,
+      color: null,
       modePos: null,
       snippet: m.snippet,
     }));
