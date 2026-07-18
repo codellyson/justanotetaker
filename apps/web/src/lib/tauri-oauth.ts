@@ -37,6 +37,11 @@ async function openInSystemBrowserTauri(url: string): Promise<void> {
 }
 
 export async function openInSystemBrowser(url: string): Promise<void> {
+  // Backstop for note-content links: never hand a non-web scheme to the OS
+  // opener (desktop would invoke the handler for file:/custom schemes) or to
+  // window.open (javascript:). The markdown renderer already refuses to link
+  // these, so this only fires on a bypass.
+  if (!/^(https?:|mailto:)/i.test(url.trim())) return;
   if (!isTauri) {
     window.open(url, "_blank", "noopener,noreferrer");
     return;

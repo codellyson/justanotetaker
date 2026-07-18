@@ -11,7 +11,15 @@ function onLinkClick(href: string) {
   };
 }
 
+// Only ever treat these schemes as links/images in note content. A note is
+// user-authored, so an unguarded `[x](javascript:…)` would become a clickable
+// href handed to window.open / the desktop OS opener, and an unguarded image
+// src could point at a non-web scheme. Anything else renders as inert text.
+const SAFE_HREF = /^(https?:|mailto:)/i;
+const SAFE_IMG_SRC = /^(https?:|data:image\/)/i;
+
 function Img({ src, alt }: { src: string; alt: string }) {
+  if (!SAFE_IMG_SRC.test(src.trim())) return <>{alt || src}</>;
   return (
     <img
       className="md-img"
@@ -27,6 +35,7 @@ function Img({ src, alt }: { src: string; alt: string }) {
 }
 
 function Link({ href, children }: { href: string; children: React.ReactNode }) {
+  if (!SAFE_HREF.test(href.trim())) return <>{children}</>;
   return (
     <a href={href} target="_blank" rel="noreferrer" onMouseDown={(e) => e.stopPropagation()} onClick={onLinkClick(href)}>
       {children}
