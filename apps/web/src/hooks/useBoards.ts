@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { Board, ViewMode } from "../components/JustNotes/lib";
+import type { Board } from "../components/JustNotes/lib";
 import { remoteStorage } from "../lib/storage";
 
 // Where the active board id lives on this device. It's a per-device
@@ -114,15 +114,6 @@ export function useBoards() {
     [boards, activeBoardId, setActiveBoard],
   );
 
-  const setBoardViewMode = useCallback(async (id: string, viewMode: ViewMode) => {
-    setBoards((prev) => prev.map((b) => (b.id === id ? { ...b, viewMode } : b)));
-    try {
-      await remoteStorage.updateBoard(id, { viewMode });
-    } catch (err) {
-      console.error("[useBoards] set view mode failed", err);
-    }
-  }, []);
-
   const activeBoard = boards.find((b) => b.id === activeBoardId) ?? null;
 
   return {
@@ -134,6 +125,5 @@ export function useBoards() {
     renameBoard,
     deleteBoard,
     setActiveBoard,
-    setBoardViewMode,
   };
 }

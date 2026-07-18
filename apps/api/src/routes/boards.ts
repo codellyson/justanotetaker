@@ -4,29 +4,24 @@ import { z } from "zod";
 import type { D1Database } from "@cloudflare/workers-types";
 import type { Env } from "../env";
 
-const viewModeEnum = z.enum(["default", "sticky", "paper"]);
-
 const createSchema = z.object({
   name: z.string().min(1),
-  viewMode: viewModeEnum.optional(),
   sort: z.number().optional(),
 });
 
 const patchSchema = z.object({
   name: z.string().min(1).optional(),
-  viewMode: viewModeEnum.optional(),
   sort: z.number().optional(),
 });
 
 const idParam = z.object({ id: z.string() });
 
-const BOARD_COLS = "id, user_id, name, view_mode, sort, created_at, updated_at, deleted_at";
+const BOARD_COLS = "id, user_id, name, sort, created_at, updated_at, deleted_at";
 
 type BoardRow = {
   id: string;
   user_id: string;
   name: string;
-  view_mode: string;
   sort: number;
   created_at: number;
   updated_at: number;
@@ -34,7 +29,7 @@ type BoardRow = {
 };
 
 function toBoard(r: BoardRow) {
-  return { id: r.id, name: r.name, viewMode: r.view_mode, sort: r.sort };
+  return { id: r.id, name: r.name, sort: r.sort };
 }
 
 // Create the account's first canvas. Called when the board list is empty so
@@ -45,16 +40,15 @@ async function ensureFirstBoard(db: D1Database, userId: string) {
   const board = {
     id: crypto.randomUUID(),
     name: "Canvas",
-    viewMode: "default",
     sort: 0,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
   await db
-    .prepare(`INSERT INTO boards (${BOARD_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(board.id, userId, board.name, board.viewMode, board.sort, board.createdAt, board.updatedAt, null)
+    .prepare(`INSERT INTO boards (${BOARD_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .bind(board.id, userId, board.name, board.sort, board.createdAt, board.updatedAt, null)
     .run();
-  return { id: board.id, name: board.name, viewMode: board.viewMode, sort: board.sort };
+  return { id: board.id, name: board.name, sort: board.sort };
 }
 
 export const boardsRoutes = new Hono<Env>()
@@ -96,18 +90,17 @@ export const boardsRoutes = new Hono<Env>()
       id,
       userId,
       name: body.name,
-      viewMode: body.viewMode ?? "default",
       sort,
       createdAt: now,
       updatedAt: now,
       deletedAt: null as number | null,
     };
     await c.env.DB.prepare(
-      `INSERT INTO boards (${BOARD_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO boards (${BOARD_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-      .bind(board.id, board.userId, board.name, board.viewMode, board.sort, board.createdAt, board.updatedAt, board.deletedAt)
+      .bind(board.id, board.userId, board.name, board.sort, board.createdAt, board.updatedAt, board.deletedAt)
       .run();
-    return c.json({ board: { id: board.id, name: board.name, viewMode: board.viewMode, sort: board.sort } });
+    return c.json({ board: { id: board.id, name: board.name, sort: board.sort } });
   })
   .patch("/:id", zValidator("param", idParam), zValidator("json", patchSchema), async (c) => {
     const userId = c.get("userId");
@@ -117,7 +110,6 @@ export const boardsRoutes = new Hono<Env>()
     const sets = ["updated_at = ?"];
     const binds: (string | number | null)[] = [Date.now()];
     if (typeof body.name === "string") { sets.push("name = ?"); binds.push(body.name); }
-    if (body.viewMode !== undefined) { sets.push("view_mode = ?"); binds.push(body.viewMode); }
     if (typeof body.sort === "number") { sets.push("sort = ?"); binds.push(body.sort); }
 
     const { results } = await c.env.DB.prepare(

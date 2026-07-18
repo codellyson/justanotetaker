@@ -1,10 +1,3 @@
-// Per-mode card positions, synced with the note. Absent ⇒ that mode falls
-// back to a freshly-declumped spot. Canvas (default) uses x/y, not this.
-export type ModePos = {
-  sticky?: { x: number; y: number };
-  paper?: { x: number; y: number };
-};
-
 // How a single note presents itself — replaces the old board-level view modes.
 // `card` is the everyday note; `sticky` a colored square; `page` a document
 // surface. Configured per note (context menu), not per board.
@@ -20,16 +13,11 @@ export type Note = {
   text: string;
   kind: NoteKind;
   color: string | null;
-  modePos: ModePos | null;
 };
 
 export type Recency = "fresh" | "recent" | "older" | "ancient";
 
 export const GRID = 28;
-
-// A view mode is a lens over the whole canvas; real note positions are kept
-// underneath and restored on return to "default".
-export type ViewMode = "default" | "sticky" | "paper";
 
 // Card geometry, canvas units. Paper is true A4 portrait at 96 CSS px/in
 // (210×297mm ⇒ 8.27×11.69in ⇒ 794×1123px), the 1:√2 ratio.
@@ -136,7 +124,6 @@ export function tagsOf(text: string): string[] {
 export type Board = {
   id: string;
   name: string;
-  viewMode: ViewMode;
   sort: number;
 };
 

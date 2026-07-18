@@ -16,7 +16,6 @@ function strip(rows: Awaited<ReturnType<typeof remoteStorage.list>>): Note[] {
     text: s.text,
     kind: s.kind,
     color: s.color,
-    modePos: s.modePos ?? null,
   }));
 }
 
@@ -91,7 +90,8 @@ export function useNotes(boardId: string | null) {
         h: note.h,
         t: note.t,
         text: note.text,
-        modePos: note.modePos,
+        kind: note.kind,
+        color: note.color,
       });
       syncedRef.current.add(note.id);
     } catch (err) {
@@ -103,7 +103,7 @@ export function useNotes(boardId: string | null) {
   // ids; otherwise the server. No-op for ids that are neither yet synced nor
   // local — the next create call will pick up state from JustNotes' useState.
   const onUpdate = useCallback(
-    (id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "modePos">>) => {
+    (id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "kind" | "color">>) => {
       if (localRef.current.has(id)) {
         localNotes.update(id, patch);
         return;

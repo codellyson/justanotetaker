@@ -375,7 +375,7 @@ export default function JustNotes(props: JustNotesProps) {
     const id = uid();
     const w = tweakRef.current.noteWidth;
     const spot = findFreeSpot(canvasX - w / 2, canvasY - 22);
-    setNotes((ns) => [...ns, { id, x: spot.x, y: spot.y, w: null, h: null, t: Date.now(), text: initialText, kind: "card", color: null, modePos: null }]);
+    setNotes((ns) => [...ns, { id, x: spot.x, y: spot.y, w: null, h: null, t: Date.now(), text: initialText, kind: "card", color: null }]);
     editSnapshotRef.current = { id, isNew: true, prevText: "", prevT: Date.now() };
     editClickRef.current = null; // new note → caret at end, not a stale click point
     setEditingId(id);
@@ -443,7 +443,7 @@ export default function JustNotes(props: JustNotesProps) {
     const x = spot.x;
     const y = spot.y;
     const now = Date.now();
-    const note: Note = { id, x, y, w: null, h: null, t: now, text, kind: "card", color: null, modePos: null };
+    const note: Note = { id, x, y, w: null, h: null, t: now, text, kind: "card", color: null };
     setNotes((ns) => [...ns, note]);
     pushOp({ type: "create", id });
     void onCreate(note, opts);
@@ -577,7 +577,7 @@ export default function JustNotes(props: JustNotesProps) {
   }
 
   function reinsertRestoredNote(note: { id: string; x: number; y: number; t: number; text: string; kind?: NoteKind; color?: string | null }) {
-    setNotes((ns) => (ns.some((n) => n.id === note.id) ? ns : [...ns, { ...note, w: null, h: null, kind: note.kind ?? "card", color: note.color ?? null, modePos: null }]));
+    setNotes((ns) => (ns.some((n) => n.id === note.id) ? ns : [...ns, { ...note, w: null, h: null, kind: note.kind ?? "card", color: note.color ?? null }]));
   }
 
   function startResize(e: React.MouseEvent<HTMLDivElement>, id: string, dir: "e" | "s" | "se") {
@@ -1532,6 +1532,10 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       data-canvas="1"
       style={gridStyle}
       onMouseDown={onMouseDown}
+      // Suppress the browser's native context menu on the canvas — a note's
+      // right-click opens our own menu (and stops propagation); empty-canvas
+      // right-clicks would otherwise pop Chrome's page menu.
+      onContextMenu={(e) => e.preventDefault()}
     >
       {children}
     </div>

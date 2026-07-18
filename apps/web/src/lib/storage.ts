@@ -1,4 +1,4 @@
-import type { Board, ModePos, Note, NoteKind, Tweaks, ViewMode } from "../components/JustNotes/lib";
+import type { Board, Note, NoteKind, Tweaks } from "../components/JustNotes/lib";
 import { api } from "./api-client";
 
 export type StoredNote = Note & { updatedAt: number };
@@ -19,12 +19,12 @@ export type StoredSettings = {
 export interface Storage {
   list(boardId: string): Promise<StoredNote[]>;
   listAll(): Promise<BoardNote[]>;
-  create(input: { id?: string; boardId: string; x: number; y: number; w?: number | null; h?: number | null; t: number; text?: string; kind?: NoteKind; color?: string | null; modePos?: ModePos | null }): Promise<StoredNote>;
-  update(id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "kind" | "color" | "modePos">>): Promise<StoredNote | null>;
+  create(input: { id?: string; boardId: string; x: number; y: number; w?: number | null; h?: number | null; t: number; text?: string; kind?: NoteKind; color?: string | null }): Promise<StoredNote>;
+  update(id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "kind" | "color">>): Promise<StoredNote | null>;
   remove(id: string): Promise<void>;
   listBoards(): Promise<Board[]>;
-  createBoard(input: { name: string; viewMode?: ViewMode; sort?: number }): Promise<Board>;
-  updateBoard(id: string, patch: Partial<Pick<Board, "name" | "viewMode" | "sort">>): Promise<Board | null>;
+  createBoard(input: { name: string; sort?: number }): Promise<Board>;
+  updateBoard(id: string, patch: Partial<Pick<Board, "name" | "sort">>): Promise<Board | null>;
   deleteBoard(id: string): Promise<void>;
   listDeleted(): Promise<DeletedNote[]>;
   restore(id: string): Promise<StoredNote | null>;
@@ -45,7 +45,6 @@ function toUiNote(row: {
   updatedAt: number;
   kind?: string | null;
   color?: string | null;
-  modePos?: ModePos | null;
 }): StoredNote {
   return {
     id: row.id,
@@ -58,7 +57,6 @@ function toUiNote(row: {
     updatedAt: row.updatedAt,
     kind: (row.kind as NoteKind) ?? "card",
     color: row.color ?? null,
-    modePos: row.modePos ?? null,
   };
 }
 
@@ -92,7 +90,6 @@ export const remoteStorage: Storage = {
         ...(input.text !== undefined ? { text: input.text } : {}),
         ...(input.kind !== undefined ? { kind: input.kind } : {}),
         ...(input.color !== undefined ? { color: input.color } : {}),
-        ...(input.modePos !== undefined ? { modePos: input.modePos } : {}),
       },
     });
     if (!res.ok) throw new Error(`create note: ${res.status}`);
@@ -119,20 +116,19 @@ export const remoteStorage: Storage = {
     const res = await api.api.boards.$get();
     if (!res.ok) throw new Error(`list boards: ${res.status}`);
     const { boards } = await res.json();
-    return boards.map((b) => ({ ...b, viewMode: b.viewMode as ViewMode }));
+    return boards.map((b) => ({ id: b.id, name: b.name, sort: b.sort }));
   },
 
   async createBoard(input) {
     const res = await api.api.boards.$post({
       json: {
         name: input.name,
-        ...(input.viewMode !== undefined ? { viewMode: input.viewMode } : {}),
         ...(input.sort !== undefined ? { sort: input.sort } : {}),
       },
     });
     if (!res.ok) throw new Error(`create board: ${res.status}`);
     const { board } = await res.json();
-    return { ...board, viewMode: board.viewMode as ViewMode };
+    return { id: board.id, name: board.name, sort: board.sort };
   },
 
   async updateBoard(id, patch) {
@@ -142,7 +138,7 @@ export const remoteStorage: Storage = {
       throw new Error(`update board: ${res.status}`);
     }
     const { board } = await res.json();
-    return { ...board, viewMode: board.viewMode as ViewMode };
+    return { id: board.id, name: board.name, sort: board.sort };
   },
 
   async deleteBoard(id) {
@@ -204,7 +200,6 @@ export const remoteStorage: Storage = {
       updatedAt: m.updatedAt,
       kind: "card" as NoteKind,
       color: null,
-      modePos: null,
       snippet: m.snippet,
     }));
   },
