@@ -70,8 +70,6 @@ function Canvas({ boards, settings, allNotes }: {
 
   if (!shown) return null;
 
-  const board = boards.boards.find((b) => b.id === shown.id) ?? boards.activeBoard!;
-
   // Clicking a note in another board's tree section. Same-board clicks are
   // handled inside JustNotes (no remount needed).
   const requestBoardJump = (boardId: string, noteId: string) => {
@@ -97,8 +95,6 @@ function Canvas({ boards, settings, allNotes }: {
       initialNotes={shown.notes}
       tweaks={settings.tweaks}
       setTweak={settings.setTweak}
-      viewMode={board.viewMode}
-      onSetViewMode={(m) => boards.setBoardViewMode(shown.id, m)}
       onCreate={notes.onCreate}
       onUpdate={notes.onUpdate}
       onDelete={notes.onDelete}

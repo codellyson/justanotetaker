@@ -287,57 +287,53 @@ body {
     box-shadow 320ms ease;
 }
 
-/* Sticky — colored square (bg/ink set inline); fixed shape + lifted shadow. */
-.notes-layer.view-sticky .note {
-  width: 190px;
-  height: 190px;
-  max-height: 190px;
+/* Sticky — colored square (bg/ink + size set inline); flat, scrolls inside. */
+.note.kind-sticky {
+  max-height: none;
   padding: 13px 15px;
   border-radius: 3px;
   box-shadow: none;
-}
-.notes-layer.view-sticky .note:hover:not(.editing):not(.dim) {
-  box-shadow: none;
-}
-/* Editing a sticky keeps the fixed square and scrolls the text inside — it
-   must not grow/spill onto the canvas like a default note does. */
-.notes-layer.view-sticky .note.editing {
-  max-height: 190px;
   overflow: hidden;
 }
-.notes-layer.view-sticky .note.editing .note-ta {
-  height: 100%;
-  overflow-y: auto;
+.note.kind-sticky:hover:not(.editing):not(.dim) {
+  box-shadow: none;
+}
+.note.kind-sticky .note-first {
+  -webkit-line-clamp: unset;
+}
+.note.kind-sticky.editing .note-cm .cm-scroller {
+  max-height: 100%;
 }
 
-/* Paper — A4 page (width + min-height set inline); themed background. */
-.notes-layer.view-paper .note {
+/* Page — A4 surface (width + min-height set inline); serif reading style. */
+.note.kind-page {
   max-height: none;
   padding: 32px 20px;
   border-radius: 5px;
 }
-/* Document feel: serif face + a little extra leading. Text stays at normal
-   note sizes — no enlargement, so a page reads like a page, not blown-up. */
-.notes-layer.view-paper .note-first,
-.notes-layer.view-paper .note-rest,
-.notes-layer.view-paper .note-ta,
-.notes-layer.view-paper .md-p,
-.notes-layer.view-paper .md-li {
+/* A page shows the whole note, not the card's 3-line clamp. */
+.note.kind-page .note-first {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+/* Document feel: serif face + a little extra leading, at the reading size. */
+.note.kind-page .note-first,
+.note.kind-page .note-rest,
+.note.kind-page .note-cm .cm-scroller,
+.note.kind-page .md-p,
+.note.kind-page .md-li {
   font-family:
     "Iowan Old Style", "Palatino Linotype", Palatino, Georgia,
     "Times New Roman", serif;
 }
-.notes-layer.view-paper .note-rest,
-.notes-layer.view-paper .note-ta {
+.note.kind-page .note-rest,
+.note.kind-page .note-cm .cm-scroller {
   line-height: 1.6;
 }
-/* Match the editor to the rendered body size so focusing a page doesn't
-   bump the text up (base .note-ta is 14.5px vs the 12.5px reading size). */
-.notes-layer.view-paper .note-ta {
+.note.kind-page .note-cm .cm-scroller {
   font-size: 12.5px;
 }
-/* Paragraph rhythm — blank lines between paragraphs open up a touch on a page. */
-.notes-layer.view-paper .md-blank {
+.note.kind-page .md-blank {
   height: 12px;
 }
 
@@ -452,19 +448,6 @@ body {
 .note.editing .note-cm .cm-content {
   min-height: 100%;
 }
-/* Sticky keeps its fixed square: the editor scrolls inside it. */
-.notes-layer.view-sticky .note.editing .note-cm .cm-scroller {
-  max-height: 100%;
-}
-/* Paper reads like a page: serif face at the body reading size. */
-.notes-layer.view-paper .note-cm .cm-scroller {
-  font-family:
-    "Iowan Old Style", "Palatino Linotype", Palatino, Georgia,
-    "Times New Roman", serif;
-  font-size: 12.5px;
-  line-height: 1.6;
-}
-
 /* ── Chrome ─────────────────────────────────────────────────────── */
 .chrome {
   position: fixed;
@@ -1524,6 +1507,65 @@ body {
   font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 10.5px;
   color: rgb(var(--text-secondary));
+}
+.note-ctx-label {
+  padding: 5px 10px 2px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgb(var(--text-muted));
+}
+.note-ctx-types {
+  display: flex;
+  gap: 3px;
+  padding: 0 6px 4px;
+}
+.note-ctx-type {
+  flex: 1;
+  padding: 5px 0;
+  border: 1px solid rgb(var(--border) / 0.7);
+  border-radius: 5px;
+  background: transparent;
+  color: rgb(var(--text-secondary));
+  font-family: inherit;
+  font-size: 11.5px;
+  text-transform: capitalize;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.note-ctx-type:hover {
+  background: rgb(var(--text-primary) / 0.06);
+  color: rgb(var(--text-primary));
+}
+.note-ctx-type.active {
+  background: rgb(var(--accent) / 0.16);
+  border-color: rgb(var(--accent) / 0.5);
+  color: rgb(var(--accent));
+}
+.note-ctx-colors {
+  display: flex;
+  gap: 6px;
+  padding: 2px 10px 6px;
+}
+.note-ctx-swatch {
+  width: 20px;
+  height: 20px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+.note-ctx-swatch:hover {
+  transform: scale(1.12);
+}
+.note-ctx-swatch.active {
+  border-color: rgb(var(--text-primary) / 0.8);
+}
+.note-ctx-sep {
+  height: 1px;
+  margin: 3px 6px;
+  background: rgb(var(--border) / 0.6);
 }
 
 /* ── Graveyard list ─────────────────────────────────────────────── */

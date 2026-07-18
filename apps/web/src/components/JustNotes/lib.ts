@@ -39,20 +39,22 @@ export const PAPER_W = 794;
 export const PAPER_H = Math.round(PAPER_W * Math.SQRT2); // 1123
 export const PAPER_GAP = 44;
 
-// Assigned per note stably by id, so a sticky keeps its color across renders.
-export const STICKY_COLORS: readonly { bg: string; ink: string }[] = [
-  { bg: "#fde68a", ink: "#713f12" }, // amber
-  { bg: "#fbcfe8", ink: "#831843" }, // pink
-  { bg: "#bfdbfe", ink: "#1e3a8a" }, // blue
-  { bg: "#bbf7d0", ink: "#14532d" }, // green
-  { bg: "#ddd6fe", ink: "#4c1d95" }, // violet
-  { bg: "#fed7aa", ink: "#7c2d12" }, // orange
-];
+// Named sticky palette — a note stores its color by key (`note.color`), chosen
+// from the context menu. Null/unknown falls back to amber.
+export const STICKY_COLOR_KEYS = ["amber", "pink", "blue", "green", "violet", "orange"] as const;
+export type StickyColorKey = (typeof STICKY_COLOR_KEYS)[number];
 
-export function stickyColorOf(id: string): { bg: string; ink: string } {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return STICKY_COLORS[h % STICKY_COLORS.length];
+export const STICKY_COLOR_MAP: Record<StickyColorKey, { bg: string; ink: string }> = {
+  amber: { bg: "#fde68a", ink: "#713f12" },
+  pink: { bg: "#fbcfe8", ink: "#831843" },
+  blue: { bg: "#bfdbfe", ink: "#1e3a8a" },
+  green: { bg: "#bbf7d0", ink: "#14532d" },
+  violet: { bg: "#ddd6fe", ink: "#4c1d95" },
+  orange: { bg: "#fed7aa", ink: "#7c2d12" },
+};
+
+export function resolveStickyColor(color: string | null): { bg: string; ink: string } {
+  return (color && STICKY_COLOR_MAP[color as StickyColorKey]) || STICKY_COLOR_MAP.amber;
 }
 
 /**

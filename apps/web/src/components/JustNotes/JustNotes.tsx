@@ -18,16 +18,16 @@ import {
   restAfterFirst,
   tagsOf,
   uid,
-  stickyColorOf,
+  resolveStickyColor,
+  STICKY_COLOR_KEYS,
+  STICKY_COLOR_MAP,
   STICKY_SIZE,
   PAPER_W,
   PAPER_H,
   type Note,
   type NoteKind,
   type Board,
-  type ModePos,
   type Tweaks,
-  type ViewMode,
 } from "./lib";
 import { FileTree } from "./FileTree";
 // CodeMirror pulls in ~65KB gzipped; load it only when the focused editor
@@ -49,7 +49,7 @@ import { Graveyard } from "./Graveyard";
 
 type Persist = {
   onCreate: (note: Note, opts?: { localOnly?: boolean }) => void | Promise<void>;
-  onUpdate: (id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "modePos">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "kind" | "color">>) => void;
   onDelete: (id: string) => void;
 };
 
@@ -57,10 +57,6 @@ export type JustNotesProps = Persist & {
   initialNotes: Note[];
   tweaks: Tweaks;
   setTweak: <K extends keyof Tweaks>(key: K, val: Tweaks[K]) => void;
-  // View mode is per-board now: it comes in from the active board, and
-  // changing it writes back to the board (persisted + synced).
-  viewMode: ViewMode;
-  onSetViewMode: (m: ViewMode) => void;
   // Re-fetch server notes for the active board. Returns the current server
   // set; the canvas merges in any it doesn't already have (notes created on
   // another device or piped in by an agent). Optional so JustNotes can be
@@ -98,7 +94,7 @@ type UndoOp =
 
 // ── App ────────────────────────────────────────────────────────────────
 export default function JustNotes(props: JustNotesProps) {
-  const { initialNotes, tweaks: t, setTweak, viewMode, onSetViewMode, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete, refresh, boards, activeBoardId, notesByBoard, onBoardJump, focusNoteId, onFocusConsumed, onBoardCreate, spawnRequested, onSpawnConsumed } = props;
+  const { initialNotes, tweaks: t, setTweak, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete, refresh, boards, activeBoardId, notesByBoard, onBoardJump, focusNoteId, onFocusConsumed, onBoardCreate, spawnRequested, onSpawnConsumed } = props;
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [tokensOpen, setTokensOpen] = useState(false);
 
@@ -166,21 +162,6 @@ export default function JustNotes(props: JustNotesProps) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   // A note that just glided to a free spot after a drop (drives the snap CSS).
   const [snappingId, setSnappingId] = useState<string | null>(null);
-
-  // `layoutAnimating` gates the left/top transition to mode-switch time only,
-  // so ordinary dragging never lags. viewModeRef lets event handlers read the
-  // current mode without going stale in their closures.
-  const viewModeRef = useRef(viewMode);
-  useEffect(() => { viewModeRef.current = viewMode; }, [viewMode]);
-  const [layoutAnimating, setLayoutAnimating] = useState(false);
-
-  // Sticky/paper render from this ephemeral map (a declumped layout computed on
-  // mode entry), NOT from the notes' real x/y — so the canvas arrangement is
-  // never mutated and `default` always restores it. Dragging in a mode edits
-  // this map only; nothing writes back to the notes. Empty in default mode.
-  const [modePos, setModePos] = useState<Map<string, { x: number; y: number }>>(() => new Map());
-  const modePosRef = useRef(modePos);
-  useEffect(() => { modePosRef.current = modePos; }, [modePos]);
 
   const [ambientOpen, setAmbientOpen] = useState(false);
   const [recallQuery, setRecallQuery] = useState("");
@@ -319,8 +300,6 @@ export default function JustNotes(props: JustNotesProps) {
   const tweakRef = useRef<Tweaks>(t);
   useEffect(() => { tweakRef.current = t; }, [t]);
 
-  const prevModeRef = useRef<ViewMode>("default");
-
   // Center the canvas on first paint.
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -372,62 +351,6 @@ export default function JustNotes(props: JustNotesProps) {
     window.setTimeout(() => setSmooth(false), 400);
   }
 
-  // Build the display-only layout for `mode`, seeded with positions to keep
-  // fixed (`seed`). Order: (1) keep seeded positions, (2) pin each note's own
-  // persisted `modePos`, (3) declump every remaining note into its nearest
-  // free spot avoiding all the above. So kept/pinned cards never move and
-  // newcomers can't overlap them. Reads notesRef; mutates nothing.
-  function buildModeLayout(
-    mode: "sticky" | "paper",
-    seed?: Map<string, { x: number; y: number }>,
-  ): Map<string, { x: number; y: number }> {
-    const w = mode === "sticky" ? STICKY_SIZE : PAPER_W;
-    const h = mode === "sticky" ? STICKY_SIZE : PAPER_H;
-    const list = notesRef.current;
-    const ids = new Set(list.map((n) => n.id));
-    const map = new Map<string, { x: number; y: number }>(
-      seed ? [...seed].filter(([id]) => ids.has(id)) : [], // drop deleted notes
-    );
-    const placed = [...map.values()].map((p) => ({ x: p.x, y: p.y, w, h }));
-    for (const n of list) {
-      if (map.has(n.id)) continue;
-      const s = n.modePos?.[mode];
-      if (s) { map.set(n.id, s); placed.push({ x: s.x, y: s.y, w, h }); }
-    }
-    for (const n of [...list].sort((a, b) => a.y - b.y || a.x - b.x)) {
-      if (map.has(n.id)) continue;
-      const spot = resolveFreePosition(n.x, n.y, w, h, placed);
-      map.set(n.id, spot);
-      placed.push({ x: spot.x, y: spot.y, w, h });
-    }
-    return map;
-  }
-
-  // On a mode change: pulse the glide transition and (re)build the layout.
-  // Default clears it, so cards fall back to their real x/y (the canvas).
-  useEffect(() => {
-    if (prevModeRef.current === viewMode) return;
-    prevModeRef.current = viewMode;
-    setLayoutAnimating(true);
-    const stop = window.setTimeout(() => setLayoutAnimating(false), 620);
-    setModePos(viewMode === "default" ? new Map() : buildModeLayout(viewMode));
-    return () => window.clearTimeout(stop);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode]);
-
-  // Keep the layout covering every note while in a mode: notes created or
-  // loaded after entry get a declumped slot (avoiding the placed ones), and
-  // deleted notes are dropped — without disturbing existing positions, so no
-  // reflow. No-op when nothing's missing (e.g. during a drag).
-  useEffect(() => {
-    if (viewMode === "default") return;
-    setModePos((prev) => {
-      const complete = notes.length === prev.size && notes.every((n) => prev.has(n.id));
-      return complete ? prev : buildModeLayout(viewMode, prev);
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, viewMode]);
-
   function screenToCanvas(sx: number, sy: number, v: View = viewRef.current) {
     return { x: (sx - v.pan.x) / v.zoom, y: (sy - v.pan.y) / v.zoom };
   }
@@ -459,20 +382,16 @@ export default function JustNotes(props: JustNotesProps) {
   }
 
   // Rects of every note but `excludeId`, for collision resolution on drop /
-  // spawn. Position is where the card actually sits — the mode map in a mode,
-  // else the note's real x/y — with size measured from the DOM.
+  // spawn. Position is the note's x/y; size is measured from the DOM.
   function measureRects(excludeId?: string) {
     const layer = canvasRef.current?.querySelector(".notes-layer");
-    const managed = viewModeRef.current !== "default";
-    const mp = modePosRef.current;
     const rects: { x: number; y: number; w: number; h: number }[] = [];
     for (const n of notesRef.current) {
       if (n.id === excludeId) continue;
       const el = layer?.querySelector<HTMLElement>(`[data-note-id="${n.id}"]`);
-      const p = managed ? mp.get(n.id) ?? { x: n.x, y: n.y } : { x: n.x, y: n.y };
       rects.push({
-        x: p.x,
-        y: p.y,
+        x: n.x,
+        y: n.y,
         w: el?.offsetWidth ?? n.w ?? tweakRef.current.noteWidth,
         h: el?.offsetHeight ?? n.h ?? 96,
       });
@@ -616,6 +535,21 @@ export default function JustNotes(props: JustNotesProps) {
     setNotes((ns) => ns.map((n) => n.id === id ? { ...n, text } : n));
   }
 
+  function setNoteKind(id: string, kind: NoteKind) {
+    // Switching to sticky with no color yet → default to amber so it's colored.
+    // Clear any custom w/h so the note takes the new type's canonical size (an
+    // A4 page, a square sticky) instead of keeping a stale card resize.
+    const cur = notesRef.current.find((n) => n.id === id);
+    const color = kind === "sticky" && !cur?.color ? "amber" : cur?.color ?? null;
+    setNotes((ns) => ns.map((n) => n.id === id ? { ...n, kind, color, w: null, h: null } : n));
+    onUpdate(id, { kind, color, w: null, h: null });
+  }
+
+  function setNoteColor(id: string, color: string) {
+    setNotes((ns) => ns.map((n) => n.id === id ? { ...n, color } : n));
+    onUpdate(id, { color });
+  }
+
   // Toggle a task checkbox (`- [ ]` ⇄ `- [x]`) in a note and persist right
   // away — this happens outside an edit session, so it can't wait for commit.
   function toggleTask(id: string, taskIndex: number) {
@@ -707,13 +641,9 @@ export default function JustNotes(props: JustNotesProps) {
   // comfortable typing level — noticeably in from a zoomed-out view, but not so
   // close it feels cramped.
   function focusNoteForEdit(n: Note) {
-    const mode = viewModeRef.current;
-    // Fly to where the card actually renders — its mode position in a view mode,
-    // else its canvas x/y (mirrors NoteCard's `pos` in render). Using n.x/n.y in
-    // sticky/paper aimed the camera at empty space while the card sat elsewhere.
-    const p = mode === "default" ? { x: n.x, y: n.y } : modePosRef.current.get(n.id) ?? { x: n.x, y: n.y };
-    const NW = mode === "sticky" ? STICKY_SIZE : mode === "paper" ? PAPER_W : (n.w ?? tweakRef.current.noteWidth);
-    const NH = mode === "sticky" ? STICKY_SIZE : mode === "paper" ? PAPER_H : (n.h ?? 220);
+    const p = { x: n.x, y: n.y };
+    const NW = n.kind === "sticky" ? (n.w ?? STICKY_SIZE) : n.kind === "page" ? (n.w ?? PAPER_W) : (n.w ?? tweakRef.current.noteWidth);
+    const NH = n.kind === "sticky" ? (n.h ?? STICKY_SIZE) : n.kind === "page" ? (n.h ?? PAPER_H) : (n.h ?? 220);
     const W = window.innerWidth, H = window.innerHeight;
     const fit = Math.min(((W - FILE_TREE_EDGE) * 0.7) / NW, (H * 0.7) / NH);
     const zoom = Math.max(0.9, Math.min(1.2, fit));
@@ -887,15 +817,12 @@ export default function JustNotes(props: JustNotesProps) {
     if (!note) return;
     const isSelected = selectedIdsRef.current.has(id);
     const groupIds: string[] = isSelected ? Array.from(selectedIdsRef.current) : [id];
-    // In a mode, a drag edits the ephemeral mode map (canvas x/y untouched, so
-    // nothing persists and default is unaffected). In default it edits the real
-    // x/y. Either way only the grabbed card(s) move — no reflow of the rest.
-    const managed = viewModeRef.current !== "default";
+    // A drag moves the grabbed card(s)' real x/y — only them, no reflow.
     const startPositions = new Map<string, { x: number; y: number }>();
     for (const nid of groupIds) {
       const n = notesRef.current.find((x) => x.id === nid);
       if (!n) continue;
-      startPositions.set(nid, managed ? modePosRef.current.get(nid) ?? { x: n.x, y: n.y } : { x: n.x, y: n.y });
+      startPositions.set(nid, { x: n.x, y: n.y });
     }
     const startSX = e.clientX, startSY = e.clientY;
     let moved = false;
@@ -912,18 +839,10 @@ export default function JustNotes(props: JustNotesProps) {
         x: useSnap ? snap(sp.x + dx) : sp.x + dx,
         y: useSnap ? snap(sp.y + dy) : sp.y + dy,
       });
-      if (managed) {
-        setModePos((prev) => {
-          const next = new Map(prev);
-          startPositions.forEach((sp, nid) => next.set(nid, at(sp)));
-          return next;
-        });
-      } else {
-        setNotes((ns) => ns.map((n) => {
-          const sp = startPositions.get(n.id);
-          return sp ? { ...n, ...at(sp) } : n;
-        }));
-      }
+      setNotes((ns) => ns.map((n) => {
+        const sp = startPositions.get(n.id);
+        return sp ? { ...n, ...at(sp) } : n;
+      }));
     };
     const onUp = () => {
       window.removeEventListener("mousemove", onMove);
@@ -944,36 +863,6 @@ export default function JustNotes(props: JustNotesProps) {
       const el = canvasRef.current?.querySelector<HTMLElement>(`[data-note-id="${id}"]`);
       const selfW = el?.offsetWidth ?? note.w ?? tweakRef.current.noteWidth;
       const selfH = el?.offsetHeight ?? note.h ?? 96;
-      if (managed) {
-        // Settle the dragged card, then persist the moved card(s)' positions
-        // onto their notes' `modePos` (canvas x/y untouched). This syncs.
-        const mode = viewModeRef.current as "sticky" | "paper";
-        const final = new Map(modePosRef.current);
-        if (groupIds.length === 1) {
-          const cur = final.get(id);
-          if (cur) {
-            const spot = resolveFreePosition(cur.x, cur.y, selfW, selfH, measureRects(id));
-            if (spot.x !== cur.x || spot.y !== cur.y) {
-              final.set(id, spot);
-              setModePos(new Map(final));
-              setSnappingId(id);
-              window.setTimeout(() => setSnappingId((s) => (s === id ? null : s)), 340);
-            }
-          }
-        }
-        const patches = new Map<string, ModePos>();
-        for (const nid of groupIds) {
-          const pos = final.get(nid);
-          if (!pos) continue;
-          const cur = notesRef.current.find((n) => n.id === nid);
-          patches.set(nid, { ...(cur?.modePos ?? {}), [mode]: pos });
-        }
-        if (patches.size) {
-          setNotes((ns) => ns.map((n) => { const p = patches.get(n.id); return p ? { ...n, modePos: p } : n; }));
-          for (const [nid, mp] of patches) onUpdate(nid, { modePos: mp });
-        }
-        return;
-      }
       if (groupIds.length === 1) {
         const sp = startPositions.get(id);
         const cur = notesRef.current.find((n) => n.id === id);
@@ -1381,13 +1270,12 @@ export default function JustNotes(props: JustNotesProps) {
     const bottom = (H - view.pan.y) / z + MARGIN;
     return notes.filter((n) => {
       if (n.id === editingId || n.id === draggingId || selectedIds.has(n.id)) return true;
-      const p = viewMode === "default" ? { x: n.x, y: n.y } : modePos.get(n.id) ?? { x: n.x, y: n.y };
-      const w = viewMode === "sticky" ? STICKY_SIZE : viewMode === "paper" ? PAPER_W : (n.w ?? t.noteWidth);
-      const h = viewMode === "sticky" ? STICKY_SIZE : viewMode === "paper" ? PAPER_H : (n.h ?? 500);
-      return p.x < right && p.x + w > left && p.y < bottom && p.y + h > top;
+      const w = n.kind === "sticky" ? (n.w ?? STICKY_SIZE) : n.kind === "page" ? (n.w ?? PAPER_W) : (n.w ?? t.noteWidth);
+      const h = n.kind === "sticky" ? (n.h ?? STICKY_SIZE) : n.kind === "page" ? (n.h ?? PAPER_H) : (n.h ?? 500);
+      return n.x < right && n.x + w > left && n.y < bottom && n.y + h > top;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, view, viewMode, modePos, editingId, draggingId, selectedIds, t.noteWidth, viewportTick]);
+  }, [notes, view, editingId, draggingId, selectedIds, t.noteWidth, viewportTick]);
 
   function scrubFadeFor(n: Note) {
     if (scrubMoment == null) return 1;
@@ -1398,7 +1286,7 @@ export default function JustNotes(props: JustNotesProps) {
   // note sharing a tag with it. Curved paths in canvas coordinates — the SVG
   // lives inside the transformed notes-layer, so note x/y map 1:1.
   const relationThreads = useMemo(() => {
-    if (!relationsOn || viewMode !== "default") return [];
+    if (!relationsOn) return [];
     const activeId = hoveredId ?? (selectedIds.size === 1 ? [...selectedIds][0] : null);
     if (!activeId) return [];
     const active = notes.find((n) => n.id === activeId);
@@ -1424,7 +1312,7 @@ export default function JustNotes(props: JustNotesProps) {
       out.push({ id: n.id, d: `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}` });
     }
     return out;
-  }, [relationsOn, viewMode, hoveredId, selectedIds, notes, t.noteWidth]);
+  }, [relationsOn, hoveredId, selectedIds, notes, t.noteWidth]);
 
   const rootStyle: CSSProperties = {
     ["--radius" as string]: `${t.radius}px`,
@@ -1442,7 +1330,7 @@ export default function JustNotes(props: JustNotesProps) {
         onMouseDown={onCanvasMouseDown}
       >
         <div
-          className={"notes-layer view-" + viewMode + (smooth ? " smooth" : "") + (moving ? " moving" : "") + (inOverview ? " overview" : "") + (layoutAnimating ? " layout-animating" : "")}
+          className={"notes-layer" + (smooth ? " smooth" : "") + (moving ? " moving" : "") + (inOverview ? " overview" : "")}
           style={{ transform: `translate(${view.pan.x}px, ${view.pan.y}px) scale(${view.zoom})` }}
         >
           {marquee && (
@@ -1467,9 +1355,7 @@ export default function JustNotes(props: JustNotesProps) {
             <NoteCard
               key={n.id}
               note={n}
-              pos={viewMode === "default" ? { x: n.x, y: n.y } : modePos.get(n.id) ?? { x: n.x, y: n.y }}
-              viewMode={viewMode}
-              stickyColor={viewMode === "sticky" ? stickyColorOf(n.id) : null}
+              pos={{ x: n.x, y: n.y }}
               fromClipboard={clipboardIds.has(n.id)}
               onHover={onNoteHover}
               editing={editingId === n.id}
@@ -1514,8 +1400,6 @@ export default function JustNotes(props: JustNotesProps) {
       />
 
       <Toolbar
-        mode={viewMode}
-        onSetMode={(m) => { markInteracted(); onSetViewMode(m); }}
         onNewNote={() => { markInteracted(); spawnAtCenter(""); }}
         onSearch={() => { markInteracted(); openAmbient(""); }}
         overviewActive={inOverview}
@@ -1567,18 +1451,25 @@ export default function JustNotes(props: JustNotesProps) {
 
       {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
 
-      {contextMenu && (
-        <NoteContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          onClose={() => setContextMenu(null)}
-          onDelete={() => {
-            const id = contextMenu.id;
-            setContextMenu(null);
-            deleteNoteById(id);
-          }}
-        />
-      )}
+      {contextMenu && (() => {
+        const n = notes.find((x) => x.id === contextMenu.id);
+        return (
+          <NoteContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            kind={n?.kind ?? "card"}
+            color={n?.color ?? null}
+            onSetKind={(k) => setNoteKind(contextMenu.id, k)}
+            onSetColor={(c) => setNoteColor(contextMenu.id, c)}
+            onClose={() => setContextMenu(null)}
+            onDelete={() => {
+              const id = contextMenu.id;
+              setContextMenu(null);
+              deleteNoteById(id);
+            }}
+          />
+        );
+      })()}
 
       <Graveyard
         open={graveyardOpen}
@@ -1649,14 +1540,12 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 
 // ── NoteCard ───────────────────────────────────────────────────────────
 function NoteCard({
-  note, pos, viewMode, stickyColor, fromClipboard, editing, dragging, snapping,
+  note, pos, fromClipboard, editing, dragging, snapping,
   dimmed, highlit, focused, selected, scrubFade,
   onMouseDown, onTextChange, onCommitEdit, onContextMenu, onTagClick, onResizeStart, onHover, onToggleTask, clickPos,
 }: {
   note: Note;
   pos: { x: number; y: number };
-  viewMode: ViewMode;
-  stickyColor: { bg: string; ink: string } | null;
   fromClipboard: boolean;
   onHover: (id: string | null) => void;
   editing: boolean;
@@ -1698,29 +1587,33 @@ function NoteCard({
     highlit ? "hit" : "",
     focused ? "focused" : "",
     selected ? "selected" : "",
+    `kind-${note.kind}`,
     isHeading && !editing ? "has-heading" : "",
   ].filter(Boolean).join(" ");
 
-  // Default colors come from the theme + recency alpha; stickies wear a fixed
-  // palette color and skip the recency fade.
-  const isManaged = viewMode !== "default";
+  // A card wears the theme background + a recency fade; a sticky wears its
+  // palette color at full opacity; a page is a theme-backed A4 surface.
+  const sticky = note.kind === "sticky" ? resolveStickyColor(note.color) : null;
   const style: CSSProperties = {
     left: pos.x,
     top: pos.y,
-    backgroundColor: stickyColor ? stickyColor.bg : "rgb(var(--bg-secondary))",
-    color: stickyColor ? stickyColor.ink : "rgb(var(--text-primary))",
-    opacity: (isManaged ? 1 : RECENCY_ALPHA[rec]) * (scrubFade ?? 1),
+    backgroundColor: sticky ? sticky.bg : "rgb(var(--bg-secondary))",
+    color: sticky ? sticky.ink : "rgb(var(--text-primary))",
+    opacity: (note.kind === "card" ? RECENCY_ALPHA[rec] : 1) * (scrubFade ?? 1),
   };
-  // Per-note resize overrides apply only in default; modes own card size.
-  if (!isManaged && note.w != null) style.width = note.w;
-  if (!isManaged && note.h != null) {
-    style.maxHeight = "none";
-    if (!editing) style.height = note.h;
-  }
-  // Paper = A4 (from shared constants, so JS layout and card can't drift).
-  if (viewMode === "paper") {
-    style.width = PAPER_W;
-    style.minHeight = PAPER_H;
+  if (note.kind === "sticky") {
+    style.width = note.w ?? STICKY_SIZE;
+    style.height = note.h ?? STICKY_SIZE;
+  } else if (note.kind === "page") {
+    style.width = note.w ?? PAPER_W;
+    style.minHeight = note.h ?? PAPER_H;
+  } else {
+    // card: resizable, else content-height from CSS.
+    if (note.w != null) style.width = note.w;
+    if (note.h != null) {
+      style.maxHeight = "none";
+      if (!editing) style.height = note.h;
+    }
   }
 
   return (
@@ -1775,7 +1668,7 @@ function NoteCard({
         </div>
       )}
       {!editing && <div className="note-pad-cover" aria-hidden="true" />}
-      {!editing && !isManaged && (
+      {!editing && (
         <>
           <div
             className="note-edge note-edge-e"
@@ -1797,41 +1690,6 @@ function NoteCard({
     </div>
   );
 }
-
-// View-mode buttons for the toolbar; each writes the persisted `viewMode`.
-const MODE_META: { mode: ViewMode; label: string; icon: React.ReactNode }[] = [
-  {
-    mode: "default",
-    label: "canvas",
-    // Dotted grid — the freeform infinite canvas.
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <circle cx="7" cy="7" r="1.7" /><circle cx="17" cy="7" r="1.7" />
-        <circle cx="7" cy="17" r="1.7" /><circle cx="17" cy="17" r="1.7" />
-      </svg>
-    ),
-  },
-  {
-    mode: "sticky",
-    label: "sticky",
-    // Square with a folded corner.
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinejoin="round" aria-hidden="true">
-        <path d="M5 4h14v9l-6 6H5z" /><path d="M19 13h-6v6" />
-      </svg>
-    ),
-  },
-  {
-    mode: "paper",
-    label: "paper",
-    // Page with text lines.
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <rect x="5" y="3" width="14" height="18" rx="1.6" /><path d="M8.5 8h7M8.5 12h7M8.5 16h4" />
-      </svg>
-    ),
-  },
-];
 
 type SyncState = "synced" | "writing" | "offline";
 
@@ -1889,8 +1747,6 @@ function TbBtn({ label, active, dot, onClick, children }: {
 }
 
 type ToolbarProps = {
-  mode: ViewMode;
-  onSetMode: (m: ViewMode) => void;
   onNewNote: () => void;
   onSearch: () => void;
   overviewActive: boolean;
@@ -1911,25 +1767,6 @@ type ToolbarProps = {
 function Toolbar(p: ToolbarProps) {
   return (
     <div className="chrome toolbar" role="toolbar" aria-label="tools">
-      <div className="tb-group" role="radiogroup" aria-label="canvas view mode">
-        {MODE_META.map((m) => (
-          <button
-            key={m.mode}
-            type="button"
-            role="radio"
-            aria-checked={m.mode === p.mode}
-            aria-label={m.label}
-            title={m.label}
-            className={"tb-btn" + (m.mode === p.mode ? " active" : "")}
-            onClick={() => p.onSetMode(m.mode)}
-          >
-            {m.icon}
-          </button>
-        ))}
-      </div>
-
-      <div className="tb-sep" aria-hidden="true" />
-
       <TbBtn label="New note" onClick={p.onNewNote}>{TB_ICON.plus}</TbBtn>
       <TbBtn label="Search" onClick={p.onSearch}>{TB_ICON.search}</TbBtn>
       <TbBtn label="Overview" active={p.overviewActive} onClick={p.onOverview}>{TB_ICON.overview}</TbBtn>
@@ -2031,10 +1868,16 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
   );
 }
 
+const NOTE_KINDS: NoteKind[] = ["card", "sticky", "page"];
+
 function NoteContextMenu({
-  x, y, onClose, onDelete,
+  x, y, kind, color, onSetKind, onSetColor, onClose, onDelete,
 }: {
-  x: number; y: number; onClose: () => void; onDelete: () => void;
+  x: number; y: number;
+  kind: NoteKind; color: string | null;
+  onSetKind: (k: NoteKind) => void;
+  onSetColor: (c: string) => void;
+  onClose: () => void; onDelete: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -2051,7 +1894,7 @@ function NoteContextMenu({
     };
   }, [onClose]);
 
-  const W = 180, H = 44;
+  const W = 184, H = kind === "sticky" ? 168 : 128;
   const left = Math.min(x, window.innerWidth - W - 8);
   const top = Math.min(y, window.innerHeight - H - 8);
 
@@ -2062,6 +1905,39 @@ function NoteContextMenu({
       style={{ left, top }}
       onMouseDown={(e) => e.stopPropagation()}
     >
+      <div className="note-ctx-label">Type</div>
+      <div className="note-ctx-types" role="radiogroup" aria-label="note type">
+        {NOTE_KINDS.map((k) => (
+          <button
+            key={k}
+            type="button"
+            role="radio"
+            aria-checked={k === kind}
+            className={"note-ctx-type" + (k === kind ? " active" : "")}
+            onClick={() => onSetKind(k)}
+          >
+            {k}
+          </button>
+        ))}
+      </div>
+      {kind === "sticky" && (
+        <div className="note-ctx-colors" role="radiogroup" aria-label="sticky color">
+          {STICKY_COLOR_KEYS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              role="radio"
+              aria-checked={(color ?? "amber") === c}
+              aria-label={c}
+              title={c}
+              className={"note-ctx-swatch" + ((color ?? "amber") === c ? " active" : "")}
+              style={{ background: STICKY_COLOR_MAP[c].bg }}
+              onClick={() => onSetColor(c)}
+            />
+          ))}
+        </div>
+      )}
+      <div className="note-ctx-sep" aria-hidden="true" />
       <button className="note-ctx-item danger" onClick={onDelete}>
         delete
         <span className="note-ctx-hint">⌘Z to undo</span>
