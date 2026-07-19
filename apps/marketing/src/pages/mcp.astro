@@ -1,0 +1,372 @@
+---
+import ThemeToggle from "@codellyson/justui/astro/ThemeToggle.astro";
+import "../styles/global.css";
+
+const webUrl = import.meta.env.PUBLIC_WEB_URL ?? "http://localhost:5173";
+
+const description =
+  "Connect Claude Code, Claude Desktop, or any MCP client to your canvas. Your assistant can create notes, search what you've written, and see your boards — you point it at a board, it does the writing.";
+
+const mark = `<svg viewBox="0 0 48 48"><defs><mask id="jn-gap"><rect width="48" height="48" fill="#fff"/><rect x="17" y="15" width="26" height="26" rx="8" fill="#000"/></mask></defs><rect x="7" y="8" width="22" height="22" rx="6" fill="#fff" mask="url(#jn-gap)"/><rect x="19" y="17" width="22" height="22" rx="6" fill="#fff"/></svg>`;
+
+const config = `{
+  "mcpServers": {
+    "justanotetaker": {
+      "command": "node",
+      "args": ["<repo>/packages/mcp-server/dist/index.js"],
+      "env": {
+        "JUSTNOTE_TOKEN": "jnt_…",
+        "JUSTNOTE_API_URL": "https://api.justanotetaker.kreativekorna.com"
+      }
+    }
+  }
+}`;
+
+const prompts = [
+  "Summarize this thread and put it on my <b class=\"text-accent\">Research</b> board.",
+  "Turn these requirements into a checklist and drop it on <b class=\"text-accent\">Project X</b>.",
+  "What have I already written about pricing?",
+  "Save this SQL snippet to <b class=\"text-accent\">Snippets</b> so I don't lose it.",
+];
+
+const tools = [
+  {
+    name: "list_boards",
+    title: "Find your canvases",
+    body: "Lists every board by name and id, so the agent knows where a note can go before it writes one.",
+  },
+  {
+    name: "create_note",
+    title: "Write a note to a board",
+    body: "Drops a markdown note onto the board you name — headings, task checkboxes, bold, code, links, images. Position optional.",
+  },
+  {
+    name: "search_notes",
+    title: "Search what you've written",
+    body: "Full-text search across all your notes, returning highlighted snippets so the agent can find and quote what's already there.",
+  },
+];
+
+const cases = [
+  ["Researching in Claude", "Each finding drops onto a <b class=\"text-accent\">Research</b> board as it goes."],
+  ["Planning a feature", "The plan lands as a task list you can tick off on the canvas."],
+  ["Debugging", "The working fix and its context get saved to <b class=\"text-accent\">Snippets</b> for next time."],
+  ["Reviewing your notes", "The agent searches everything you've written and cites the right note."],
+  ["Clearing your head", "A brain-dump gets captured to <b class=\"text-accent\">Inbox</b> mid-conversation."],
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Just a Notetaker — For AI agents (MCP)</title>
+    <meta name="description" content={description} />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="alternate icon" type="image/x-icon" href="/favicon.ico" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Just a Notetaker — For AI agents" />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content="/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Just a Notetaker — For AI agents" />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content="/og.png" />
+
+    <script>
+      import { bootTheme } from "@codellyson/justui/boot";
+      bootTheme({ keyPrefix: "justanotetaker" });
+    </script>
+  </head>
+  <body class="overflow-x-hidden font-sans">
+    <!-- Grain overlay -->
+    <div
+      class="pointer-events-none fixed inset-0 z-40 opacity-[0.32] mix-blend-multiply"
+      style="background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E&quot;); background-size:200px 200px;"
+    >
+    </div>
+
+    <!-- ░░░ NAV ░░░ -->
+    <nav class="mx-auto flex max-w-[1080px] items-center justify-between px-12 py-8">
+      <a href="/" class="flex items-center gap-2.5 no-underline">
+        <span
+          class="flex h-7 w-7 items-center justify-center rounded-lg [&_svg]:h-[15px] [&_svg]:w-[15px]"
+          style="background:linear-gradient(157deg, rgb(var(--accent)), rgb(var(--accent-hover)));"
+          set:html={mark}
+        />
+        <span class="text-[15px] text-primary">
+          <span class="font-medium text-accent">just</span><span class="font-bold">anotetaker</span>
+        </span>
+      </a>
+      <a
+        href={webUrl}
+        class="whitespace-nowrap rounded-[10px] bg-primary px-[18px] py-2.5 text-sm font-semibold text-bg no-underline transition-opacity hover:opacity-90"
+      >
+        Open canvas
+      </a>
+    </nav>
+
+    <!-- ░░░ HERO ░░░ -->
+    <header class="mx-auto max-w-[760px] px-12 pt-24 text-center">
+      <div class="mb-[30px] font-mono text-xs tracking-[0.16em] text-muted">FOR AI AGENTS · MCP</div>
+      <h1 class="text-[60px] font-extrabold leading-[1.02] tracking-[-0.045em] text-primary">
+        Let your assistant<br /><span class="text-accent">write to your canvas.</span>
+      </h1>
+      <p class="mx-auto mt-[30px] max-w-[480px] text-[19px] leading-relaxed text-secondary">
+        A small bridge that connects Claude Code, Claude Desktop, and any MCP client to your boards —
+        so an assistant can create notes, search what you've written, and see your canvases. You point
+        it at a board; it does the writing.
+      </p>
+      <div class="mt-[38px] flex items-baseline justify-center gap-7">
+        <a
+          href="#setup"
+          class="whitespace-nowrap border-b-[1.5px] border-accent pb-1 text-base font-semibold text-primary no-underline transition-colors hover:text-accent"
+        >
+          Connect it
+        </a>
+        <a
+          href={webUrl}
+          class="text-[15px] font-medium text-muted no-underline transition-colors hover:text-secondary"
+        >
+          open the canvas
+        </a>
+      </div>
+    </header>
+
+    <!-- ░░░ WHAT YOU CAN DO — prompts ░░░ -->
+    <section class="mx-auto mt-[110px] max-w-[1000px] px-12">
+      <div class="border-t border-border pt-12">
+        <div class="mb-2.5 font-mono text-xs tracking-[0.16em] text-muted">WHAT YOU CAN DO</div>
+        <h2 class="max-w-[560px] text-[30px] font-extrabold leading-[1.12] tracking-[-0.03em] text-primary">
+          Just ask. Notes appear where you'll find them.
+        </h2>
+        <div class="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {
+            prompts.map((p) => (
+              <div class="rounded-2xl border border-border bg-bg-secondary px-6 py-5">
+                <div class="mb-2 font-mono text-[11px] tracking-[0.14em] text-muted">YOU</div>
+                <p class="text-[16px] leading-relaxed text-primary" set:html={p} />
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <!-- ░░░ THE TOOLKIT ░░░ -->
+    <section class="mx-auto mt-[130px] max-w-[1000px] px-12">
+      <div class="border-t border-border pt-12">
+        <div class="mb-2.5 font-mono text-xs tracking-[0.16em] text-muted">THE TOOLKIT</div>
+        <h2 class="max-w-[560px] text-[30px] font-extrabold leading-[1.12] tracking-[-0.03em] text-primary">
+          Three tools your agent can reach for.
+        </h2>
+        <p class="mt-3 max-w-[560px] text-[15px] leading-relaxed text-secondary">
+          It picks whichever it needs. Everything it writes is plain markdown — rendered exactly like
+          notes you type yourself, and instantly searchable.
+        </p>
+        <div class="mt-10 grid grid-cols-1 gap-5 md:grid-cols-3">
+          {
+            tools.map((t) => (
+              <div class="rounded-2xl border border-border bg-bg-secondary p-7">
+                <span
+                  class="inline-block rounded-md px-2.5 py-1 font-mono text-[13px] font-semibold text-accent"
+                  style="background:rgb(var(--accent) / 0.12);"
+                >
+                  {t.name}
+                </span>
+                <h3 class="mb-2 mt-4 text-[18px] font-semibold text-primary">{t.title}</h3>
+                <p class="text-[14.5px] leading-relaxed text-secondary">{t.body}</p>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <!-- ░░░ IN PRACTICE ░░░ -->
+    <section class="mx-auto mt-[130px] max-w-[860px] px-12">
+      <div class="border-t border-border pt-12">
+        <div class="mb-2.5 font-mono text-xs tracking-[0.16em] text-muted">IN PRACTICE</div>
+        <h2 class="text-[30px] font-extrabold leading-[1.12] tracking-[-0.03em] text-primary">
+          Where it earns its keep.
+        </h2>
+        <div class="mt-9 flex flex-col divide-y divide-border border-y border-border">
+          {
+            cases.map(([when, then]) => (
+              <div class="grid grid-cols-1 gap-1.5 py-4 sm:grid-cols-[1fr_1.4fr] sm:gap-6">
+                <div class="text-[15.5px] font-semibold text-primary">{when}</div>
+                <div class="text-[15px] leading-relaxed text-secondary" set:html={then} />
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <!-- ░░░ SETUP ░░░ -->
+    <section id="setup" class="mx-auto mt-[130px] max-w-[760px] px-12">
+      <div class="border-t border-border pt-12">
+        <div class="mb-2.5 font-mono text-xs tracking-[0.16em] text-muted">SETUP · ABOUT FIVE MINUTES</div>
+        <h2 class="text-[30px] font-extrabold leading-[1.12] tracking-[-0.03em] text-primary">
+          Connect it once.
+        </h2>
+
+        <div class="mt-10 flex flex-col gap-9">
+          <!-- 1 -->
+          <div class="grid grid-cols-[auto_1fr] gap-5">
+            <div class="text-[22px] font-extrabold leading-none tracking-[-0.02em] text-accent">01</div>
+            <div>
+              <h3 class="mb-1.5 text-[18px] font-semibold text-primary">Mint a personal token</h3>
+              <p class="text-[15px] leading-relaxed text-secondary">
+                In the app, open the command palette (<span class="font-mono text-[13px] text-accent">⌘K</span> /
+                <span class="font-mono text-[13px] text-accent">Ctrl-K</span>), run <b class="font-semibold text-primary">API tokens</b>,
+                name it, and hit <b class="font-semibold text-primary">Create</b>. Copy the
+                <span class="font-mono text-[13px] text-accent">jnt_…</span> secret — it's shown <b class="font-semibold text-primary">once</b>.
+                Revoke it anytime to instantly cut off access.
+              </p>
+            </div>
+          </div>
+          <!-- 2 -->
+          <div class="grid grid-cols-[auto_1fr] gap-5">
+            <div class="text-[22px] font-extrabold leading-none tracking-[-0.02em] text-accent">02</div>
+            <div>
+              <h3 class="mb-1.5 text-[18px] font-semibold text-primary">Build the server</h3>
+              <p class="text-[15px] leading-relaxed text-secondary">
+                From the repo, build the package — it produces
+                <span class="font-mono text-[13px] text-accent">dist/index.js</span>.
+              </p>
+              <div class="mt-4 overflow-x-auto rounded-xl border border-border bg-bg-secondary px-5 py-4">
+                <code class="whitespace-pre font-mono text-[13px] text-primary">pnpm --filter @justanotetaker/mcp-server build</code>
+              </div>
+            </div>
+          </div>
+          <!-- 3 -->
+          <div class="grid grid-cols-[auto_1fr] gap-5">
+            <div class="text-[22px] font-extrabold leading-none tracking-[-0.02em] text-accent">03</div>
+            <div>
+              <h3 class="mb-1.5 text-[18px] font-semibold text-primary">Register it with your agent</h3>
+              <p class="text-[15px] leading-relaxed text-secondary">
+                Add it to your MCP config — <span class="font-mono text-[13px] text-accent">.mcp.json</span> for
+                Claude Code, or the Claude Desktop config. Restart, and the three tools show up.
+              </p>
+              <div class="mt-4 overflow-x-auto rounded-xl border border-border bg-bg-secondary px-5 py-4">
+                <pre class="font-mono text-[12.5px] leading-[1.7] text-secondary"><code set:text={config} /></pre>
+              </div>
+              <p class="mt-3 text-[13.5px] leading-relaxed text-muted">
+                <span class="font-mono text-accent">JUSTNOTE_API_URL</span> is optional — set it to your own
+                deployment if you self-host the API.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ░░░ SECURITY ░░░ -->
+    <section class="mx-auto mt-[130px] max-w-[1000px] px-12">
+      <div class="border-t border-border pt-12">
+        <div class="mb-2.5 font-mono text-xs tracking-[0.16em] text-muted">YOURS, AND ONLY YOURS</div>
+        <h2 class="text-[30px] font-extrabold leading-[1.12] tracking-[-0.03em] text-primary">
+          How the token keeps it safe.
+        </h2>
+        <div class="mt-9 grid grid-cols-1 gap-5 md:grid-cols-3">
+          <div class="rounded-2xl border border-border bg-bg-secondary p-6">
+            <h3 class="mb-1.5 text-[16px] font-semibold text-primary">Runs locally</h3>
+            <p class="text-[14px] leading-relaxed text-secondary">
+              A stdio server the agent launches as a subprocess — nothing listens on a network port.
+            </p>
+          </div>
+          <div class="rounded-2xl border border-border bg-bg-secondary p-6">
+            <h3 class="mb-1.5 text-[16px] font-semibold text-primary">Scoped to you</h3>
+            <p class="text-[14px] leading-relaxed text-secondary">
+              The token sees only your account's notes and boards. It can't touch your account or password.
+            </p>
+          </div>
+          <div class="rounded-2xl border border-border bg-bg-secondary p-6">
+            <h3 class="mb-1.5 text-[16px] font-semibold text-primary">Shown once, revoke anytime</h3>
+            <p class="text-[14px] leading-relaxed text-secondary">
+              Stored server-side as a hash. Revoke it and whatever was using it stops immediately.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ░░░ CLOSING ░░░ -->
+    <section class="mx-auto mt-[130px] max-w-[860px] px-12">
+      <div
+        class="rounded-3xl border border-border bg-bg-secondary px-14 py-[80px] text-center"
+        style="box-shadow:0 30px 70px -42px rgba(60,40,20,.28);"
+      >
+        <div class="mb-[24px] font-mono text-xs tracking-[0.16em] text-muted">HANDS-FREE NOTES</div>
+        <div class="text-[42px] font-extrabold leading-[1.06] tracking-[-0.04em] text-primary">
+          Let the assistant<br />do the <span class="text-accent">filing.</span>
+        </div>
+        <div class="mt-[34px] flex items-center justify-center gap-[22px]">
+          <a
+            href={webUrl}
+            class="whitespace-nowrap rounded-xl bg-accent px-7 py-[15px] text-[15.5px] font-semibold no-underline transition-colors hover:bg-accent-hover"
+            style="color:rgb(var(--accent-text)); box-shadow:0 2px 4px rgba(60,40,20,.12);"
+          >
+            Open the canvas
+          </a>
+          <a
+            href="#setup"
+            class="whitespace-nowrap text-[15px] font-medium text-muted no-underline transition-colors hover:text-secondary"
+          >
+            or wire up the MCP
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ░░░ FOOTER ░░░ -->
+    <footer class="mx-auto mt-[130px] max-w-[1080px] px-12">
+      <div class="border-t border-border pt-12">
+        <div class="flex flex-wrap items-start justify-between gap-10">
+          <div class="max-w-[300px]">
+            <div class="mb-4 flex items-center gap-2.5">
+              <span
+                class="flex h-[26px] w-[26px] items-center justify-center rounded-[7px] [&_svg]:h-[14px] [&_svg]:w-[14px]"
+                style="background:linear-gradient(157deg, rgb(var(--accent)), rgb(var(--accent-hover)));"
+                set:html={mark}
+              />
+              <span class="text-[15px] text-primary">
+                <span class="font-medium text-accent">just</span><span class="font-bold">anotetaker</span>
+              </span>
+            </div>
+            <div class="text-[18px] font-medium leading-[1.45] text-secondary">
+              One quiet canvas.<br />Yours, wherever you are.
+            </div>
+          </div>
+          <div class="flex gap-16">
+            <div>
+              <div class="mb-4 font-mono text-[11px] tracking-[0.14em] text-muted">PRODUCT</div>
+              <div class="flex flex-col gap-3">
+                <a href={webUrl} class="whitespace-nowrap text-[14.5px] text-secondary no-underline transition-colors hover:text-accent">Open canvas</a>
+                <a href="/mcp" class="whitespace-nowrap text-[14.5px] text-secondary no-underline transition-colors hover:text-accent">For AI agents</a>
+              </div>
+            </div>
+            <div>
+              <div class="mb-4 font-mono text-[11px] tracking-[0.14em] text-muted">ELSEWHERE</div>
+              <div class="flex flex-col gap-3">
+                <a href="https://github.com/codellyson" class="text-[14.5px] text-secondary no-underline transition-colors hover:text-accent">GitHub</a>
+                <a href="https://kreativekorna.com" class="whitespace-nowrap text-[14.5px] text-secondary no-underline transition-colors hover:text-accent">Just Apps</a>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-12 flex flex-wrap items-center justify-between gap-2.5 border-t border-border pb-[52px] pt-[22px] font-mono text-[12.5px] text-muted">
+          <span>© 2026 justanotetaker · a just app by KreativeKorna</span>
+          <span>local-first <span class="text-accent">·</span> open source</span>
+        </div>
+      </div>
+    </footer>
+
+    <ThemeToggle />
+  </body>
+</html>
