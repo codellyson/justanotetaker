@@ -47,6 +47,8 @@ import { ApiTokensPanel } from "./api-tokens";
 import { filterCommands, type Command } from "../../lib/commands";
 import { Graveyard } from "./Graveyard";
 
+type ResizeDir = "n" | "e" | "s" | "w" | "ne" | "nw" | "se" | "sw";
+
 type Persist = {
   onCreate: (note: Note, opts?: { localOnly?: boolean }) => void | Promise<void>;
   onUpdate: (id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "kind" | "color">>) => void;
@@ -176,6 +178,7 @@ export default function JustNotes(props: JustNotesProps) {
   const [authPanelOpen, setAuthPanelOpen] = useState(false);
   const [graveyardOpen, setGraveyardOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number; cx: number; cy: number } | null>(null);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const selectedIdsRef = useRef<Set<string>>(new Set());
@@ -371,11 +374,12 @@ export default function JustNotes(props: JustNotesProps) {
     else if (op.type === "move") setNotes((ns) => ns.map((n) => n.id === op.id ? { ...n, x: op.prevX, y: op.prevY } : n));
   }
 
-  function spawnAt(canvasX: number, canvasY: number, initialText = "") {
+  function spawnAt(canvasX: number, canvasY: number, initialText = "", kind: NoteKind = "card") {
     const id = uid();
     const w = tweakRef.current.noteWidth;
     const spot = findFreeSpot(canvasX - w / 2, canvasY - 22);
-    setNotes((ns) => [...ns, { id, x: spot.x, y: spot.y, w: null, h: null, t: Date.now(), text: initialText, kind: "card", color: null }]);
+    const color = kind === "sticky" ? "amber" : null;
+    setNotes((ns) => [...ns, { id, x: spot.x, y: spot.y, w: null, h: null, t: Date.now(), text: initialText, kind, color }]);
     editSnapshotRef.current = { id, isNew: true, prevText: "", prevT: Date.now() };
     editClickRef.current = null; // new note → caret at end, not a stale click point
     setEditingId(id);
@@ -451,6 +455,18 @@ export default function JustNotes(props: JustNotesProps) {
     return id;
   }
 
+  async function pasteAtCanvas(cx: number, cy: number) {
+    let text = "";
+    try {
+      text = (await navigator.clipboard.readText()).trim();
+    } catch {
+      return; // clipboard blocked or empty — nothing to paste
+    }
+    if (!text) return;
+    markInteracted();
+    spawnCommitted(cx, cy, parsePastedUrl(text) ?? text);
+  }
+
   const enrichedRef = useRef<Set<string>>(new Set());
 
   function enrichIfUrlNote(id: string) {
@@ -506,27 +522,20 @@ export default function JustNotes(props: JustNotesProps) {
     if (!id) return;
     const snap = editSnapshotRef.current;
     const cur = notesRef.current.find((n) => n.id === id);
-    const isEmpty = !cur || !cur.text.trim();
+    if (!cur) { setEditingId(null); editSnapshotRef.current = null; return; }
 
-    if (isEmpty) {
-      if (cur && snap && !snap.isNew) pushOp({ type: "delete", note: { ...cur } });
-      setNotes((ns) => ns.filter((n) => n.id !== id));
-      // Empty-commit on a previously-synced note → soft-delete on server.
-      // No-op if never synced (spawned then never given text).
-      if (!snap?.isNew) { deletedRef.current.add(id); onDelete(id); }
+    // Empty notes are kept — a blank card just sits there until deleted via its
+    // context menu. New notes persist on first commit; edits patch.
+    const now = Date.now();
+    if (snap?.isNew) pushOp({ type: "create", id });
+    else if (snap && (snap.prevText !== cur.text)) pushOp({ type: "edit", id, prevText: snap.prevText, prevT: snap.prevT });
+    setNotes((ns) => ns.map((n) => n.id === id ? { ...n, t: now } : n));
+    if (snap?.isNew) {
+      void onCreate({ ...cur, t: now });
     } else {
-      const now = Date.now();
-      if (snap?.isNew) pushOp({ type: "create", id });
-      else if (snap && (snap.prevText !== cur.text)) pushOp({ type: "edit", id, prevText: snap.prevText, prevT: snap.prevT });
-      setNotes((ns) => ns.map((n) => n.id === id ? { ...n, t: now } : n));
-      // First commit on a new note → persist create. Subsequent edits → patch.
-      if (snap?.isNew) {
-        void onCreate({ ...cur, t: now });
-      } else {
-        onUpdate(id, { text: cur.text, t: now });
-      }
-      enrichIfUrlNote(id);
+      onUpdate(id, { text: cur.text, t: now });
     }
+    enrichIfUrlNote(id);
     setEditingId(null);
     editSnapshotRef.current = null;
   }
@@ -578,7 +587,7 @@ export default function JustNotes(props: JustNotesProps) {
     setNotes((ns) => (ns.some((n) => n.id === note.id) ? ns : [...ns, { ...note, w: null, h: null, kind: note.kind ?? "card", color: note.color ?? null }]));
   }
 
-  function startResize(e: React.MouseEvent<HTMLDivElement>, id: string, dir: "e" | "s" | "se") {
+  function startResize(e: React.MouseEvent<HTMLDivElement>, id: string, dir: ResizeDir) {
     e.stopPropagation();
     e.preventDefault();
     const note = notesRef.current.find((n) => n.id === id);
@@ -586,21 +595,28 @@ export default function JustNotes(props: JustNotesProps) {
     const el = (e.currentTarget.parentElement as HTMLElement | null);
     const startW = note.w ?? el?.offsetWidth ?? tweakRef.current.noteWidth;
     const startH = note.h ?? el?.offsetHeight ?? 150;
+    const startX = note.x, startY = note.y;
     const startSX = e.clientX, startSY = e.clientY;
+    const MIN_W = 120, MIN_H = 60;
+    // The n/w edges resize toward the anchored (opposite) side, so the note's
+    // origin shifts as it grows — clamped so it can't slide past the min size.
     const onMove = (ev: MouseEvent) => {
       const z = viewRef.current.zoom;
       const dx = (ev.clientX - startSX) / z;
       const dy = (ev.clientY - startSY) / z;
-      const nw = dir === "s" ? startW : Math.max(120, startW + dx);
-      const nh = dir === "e" ? startH : Math.max(60, startH + dy);
-      setNotes((ns) => ns.map((n) => n.id === id ? { ...n, w: nw, h: nh } : n));
+      let x = startX, y = startY, w = startW, h = startH;
+      if (dir.includes("e")) w = Math.max(MIN_W, startW + dx);
+      if (dir.includes("w")) { w = Math.max(MIN_W, startW - dx); x = startX + (startW - w); }
+      if (dir.includes("s")) h = Math.max(MIN_H, startH + dy);
+      if (dir.includes("n")) { h = Math.max(MIN_H, startH - dy); y = startY + (startH - h); }
+      setNotes((ns) => ns.map((n) => n.id === id ? { ...n, x, y, w, h } : n));
     };
     const onUp = () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       const cur = notesRef.current.find((n) => n.id === id);
-      if (cur && (cur.w !== startW || cur.h !== startH)) {
-        onUpdate(id, { w: cur.w, h: cur.h });
+      if (cur && (cur.w !== startW || cur.h !== startH || cur.x !== startX || cur.y !== startY)) {
+        onUpdate(id, { x: cur.x, y: cur.y, w: cur.w, h: cur.h });
       }
     };
     window.addEventListener("mousemove", onMove);
@@ -716,6 +732,11 @@ export default function JustNotes(props: JustNotesProps) {
       frameNotes(notesRef.current);
     }
   }
+  function fitToScreen() {
+    if (!notesRef.current.length) return;
+    if (!prevViewRef.current) prevViewRef.current = viewRef.current;
+    frameNotes(notesRef.current);
+  }
   function flyTo(n: Note) {
     const W = window.innerWidth, H = window.innerHeight;
     const cx = n.x + tweakRef.current.noteWidth / 2, cy = n.y + 60;
@@ -772,14 +793,13 @@ export default function JustNotes(props: JustNotesProps) {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       if (!moved) {
-        // In overview (entered via z) a click flies back, not spawns.
+        // A bare click on empty canvas only dismisses transient state — notes
+        // are created via right-click, the toolbar +, or the file tree, never
+        // by clicking the canvas.
         if (prevViewRef.current) { animateView(prevViewRef.current); prevViewRef.current = null; return; }
-        if (viewRef.current.zoom < 0.95) return; // manually zoomed way out — don't spawn tiny notes
         if (editingId) { commitEditing(); return; }
         if (ambientOpen) { closeAmbient(); return; }
         if (selectedIdsRef.current.size > 0) { setSelectedIds(new Set()); return; }
-        const c = screenToCanvas(ev.clientX, ev.clientY);
-        spawnAt(c.x, c.y);
         return;
       }
       if (!wantsSelect) return;
@@ -1061,6 +1081,7 @@ export default function JustNotes(props: JustNotesProps) {
         // fullscreen); only fall through when there's nothing to dismiss.
         let handled = true;
         if (contextMenu) setContextMenu(null);
+        else if (canvasMenu) setCanvasMenu(null);
         else if (selectedIdsRef.current.size > 0) setSelectedIds(new Set());
         else if (graveyardOpen) setGraveyardOpen(false);
         else if (authPanelOpen) setAuthPanelOpen(false);
@@ -1169,7 +1190,7 @@ export default function JustNotes(props: JustNotesProps) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingId, ambientOpen, helpOpen, tweaksOpen, authPanelOpen, graveyardOpen, contextMenu, recallQuery, recallIdx, matchIds]);
+  }, [editingId, ambientOpen, helpOpen, tweaksOpen, authPanelOpen, graveyardOpen, contextMenu, canvasMenu, recallQuery, recallIdx, matchIds]);
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -1326,6 +1347,18 @@ export default function JustNotes(props: JustNotesProps) {
         grid={t.grid}
         smooth={smooth}
         onMouseDown={onCanvasMouseDown}
+        onContextMenu={(e) => {
+          // Notes stop propagation and open their own menu, so anything that
+          // reaches here is empty canvas. Stop propagation so this event
+          // doesn't bubble to an open menu's window-level dismiss listener,
+          // which would close the menu we're about to open.
+          e.preventDefault();
+          e.stopPropagation();
+          markInteracted();
+          const c = screenToCanvas(e.clientX, e.clientY);
+          setContextMenu(null);
+          setCanvasMenu({ x: e.clientX, y: e.clientY, cx: c.x, cy: c.y });
+        }}
       >
         <div
           className={"notes-layer" + (smooth ? " smooth" : "") + (moving ? " moving" : "") + (inOverview ? " overview" : "")}
@@ -1469,6 +1502,19 @@ export default function JustNotes(props: JustNotesProps) {
         );
       })()}
 
+      {canvasMenu && (
+        <CanvasContextMenu
+          x={canvasMenu.x}
+          y={canvasMenu.y}
+          hasNotes={notes.length > 0}
+          onClose={() => setCanvasMenu(null)}
+          onNew={(k) => { markInteracted(); spawnAt(canvasMenu.cx, canvasMenu.cy, "", k); setCanvasMenu(null); }}
+          onPaste={() => { void pasteAtCanvas(canvasMenu.cx, canvasMenu.cy); setCanvasMenu(null); }}
+          onSelectAll={() => { setSelectedIds(new Set(notesRef.current.map((n) => n.id))); setCanvasMenu(null); }}
+          onFit={() => { fitToScreen(); setCanvasMenu(null); }}
+        />
+      )}
+
       <Graveyard
         open={graveyardOpen}
         onClose={() => setGraveyardOpen(false)}
@@ -1489,11 +1535,12 @@ type CanvasProps = {
   grid: Tweaks["grid"];
   smooth: boolean;
   onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void;
+  onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
   children: React.ReactNode;
 };
 
 const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
-  { pan, zoom, grid, smooth, onMouseDown, children },
+  { pan, zoom, grid, smooth, onMouseDown, onContextMenu, children },
   ref,
 ) {
   const gridStyle = useMemo<CSSProperties>(() => {
@@ -1530,7 +1577,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       data-canvas="1"
       style={gridStyle}
       onMouseDown={onMouseDown}
-      onContextMenu={(e) => e.preventDefault()}
+      onContextMenu={onContextMenu}
     >
       {children}
     </div>
@@ -1560,7 +1607,7 @@ function NoteCard({
   onCommitEdit: () => void;
   onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
   onTagClick: (tag: string) => void;
-  onResizeStart: (e: React.MouseEvent<HTMLDivElement>, dir: "e" | "s" | "se") => void;
+  onResizeStart: (e: React.MouseEvent<HTMLDivElement>, dir: ResizeDir) => void;
   onToggleTask: (id: string, taskIndex: number) => void;
   clickPos?: { x: number; y: number } | null;
 }) {
@@ -1667,25 +1714,14 @@ function NoteCard({
         </div>
       )}
       {!editing && <div className="note-pad-cover" aria-hidden="true" />}
-      {!editing && (
-        <>
-          <div
-            className="note-edge note-edge-e"
-            aria-hidden="true"
-            onMouseDown={(e) => onResizeStart(e, "e")}
-          />
-          <div
-            className="note-edge note-edge-s"
-            aria-hidden="true"
-            onMouseDown={(e) => onResizeStart(e, "s")}
-          />
-          <div
-            className="note-resize"
-            aria-label="resize"
-            onMouseDown={(e) => onResizeStart(e, "se")}
-          />
-        </>
-      )}
+      {!editing && (["n", "e", "s", "w", "ne", "nw", "se", "sw"] as const).map((dir) => (
+        <div
+          key={dir}
+          className={`note-edge note-edge-${dir}`}
+          aria-hidden="true"
+          onMouseDown={(e) => onResizeStart(e, dir)}
+        />
+      ))}
     </div>
   );
 }
@@ -1800,7 +1836,7 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
   const mod = isMac ? "⌘" : "Ctrl";
   type Row = [string | string[], string];
   const rows: Row[] = [
-    ["click empty canvas",         "write a new note"],
+    ["right-click empty canvas",   "menu · new note here, paste, select all, fit"],
     ["click a note",               "select it"],
     ["double-click a note",        "edit it"],
     [[mod, "V"],                   "paste · text becomes a note · URLs fetch their title"],
@@ -1945,6 +1981,63 @@ function NoteContextMenu({
   );
 }
 
+function CanvasContextMenu({
+  x, y, hasNotes, onClose, onNew, onPaste, onSelectAll, onFit,
+}: {
+  x: number; y: number; hasNotes: boolean;
+  onClose: () => void;
+  onNew: (k: NoteKind) => void;
+  onPaste: () => void;
+  onSelectAll: () => void;
+  onFit: () => void;
+}) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const onDocDown = (e: MouseEvent) => {
+      if (!menuRef.current) return;
+      if (!menuRef.current.contains(e.target as Node)) onClose();
+    };
+    // Attach on the next tick so the right-click that opened this menu — which
+    // is still propagating to window — can't be caught here and self-dismiss.
+    const id = setTimeout(() => {
+      window.addEventListener("mousedown", onDocDown);
+      window.addEventListener("contextmenu", onDocDown);
+    }, 0);
+    return () => {
+      clearTimeout(id);
+      window.removeEventListener("mousedown", onDocDown);
+      window.removeEventListener("contextmenu", onDocDown);
+    };
+  }, [onClose]);
+
+  const W = 184, H = 196;
+  const left = Math.min(x, window.innerWidth - W - 8);
+  const top = Math.min(y, window.innerHeight - H - 8);
+
+  return (
+    <div
+      ref={menuRef}
+      className="note-ctx"
+      style={{ left, top }}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <div className="note-ctx-label">New here</div>
+      <div className="note-ctx-types" role="group" aria-label="new note type">
+        {NOTE_KINDS.map((k) => (
+          <button key={k} type="button" className="note-ctx-type" onClick={() => onNew(k)}>
+            {k}
+          </button>
+        ))}
+      </div>
+      <div className="note-ctx-sep" aria-hidden="true" />
+      <button className="note-ctx-item" onClick={onPaste}>paste here</button>
+      <button className="note-ctx-item" onClick={onSelectAll} disabled={!hasNotes}>select all</button>
+      <button className="note-ctx-item" onClick={onFit} disabled={!hasNotes}>fit to screen</button>
+    </div>
+  );
+}
+
 // ── GhostCard ──────────────────────────────────────────────────────────
 function GhostCard() {
   return (
@@ -1954,7 +2047,7 @@ function GhostCard() {
         <div className="ghost-line short" />
         <div className="ghost-line tiny" />
       </div>
-      <div className="ghost-text">click anywhere to write</div>
+      <div className="ghost-text">right-click anywhere to add a note</div>
     </div>
   );
 }

@@ -95,46 +95,25 @@ body {
 .note.selected {
   box-shadow: 0 0 0 2px rgb(var(--accent));
 }
+/* Obsidian-style resize: the whole perimeter is the anchor. Eight invisible
+   drag zones — four edges + four corners — sit on the card border. Corners
+   outrank edges (higher z-index) so the diagonal cursor wins in the overlap. */
 .note-edge {
   position: absolute;
   z-index: 1;
 }
-.note-edge-e {
-  top: 0;
-  bottom: 14px;
-  right: -3px;
-  width: 8px;
-  cursor: ew-resize;
-}
-.note-edge-s {
-  left: 0;
-  right: 14px;
-  bottom: -3px;
-  height: 8px;
-  cursor: ns-resize;
-}
-.note-resize {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 14px;
-  height: 14px;
-  z-index: 2;
-  cursor: nwse-resize;
-  opacity: 0;
-  transition: opacity 120ms ease;
-  background: linear-gradient(
-    135deg,
-    transparent 0 55%,
-    rgb(var(--accent) / 0.7) 55% 65%,
-    transparent 65% 75%,
-    rgb(var(--accent) / 0.7) 75% 85%,
-    transparent 85%
-  );
-}
-.note:hover .note-resize,
-.note.selected .note-resize {
-  opacity: 0.9;
+.note-edge-n { top: 0; left: 12px; right: 12px; height: 7px; cursor: ns-resize; }
+.note-edge-s { bottom: 0; left: 12px; right: 12px; height: 7px; cursor: ns-resize; }
+.note-edge-e { right: 0; top: 12px; bottom: 12px; width: 7px; cursor: ew-resize; }
+.note-edge-w { left: 0; top: 12px; bottom: 12px; width: 7px; cursor: ew-resize; }
+.note-edge-ne { top: 0; right: 0; width: 12px; height: 12px; z-index: 2; cursor: nesw-resize; }
+.note-edge-nw { top: 0; left: 0; width: 12px; height: 12px; z-index: 2; cursor: nwse-resize; }
+.note-edge-se { bottom: 0; right: 0; width: 12px; height: 12px; z-index: 2; cursor: nwse-resize; }
+.note-edge-sw { bottom: 0; left: 0; width: 12px; height: 12px; z-index: 2; cursor: nesw-resize; }
+/* Discovery cue in place of the old grip: the border warms to the accent on
+   hover so the card reads as grabbable, without any persistent chrome. */
+.note:hover:not(.selected) {
+  box-shadow: 0 0 0 1px rgb(var(--accent) / 0.55);
 }
 .notes-layer.overview .note {
   cursor: pointer;
@@ -1496,8 +1475,12 @@ body {
   text-align: left;
   cursor: pointer;
 }
-.note-ctx-item:hover {
+.note-ctx-item:hover:not(:disabled) {
   background: rgb(var(--accent) / 0.14);
+}
+.note-ctx-item:disabled {
+  color: rgb(var(--text-muted));
+  cursor: default;
 }
 .note-ctx-item.danger:hover {
   background: rgb(var(--danger) / 0.16);
