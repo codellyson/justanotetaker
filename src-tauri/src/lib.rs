@@ -17,6 +17,7 @@
 // installs — dev iteration with `tauri:dev` would otherwise need a
 // full bundle + drag-to-Applications cycle every time we change Rust.
 
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -30,6 +31,67 @@ const OAUTH_CALLBACK_EVENT: &str = "oauth://callback";
 const CLIPBOARD_EVENT: &str = "clipboard://text";
 const CLIPBOARD_POLL_MS: u64 = 800;
 const CLIPBOARD_MAX_LEN: usize = 100_000;
+
+// File-open integration: the OS launches (or focuses) the app with one or more
+// text/markdown files ("Open with" / double-click, per fileAssociations in
+// tauri.conf.json). We read them in Rust and buffer their text; the webview
+// drains the buffer on mount and on the OPEN_FILE_EVENT ping, turning each into
+// a note. Buffering (rather than emitting content) covers the cold-start race
+// where the file arrives before the webview's listener exists.
+const OPEN_FILE_EVENT: &str = "open-file://pending";
+const OPEN_FILE_MAX_LEN: u64 = 5_000_000;
+
+#[derive(Default)]
+struct OpenedFiles(Mutex<Vec<String>>);
+
+fn is_text_file(path: &Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_ascii_lowercase())
+            .as_deref(),
+        Some("md") | Some("markdown") | Some("txt") | Some("text")
+    )
+}
+
+fn ingest_opened_paths(app: &AppHandle, paths: Vec<PathBuf>) {
+    let mut contents: Vec<String> = Vec::new();
+    for p in paths {
+        if !is_text_file(&p) {
+            continue;
+        }
+        if std::fs::metadata(&p).map(|m| m.len() > OPEN_FILE_MAX_LEN).unwrap_or(true) {
+            continue;
+        }
+        if let Ok(text) = std::fs::read_to_string(&p) {
+            if !text.trim().is_empty() {
+                contents.push(text);
+            }
+        }
+    }
+    if contents.is_empty() {
+        return;
+    }
+    if let Some(state) = app.try_state::<OpenedFiles>() {
+        state.0.lock().unwrap().extend(contents);
+        let _ = app.emit(OPEN_FILE_EVENT, ());
+    }
+}
+
+// argv from a cold start / second instance: skip argv[0] (the exe) and keep
+// existing file paths.
+fn opened_paths_from_args<I: IntoIterator<Item = String>>(args: I) -> Vec<PathBuf> {
+    args.into_iter()
+        .skip(1)
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+        .collect()
+}
+
+#[tauri::command]
+fn take_opened_files(state: tauri::State<'_, OpenedFiles>) -> Vec<String> {
+    std::mem::take(&mut *state.0.lock().unwrap())
+}
 
 #[tauri::command]
 fn store_bearer_token(token: String) -> Result<(), String> {
@@ -135,16 +197,23 @@ pub fn run() {
 
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
+            // A second launch (e.g. "Open with" while running) passes the file
+            // path as an argument — turn it into a note in the running window.
+            ingest_opened_paths(app, opened_paths_from_args(argv));
         }));
     }
 
-    builder
+    let app = builder
         .setup(|app| {
+            // Files the app was cold-launched with (double-click on Windows/Linux).
+            app.manage(OpenedFiles::default());
+            ingest_opened_paths(app.handle(), opened_paths_from_args(std::env::args()));
+
             let capture = Arc::new(ClipboardCapture::default());
             app.manage(capture.clone());
             let handle = app.handle().clone();
@@ -157,7 +226,17 @@ pub fn run() {
             clear_bearer_token,
             start_oauth_listener,
             set_clipboard_capture,
+            take_opened_files,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    // macOS delivers file-opens as an Apple event, not argv — catch it here.
+    app.run(|_app_handle, _event| {
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Opened { urls } = &_event {
+            let paths: Vec<PathBuf> = urls.iter().filter_map(|u| u.to_file_path().ok()).collect();
+            ingest_opened_paths(_app_handle, paths);
+        }
+    });
 }

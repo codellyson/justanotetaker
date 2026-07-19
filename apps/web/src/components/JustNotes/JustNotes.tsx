@@ -471,6 +471,28 @@ export default function JustNotes(props: JustNotesProps) {
     spawnCommitted(cx, cy, parsePastedUrl(text) ?? text);
   }
 
+  // Import text/markdown files as notes at (cx,cy). The hidden input is clicked
+  // synchronously inside the triggering user gesture so the picker isn't blocked.
+  function openFilesAt(cx: number, cy: number) {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".md,.markdown,.txt,.text,text/plain,text/markdown";
+    input.multiple = true;
+    input.onchange = async () => {
+      const files = Array.from(input.files ?? []);
+      if (files.length) markInteracted();
+      for (const file of files) {
+        try {
+          const text = (await file.text()).replace(/\r\n/g, "\n").trimEnd();
+          if (text) spawnCommitted(cx, cy, text);
+        } catch (err) {
+          console.error("[open file] failed to read", file.name, err);
+        }
+      }
+    };
+    input.click();
+  }
+
   const enrichedRef = useRef<Set<string>>(new Set());
 
   function enrichIfUrlNote(id: string) {
@@ -1284,6 +1306,34 @@ export default function JustNotes(props: JustNotesProps) {
     return () => window.removeEventListener("mousemove", onMove);
   }, []);
 
+  // Desktop: files opened via the OS ("Open with" / double-click a .md/.txt)
+  // are read by the Rust side and buffered; drain them here on mount and on
+  // each ping, dropping a note per file near the canvas centre.
+  useEffect(() => {
+    if (!isTauri) return;
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    (async () => {
+      const [{ invoke }, { listen }] = await Promise.all([
+        import("@tauri-apps/api/core"),
+        import("@tauri-apps/api/event"),
+      ]);
+      if (cancelled) return;
+      const drain = async () => {
+        const contents = await invoke<string[]>("take_opened_files");
+        contents.forEach((raw, idx) => {
+          const c = screenToCanvas(window.innerWidth / 2 + idx * 30, window.innerHeight / 2 + idx * 30);
+          spawnCommitted(c.x, c.y, raw.replace(/\r\n/g, "\n").trimEnd());
+        });
+        if (contents.length) markInteracted();
+      };
+      await drain();
+      unlisten = await listen("open-file://pending", () => void drain());
+    })();
+    return () => { cancelled = true; unlisten?.(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -1598,6 +1648,7 @@ export default function JustNotes(props: JustNotesProps) {
           onClose={() => setCanvasMenu(null)}
           onNew={(k) => { markInteracted(); spawnAt(canvasMenu.cx, canvasMenu.cy, "", k); setCanvasMenu(null); }}
           onPaste={() => { void pasteAtCanvas(canvasMenu.cx, canvasMenu.cy); setCanvasMenu(null); }}
+          onOpenFile={() => { openFilesAt(canvasMenu.cx, canvasMenu.cy); setCanvasMenu(null); }}
           onSelectAll={() => { setSelectedIds(new Set(notesRef.current.map((n) => n.id))); setCanvasMenu(null); }}
           onFit={() => { fitToScreen(); setCanvasMenu(null); }}
         />
@@ -2093,12 +2144,13 @@ function NoteContextMenu({
 }
 
 function CanvasContextMenu({
-  x, y, hasNotes, onClose, onNew, onPaste, onSelectAll, onFit,
+  x, y, hasNotes, onClose, onNew, onPaste, onOpenFile, onSelectAll, onFit,
 }: {
   x: number; y: number; hasNotes: boolean;
   onClose: () => void;
   onNew: (k: NoteKind) => void;
   onPaste: () => void;
+  onOpenFile: () => void;
   onSelectAll: () => void;
   onFit: () => void;
 }) {
@@ -2123,7 +2175,7 @@ function CanvasContextMenu({
     };
   }, [onClose]);
 
-  const W = 184, H = 196;
+  const W = 184, H = 224;
   const left = Math.min(x, window.innerWidth - W - 8);
   const top = Math.min(y, window.innerHeight - H - 8);
 
@@ -2144,6 +2196,7 @@ function CanvasContextMenu({
       </div>
       <div className="note-ctx-sep" aria-hidden="true" />
       <button className="note-ctx-item" onClick={onPaste}>paste here</button>
+      <button className="note-ctx-item" onClick={onOpenFile}>open file…</button>
       <button className="note-ctx-item" onClick={onSelectAll} disabled={!hasNotes}>select all</button>
       <button className="note-ctx-item" onClick={onFit} disabled={!hasNotes}>fit to screen</button>
     </div>
