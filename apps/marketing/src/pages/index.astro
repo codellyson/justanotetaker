@@ -105,6 +105,7 @@ const mark = `<svg viewBox="0 0 48 48"><defs><mask id="jn-gap"><rect width="48" 
         class="overflow-hidden rounded-2xl border border-border bg-bg-secondary"
       >
         <iframe
+          id="canvas-frame"
           src={webUrl}
           title="the justanotetaker canvas"
           loading="lazy"
@@ -231,5 +232,36 @@ const mark = `<svg viewBox="0 0 48 48"><defs><mask id="jn-gap"><rect width="48" 
     </footer>
 
     <ThemeToggle />
+
+    <!-- Mirror this page's theme into the embedded canvas: the toggle updates
+         <html data-theme-mode/-id>; we postMessage each change to the iframe,
+         which applies it (main.tsx). Cross-origin, so localStorage can't sync
+         it for us. -->
+    <script define:vars={{ webUrl }}>
+      const frame = document.getElementById("canvas-frame");
+      const root = document.documentElement;
+      let origin;
+      try {
+        origin = new URL(webUrl, location.href).origin;
+      } catch {
+        origin = location.origin;
+      }
+      const pushTheme = () => {
+        if (!frame || !frame.contentWindow) return;
+        frame.contentWindow.postMessage(
+          {
+            type: "justui:theme",
+            mode: root.dataset.themeMode === "light" ? "light" : "dark",
+            themeId: root.dataset.themeId,
+          },
+          origin,
+        );
+      };
+      frame?.addEventListener("load", pushTheme);
+      new MutationObserver(pushTheme).observe(root, {
+        attributes: true,
+        attributeFilter: ["data-theme-mode", "data-theme-id"],
+      });
+    </script>
   </body>
 </html>
