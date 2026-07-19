@@ -130,7 +130,7 @@ body {
 .note {
   position: absolute;
   width: var(--note-w, 220px);
-  max-height: 200px;
+  max-height: 360px;
   padding: 7px 10px 8px;
   border-radius: var(--radius, 2px);
   cursor: default;
@@ -271,25 +271,8 @@ body {
     box-shadow 320ms ease;
 }
 
-/* Sticky — colored square (bg/ink + size set inline); flat, scrolls inside. */
-.note.kind-sticky {
-  max-height: none;
-  padding: 13px 15px;
-  border-radius: 3px;
-  box-shadow: none;
-  overflow: hidden;
-}
-.note.kind-sticky:hover:not(.editing):not(.dim) {
-  box-shadow: none;
-}
-.note.kind-sticky .note-first {
-  -webkit-line-clamp: unset;
-}
-.note.kind-sticky.editing .note-cm .cm-scroller {
-  max-height: 100%;
-}
-
-/* Page — A4 surface (width + min-height set inline); serif reading style. */
+/* Page — document surface (width + min-height set inline); serif reading style.
+   A long card auto-promotes to this. */
 .note.kind-page {
   max-height: none;
   padding: 32px 20px;
@@ -1272,6 +1255,23 @@ body {
 .note .md-tag:hover {
   background: rgb(var(--accent) / 0.28);
 }
+/* On a tinted note, re-point the muted theme text tokens at the note's ink so
+   every text element — rendered lists/quotes/marks AND the live editor's
+   syntax colors — stays legible on the color. Accent (links) is left alone. */
+.note.tinted {
+  --text-secondary: var(--note-ink);
+  --text-muted: var(--note-ink);
+}
+.note.tinted .md-tag {
+  background: rgb(0 0 0 / 0.08);
+}
+/* Code surfaces are normally translucent (they sit on the note's own dark bg);
+   on a light tint that muddies to brown, so make them opaque. */
+.note.tinted .md-code,
+.note.tinted .md-code-fallback,
+.note.tinted .md-code-fallback pre {
+  background: rgb(var(--bg));
+}
 .note .md-code {
   margin: 6px 0;
   border-radius: 6px;
@@ -1296,6 +1296,27 @@ body {
 .note .md-code-fallback {
   background: rgb(var(--bg) / 0.55);
   color: rgb(var(--text-primary));
+}
+/* GFM tables. Borders use text-secondary so they read on the dark theme and,
+   on a tinted note (which re-points that token to its ink), on the color too. */
+.note .md-table-wrap {
+  margin: 6px 0;
+  overflow-x: auto;
+}
+.note .md-table {
+  border-collapse: collapse;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.note .md-table th,
+.note .md-table td {
+  border: 1px solid rgb(var(--text-secondary) / 0.28);
+  padding: 3px 8px;
+  vertical-align: top;
+}
+.note .md-table th {
+  font-weight: 650;
+  background: rgb(var(--text-secondary) / 0.08);
 }
 
 /* ── help overlay ─────────────────────────────────────────────── */
@@ -1750,6 +1771,18 @@ body {
 }
 .note-ctx-swatch.active {
   border-color: rgb(var(--text-primary) / 0.8);
+}
+/* "Default" (no tint): the themed card surface with a diagonal strike. */
+.note-ctx-swatch-none {
+  background:
+    linear-gradient(
+      to bottom right,
+      transparent calc(50% - 1px),
+      rgb(var(--danger) / 0.7) calc(50% - 1px) calc(50% + 1px),
+      transparent calc(50% + 1px)
+    ),
+    rgb(var(--bg-secondary));
+  box-shadow: inset 0 0 0 1px rgb(var(--border));
 }
 .note-ctx-sep {
   height: 1px;

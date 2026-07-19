@@ -94,6 +94,19 @@ export function renderInlineMd(text: string, keyBase = "i"): React.ReactNode[] {
 const IMG_URL_RE = /^https?:\/\/\S+\.(?:png|jpe?g|gif|webp|svg|avif)(?:\?\S*)?$/i;
 const IMG_MD_RE = /^!\[([^\]]*)\]\(([^)\s]+)\)$/;
 
+// GFM table delimiter row, e.g. `|---|:--:|---:|`. The caller also requires a
+// pipe so a bare `---` horizontal rule isn't mistaken for a delimiter.
+const TABLE_DELIM_RE = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
+
+// Split a table row into trimmed cells on unescaped pipes, dropping the
+// optional leading/trailing pipe.
+function splitTableRow(row: string): string[] {
+  let s = row.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|")) s = s.slice(0, -1);
+  return s.split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
+}
+
 export function renderHeadline(line: string): React.ReactNode[] {
   const h = line.match(/^(#{1,6})\s+(.*)$/);
   return renderInlineMd(h ? h[2] : line, "h");
@@ -129,6 +142,45 @@ export function renderBody(text: string, opts?: { onToggle?: (taskIndex: number)
     if (!line.trim()) {
       out.push(<div key={i} className="md-blank" />);
       i++;
+      continue;
+    }
+
+    // GFM table — a header row of pipes followed by a `---|:--:` delimiter row.
+    if (line.includes("|") && i + 1 < lines.length && lines[i + 1].includes("|") && TABLE_DELIM_RE.test(lines[i + 1])) {
+      const headers = splitTableRow(line);
+      const aligns = splitTableRow(lines[i + 1]).map((d) => {
+        const l = d.startsWith(":"), r = d.endsWith(":");
+        return l && r ? "center" : r ? "right" : l ? "left" : undefined;
+      });
+      const key = `tbl${i}`;
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) {
+        rows.push(splitTableRow(lines[i]));
+        i++;
+      }
+      out.push(
+        <div key={key} className="md-table-wrap">
+          <table className="md-table">
+            <thead>
+              <tr>
+                {headers.map((h, hi) => (
+                  <th key={hi} style={{ textAlign: aligns[hi] }}>{renderInlineMd(h, `${key}h${hi}`)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, ri) => (
+                <tr key={ri}>
+                  {headers.map((_, ci) => (
+                    <td key={ci} style={{ textAlign: aligns[ci] }}>{renderInlineMd(r[ci] ?? "", `${key}r${ri}c${ci}`)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
+      );
       continue;
     }
 

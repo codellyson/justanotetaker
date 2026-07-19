@@ -3,7 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import type { Env } from "../env";
 
-const kindSchema = z.enum(["card", "sticky", "page"]);
+const kindSchema = z.enum(["card", "page"]);
 
 const createSchema = z.object({
   id: z.string().optional(),

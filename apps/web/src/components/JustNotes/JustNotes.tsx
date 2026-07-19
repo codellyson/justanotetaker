@@ -18,10 +18,9 @@ import {
   restAfterFirst,
   tagsOf,
   uid,
-  resolveStickyColor,
-  STICKY_COLOR_KEYS,
-  STICKY_COLOR_MAP,
-  STICKY_SIZE,
+  resolveNoteColor,
+  NOTE_COLOR_KEYS,
+  NOTE_COLOR_MAP,
   PAPER_W,
   PAPER_H,
   type Note,
@@ -383,8 +382,7 @@ export default function JustNotes(props: JustNotesProps) {
     const id = uid();
     const w = tweakRef.current.noteWidth;
     const spot = findFreeSpot(canvasX - w / 2, canvasY - 22);
-    const color = kind === "sticky" ? "amber" : null;
-    setNotes((ns) => [...ns, { id, x: spot.x, y: spot.y, w: null, h: null, t: Date.now(), text: initialText, kind, color }]);
+    setNotes((ns) => [...ns, { id, x: spot.x, y: spot.y, w: null, h: null, t: Date.now(), text: initialText, kind, color: null }]);
     editSnapshotRef.current = { id, isNew: true, prevText: "", prevT: Date.now() };
     editClickRef.current = null; // new note → caret at end, not a stale click point
     setEditingId(id);
@@ -457,6 +455,7 @@ export default function JustNotes(props: JustNotesProps) {
     pushOp({ type: "create", id });
     void onCreate(note, opts);
     enrichIfUrlNote(id);
+    maybePromoteToPage(id);
     return id;
   }
 
@@ -543,6 +542,7 @@ export default function JustNotes(props: JustNotesProps) {
     enrichIfUrlNote(id);
     setEditingId(null);
     editSnapshotRef.current = null;
+    maybePromoteToPage(id);
   }
 
   function updateNoteText(id: string, text: string) {
@@ -550,16 +550,30 @@ export default function JustNotes(props: JustNotesProps) {
   }
 
   function setNoteKind(id: string, kind: NoteKind) {
-    const cur = notesRef.current.find((n) => n.id === id);
-    const color = kind === "sticky" && !cur?.color ? "amber" : cur?.color ?? null;
     // Clear w/h so the note takes the new kind's canonical size, not a stale resize.
-    setNotes((ns) => ns.map((n) => n.id === id ? { ...n, kind, color, w: null, h: null } : n));
-    onUpdate(id, { kind, color, w: null, h: null });
+    setNotes((ns) => ns.map((n) => n.id === id ? { ...n, kind, w: null, h: null } : n));
+    onUpdate(id, { kind, w: null, h: null });
   }
 
-  function setNoteColor(id: string, color: string) {
+  function setNoteColor(id: string, color: string | null) {
     setNotes((ns) => ns.map((n) => n.id === id ? { ...n, color } : n));
     onUpdate(id, { color });
+  }
+
+  // A card whose content overflows its height cap becomes a page — measured
+  // from the DOM after render. Keeps the note's current width so it doesn't
+  // jump wide; page styling uncaps the height so the whole note shows.
+  function maybePromoteToPage(id: string) {
+    requestAnimationFrame(() => {
+      const cur = notesRef.current.find((n) => n.id === id);
+      if (!cur || cur.kind !== "card" || editingIdRef.current === id) return;
+      const el = canvasRef.current?.querySelector<HTMLElement>(`[data-note-id="${id}"]`);
+      if (!el) return;
+      if (el.scrollHeight <= el.clientHeight + 4) return; // fits — no promotion
+      const w = el.offsetWidth || tweakRef.current.noteWidth;
+      setNotes((ns) => ns.map((n) => n.id === id ? { ...n, kind: "page", w, h: null } : n));
+      onUpdate(id, { kind: "page", w, h: null });
+    });
   }
 
   // Toggle a task checkbox (`- [ ]` ⇄ `- [x]`) in a note and persist right
@@ -667,8 +681,8 @@ export default function JustNotes(props: JustNotesProps) {
   // close it feels cramped.
   function focusNoteForEdit(n: Note) {
     const p = { x: n.x, y: n.y };
-    const NW = n.kind === "sticky" ? (n.w ?? STICKY_SIZE) : n.kind === "page" ? (n.w ?? PAPER_W) : (n.w ?? tweakRef.current.noteWidth);
-    const NH = n.kind === "sticky" ? (n.h ?? STICKY_SIZE) : n.kind === "page" ? (n.h ?? PAPER_H) : (n.h ?? 220);
+    const NW = n.kind === "page" ? (n.w ?? PAPER_W) : (n.w ?? tweakRef.current.noteWidth);
+    const NH = n.kind === "page" ? (n.h ?? PAPER_H) : (n.h ?? 220);
     const W = window.innerWidth, H = window.innerHeight;
     const fit = Math.min(((W - FILE_TREE_EDGE) * 0.7) / NW, (H * 0.7) / NH);
     const zoom = Math.max(0.9, Math.min(1.2, fit));
@@ -893,7 +907,6 @@ export default function JustNotes(props: JustNotesProps) {
 
   const onNoteMouseDown = useCallback((e: React.PointerEvent<HTMLDivElement>, id: string) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
-    // All modes are freeform + draggable; sticky/paper just declump on entry.
     if (editingId === id) return;
     e.stopPropagation();
     markInteracted();
@@ -1360,8 +1373,8 @@ export default function JustNotes(props: JustNotesProps) {
     const bottom = (H - view.pan.y) / z + MARGIN;
     return notes.filter((n) => {
       if (n.id === editingId || n.id === draggingId || selectedIds.has(n.id)) return true;
-      const w = n.kind === "sticky" ? (n.w ?? STICKY_SIZE) : n.kind === "page" ? (n.w ?? PAPER_W) : (n.w ?? t.noteWidth);
-      const h = n.kind === "sticky" ? (n.h ?? STICKY_SIZE) : n.kind === "page" ? (n.h ?? PAPER_H) : (n.h ?? 500);
+      const w = n.kind === "page" ? (n.w ?? PAPER_W) : (n.w ?? t.noteWidth);
+      const h = n.kind === "page" ? (n.h ?? PAPER_H) : (n.h ?? 500);
       return n.x < right && n.x + w > left && n.y < bottom && n.y + h > top;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1711,23 +1724,29 @@ function NoteCard({
     focused ? "focused" : "",
     selected ? "selected" : "",
     `kind-${note.kind}`,
+    note.color ? "tinted" : "",
     isHeading && !editing ? "has-heading" : "",
   ].filter(Boolean).join(" ");
 
-  const sticky = note.kind === "sticky" ? resolveStickyColor(note.color) : null;
+  // A tinted note carries its own bg/ink and opts out of the recency fade so
+  // the color stays true; the fade only applies to plain cards.
+  const col = resolveNoteColor(note.color);
+  // Body text: on a tinted note follow its ink (the theme's text-secondary is
+  // unreadable on a light tint); otherwise the usual dimmed secondary.
+  const bodyColor = col ? `rgb(${col.ink})` : "rgb(var(--text-secondary))";
   const style: CSSProperties = {
     left: pos.x,
     top: pos.y,
-    backgroundColor: sticky ? sticky.bg : "rgb(var(--bg-secondary))",
-    color: sticky ? sticky.ink : "rgb(var(--text-primary))",
-    opacity: (note.kind === "card" ? RECENCY_ALPHA[rec] : 1) * (scrubFade ?? 1),
+    backgroundColor: col ? col.bg : "rgb(var(--bg-secondary))",
+    color: col ? `rgb(${col.ink})` : "rgb(var(--text-primary))",
+    opacity: (note.kind === "card" && !col ? RECENCY_ALPHA[rec] : 1) * (scrubFade ?? 1),
   };
-  if (note.kind === "sticky") {
-    style.width = note.w ?? STICKY_SIZE;
-    style.height = note.h ?? STICKY_SIZE;
-  } else if (note.kind === "page") {
+  // Exposed so a tinted note can re-point the muted theme tokens at its ink,
+  // keeping list/quote/mark colors legible in both the rendered view and editor.
+  if (col) (style as Record<string, string | number>)["--note-ink"] = col.ink;
+  if (note.kind === "page") {
     style.width = note.w ?? PAPER_W;
-    style.minHeight = note.h ?? PAPER_H;
+    style.minHeight = note.h ?? 200;
   } else {
     // card: resizable, else content-height from CSS.
     if (note.w != null) style.width = note.w;
@@ -1769,7 +1788,7 @@ function NoteCard({
           />
         </Suspense>
       ) : startsWithBlock ? (
-        <div className="note-rest" style={{ color: "rgb(var(--text-secondary))" }}>
+        <div className="note-rest" style={{ color: bodyColor }}>
           {renderBody(note.text, { onToggle })}
         </div>
       ) : (
@@ -1777,7 +1796,7 @@ function NoteCard({
           {first
             ? <div className={"note-first" + (headingLevel ? ` md-h md-h${headingLevel}` : "")}>{renderHeadline(first)}</div>
             : <div className="note-first" style={{ opacity: 0.35 }}>empty</div>}
-          {rest && <div className="note-rest" style={{ color: "rgb(var(--text-secondary))" }}>{renderBody(rest, { onToggle })}</div>}
+          {rest && <div className="note-rest" style={{ color: bodyColor }}>{renderBody(rest, { onToggle })}</div>}
         </>
       )}
       {!editing && fromClipboard && (
@@ -1987,7 +2006,7 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
   );
 }
 
-const NOTE_KINDS: NoteKind[] = ["card", "sticky", "page"];
+const NOTE_KINDS: NoteKind[] = ["card", "page"];
 
 function NoteContextMenu({
   x, y, kind, color, onSetKind, onSetColor, onClose, onDelete,
@@ -1995,7 +2014,7 @@ function NoteContextMenu({
   x: number; y: number;
   kind: NoteKind; color: string | null;
   onSetKind: (k: NoteKind) => void;
-  onSetColor: (c: string) => void;
+  onSetColor: (c: string | null) => void;
   onClose: () => void; onDelete: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -2014,7 +2033,7 @@ function NoteContextMenu({
     };
   }, [onClose]);
 
-  const W = 184, H = kind === "sticky" ? 168 : 128;
+  const W = 184, H = 176;
   const left = Math.min(x, window.innerWidth - W - 8);
   const top = Math.min(y, window.innerHeight - H - 8);
 
@@ -2040,23 +2059,30 @@ function NoteContextMenu({
           </button>
         ))}
       </div>
-      {kind === "sticky" && (
-        <div className="note-ctx-colors" role="radiogroup" aria-label="sticky color">
-          {STICKY_COLOR_KEYS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              role="radio"
-              aria-checked={(color ?? "amber") === c}
-              aria-label={c}
-              title={c}
-              className={"note-ctx-swatch" + ((color ?? "amber") === c ? " active" : "")}
-              style={{ background: STICKY_COLOR_MAP[c].bg }}
-              onClick={() => onSetColor(c)}
-            />
-          ))}
-        </div>
-      )}
+      <div className="note-ctx-colors" role="radiogroup" aria-label="note color">
+        <button
+          type="button"
+          role="radio"
+          aria-checked={!color}
+          aria-label="default"
+          title="default"
+          className={"note-ctx-swatch note-ctx-swatch-none" + (!color ? " active" : "")}
+          onClick={() => onSetColor(null)}
+        />
+        {NOTE_COLOR_KEYS.map((c) => (
+          <button
+            key={c}
+            type="button"
+            role="radio"
+            aria-checked={color === c}
+            aria-label={c}
+            title={c}
+            className={"note-ctx-swatch" + (color === c ? " active" : "")}
+            style={{ background: NOTE_COLOR_MAP[c].bg }}
+            onClick={() => onSetColor(c)}
+          />
+        ))}
+      </div>
       <div className="note-ctx-sep" aria-hidden="true" />
       <button className="note-ctx-item danger" onClick={onDelete}>
         delete

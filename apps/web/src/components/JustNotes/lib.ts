@@ -1,7 +1,7 @@
-// How a single note presents itself — replaces the old board-level view modes.
-// `card` is the everyday note; `sticky` a colored square; `page` a document
-// surface. Configured per note (context menu), not per board.
-export type NoteKind = "card" | "sticky" | "page";
+// How a single note presents itself. `card` is the everyday note (optionally
+// tinted with a color); `page` a document surface a long note auto-promotes to.
+// Configured per note (context menu), not per board.
+export type NoteKind = "card" | "page";
 
 export type Note = {
   id: string;
@@ -19,30 +19,29 @@ export type Recency = "fresh" | "recent" | "older" | "ancient";
 
 export const GRID = 28;
 
-// Card geometry, canvas units. Paper is true A4 portrait at 96 CSS px/in
-// (210×297mm ⇒ 8.27×11.69in ⇒ 794×1123px), the 1:√2 ratio.
-export const STICKY_SIZE = 190;
-export const STICKY_GAP = 30;
+// Paper is true A4 portrait at 96 CSS px/in (210×297mm ⇒ 794×1123px, 1:√2).
 export const PAPER_W = 794;
 export const PAPER_H = Math.round(PAPER_W * Math.SQRT2); // 1123
 export const PAPER_GAP = 44;
 
-// Named sticky palette — a note stores its color by key (`note.color`), chosen
-// from the context menu. Null/unknown falls back to amber.
-export const STICKY_COLOR_KEYS = ["amber", "pink", "blue", "green", "violet", "orange"] as const;
-export type StickyColorKey = (typeof STICKY_COLOR_KEYS)[number];
+// A card can be tinted with one of these colors (stored by key in `note.color`,
+// chosen from the context menu; null = the default themed card).
+export const NOTE_COLOR_KEYS = ["amber", "pink", "blue", "green", "violet", "orange"] as const;
+export type NoteColorKey = (typeof NOTE_COLOR_KEYS)[number];
 
-export const STICKY_COLOR_MAP: Record<StickyColorKey, { bg: string; ink: string }> = {
-  amber: { bg: "#fde68a", ink: "#713f12" },
-  pink: { bg: "#fbcfe8", ink: "#831843" },
-  blue: { bg: "#bfdbfe", ink: "#1e3a8a" },
-  green: { bg: "#bbf7d0", ink: "#14532d" },
-  violet: { bg: "#ddd6fe", ink: "#4c1d95" },
-  orange: { bg: "#fed7aa", ink: "#7c2d12" },
+// `ink` is an "r g b" triplet (not hex) so it can drive both `rgb(…)` text
+// colors and a CSS custom property that recolors muted tokens on a tint.
+export const NOTE_COLOR_MAP: Record<NoteColorKey, { bg: string; ink: string }> = {
+  amber: { bg: "#fde68a", ink: "113 63 18" },
+  pink: { bg: "#fbcfe8", ink: "131 24 67" },
+  blue: { bg: "#bfdbfe", ink: "30 58 138" },
+  green: { bg: "#bbf7d0", ink: "20 83 45" },
+  violet: { bg: "#ddd6fe", ink: "76 29 149" },
+  orange: { bg: "#fed7aa", ink: "124 45 18" },
 };
 
-export function resolveStickyColor(color: string | null): { bg: string; ink: string } {
-  return (color && STICKY_COLOR_MAP[color as StickyColorKey]) || STICKY_COLOR_MAP.amber;
+export function resolveNoteColor(color: string | null): { bg: string; ink: string } | null {
+  return (color && NOTE_COLOR_MAP[color as NoteColorKey]) || null;
 }
 
 /**
