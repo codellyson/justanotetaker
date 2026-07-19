@@ -1288,6 +1288,33 @@ body {
   overflow-x: auto;
   white-space: pre;
 }
+/* Slim, themed horizontal scrollbar on code blocks + tables instead of the
+   chunky native one. */
+.note .md-code pre,
+.note .md-table-wrap {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--text-secondary) / 0.35) transparent;
+}
+.note .md-code pre::-webkit-scrollbar,
+.note .md-table-wrap::-webkit-scrollbar {
+  height: 9px;
+}
+.note .md-code pre::-webkit-scrollbar-track,
+.note .md-table-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+.note .md-code pre::-webkit-scrollbar-thumb,
+.note .md-table-wrap::-webkit-scrollbar-thumb {
+  background: rgb(var(--text-secondary) / 0.35);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.note .md-code pre:hover::-webkit-scrollbar-thumb,
+.note .md-table-wrap:hover::-webkit-scrollbar-thumb {
+  background: rgb(var(--text-secondary) / 0.55);
+  background-clip: padding-box;
+}
 .note .md-code code {
   background: transparent;
   padding: 0;

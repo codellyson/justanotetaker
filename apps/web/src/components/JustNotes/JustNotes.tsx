@@ -583,19 +583,34 @@ export default function JustNotes(props: JustNotesProps) {
   }
 
   // A card whose content overflows its height cap becomes a page — measured
-  // from the DOM after render. Keeps the note's current width so it doesn't
-  // jump wide; page styling uncaps the height so the whole note shows.
+  // from the DOM. Clears w/h so it takes the page's own (document) width, not
+  // the narrow card width; page styling uncaps the height so it all shows.
   function maybePromoteToPage(id: string) {
-    requestAnimationFrame(() => {
+    let done = false;
+    const measure = () => {
+      if (done) return;
       const cur = notesRef.current.find((n) => n.id === id);
       if (!cur || cur.kind !== "card" || editingIdRef.current === id) return;
       const el = canvasRef.current?.querySelector<HTMLElement>(`[data-note-id="${id}"]`);
       if (!el) return;
-      if (el.scrollHeight <= el.clientHeight + 4) return; // fits — no promotion
-      const w = el.offsetWidth || tweakRef.current.noteWidth;
-      setNotes((ns) => ns.map((n) => n.id === id ? { ...n, kind: "page", w, h: null } : n));
-      onUpdate(id, { kind: "page", w, h: null });
-    });
+      // The card caps at max-height with overflow:hidden, so clipped content
+      // makes scrollHeight exceed clientHeight.
+      if (el.scrollHeight <= el.clientHeight + 4) return;
+      done = true;
+      setNotes((ns) => ns.map((n) => n.id === id ? { ...n, kind: "page", w: null, h: null } : n));
+      onUpdate(id, { kind: "page", w: null, h: null });
+      // A just-created note isn't synced yet, and onUpdate no-ops until its
+      // create round-trips — re-persist once it's settled (unless the kind was
+      // changed back in the meantime).
+      window.setTimeout(() => {
+        const c = notesRef.current.find((n) => n.id === id);
+        if (c?.kind === "page") onUpdate(id, { kind: "page", w: c.w, h: c.h });
+      }, 1500);
+    };
+    // Two frames to land after the card view has committed + laid out, then a
+    // later pass to catch async content (shiki code, images) that grows it.
+    requestAnimationFrame(() => requestAnimationFrame(measure));
+    window.setTimeout(measure, 300);
   }
 
   // Toggle a task checkbox (`- [ ]` ⇄ `- [x]`) in a note and persist right
