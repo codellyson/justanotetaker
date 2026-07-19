@@ -3,6 +3,8 @@ import type { Board, Note } from "./lib";
 import { firstNonEmpty } from "./lib";
 import type { NotesByBoard } from "../../hooks/useAllNotes";
 
+const PIN_KEY = "justanotetaker.sidebar.pinned";
+
 type Entry = { id: string; title: string; t: number };
 
 // The tree shows plain-text titles, so strip the markdown the note stores:
@@ -64,6 +66,21 @@ export function FileTree({
   const [renameDraft, setRenameDraft] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
+  // Collapsed to a slim rail by default; peeks open on hover, and the toggle
+  // pins it open. Pin state persists so a board switch (which remounts this
+  // component) keeps it.
+  const [pinned, setPinned] = useState<boolean>(() => {
+    try { return localStorage.getItem(PIN_KEY) === "1"; } catch { return false; }
+  });
+  const [hovered, setHovered] = useState(false);
+  const open = pinned || hovered;
+  const togglePin = () =>
+    setPinned((p) => {
+      const next = !p;
+      try { localStorage.setItem(PIN_KEY, next ? "1" : "0"); } catch { /* blocked */ }
+      return next;
+    });
+
   // Active board's entries come from the live canvas notes (so edits/creates
   // show immediately); other boards from the all-boards snapshot.
   const entriesByBoard = useMemo(() => {
@@ -100,8 +117,23 @@ export function FileTree({
   };
 
   return (
-    <nav className="chrome file-tree" aria-label="Notes">
+    <nav
+      className={"chrome file-tree" + (open ? " ft-open" : " ft-collapsed")}
+      aria-label="Notes"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       <div className="ft-head">
+        <button
+          type="button"
+          className="ft-toggle"
+          title={pinned ? "Unpin sidebar" : "Keep sidebar open"}
+          aria-label={pinned ? "Unpin sidebar" : "Keep sidebar open"}
+          aria-pressed={pinned}
+          onClick={togglePin}
+        >
+          {ICON.panel}
+        </button>
         <span className="ft-head-title">Notes</span>
         <button
           type="button"
@@ -254,6 +286,12 @@ export function FileTree({
 }
 
 const ICON = {
+  panel: (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="16" rx="2.5" />
+      <path d="M9 4v16" />
+    </svg>
+  ),
   plus: (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
       <path d="M12 5v14M5 12h14" />

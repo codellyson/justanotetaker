@@ -1797,6 +1797,15 @@ function NoteCard({
           onPointerDown={(e) => onResizeStart(e, dir)}
         />
       ))}
+      {/* Touch: a visible, finger-sized corner grip (the thin edges are too
+          fiddly on a phone). Hidden on desktop, where hover + edges suffice. */}
+      {!editing && (
+        <div
+          className="note-grip"
+          aria-label="resize"
+          onPointerDown={(e) => onResizeStart(e, "se")}
+        />
+      )}
     </div>
   );
 }
@@ -1992,14 +2001,15 @@ function NoteContextMenu({
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const onDocDown = (e: MouseEvent) => {
+    // pointerdown (not mousedown) so an outside tap on touch dismisses too.
+    const onDocDown = (e: Event) => {
       if (!menuRef.current) return;
       if (!menuRef.current.contains(e.target as Node)) onClose();
     };
-    window.addEventListener("mousedown", onDocDown);
+    window.addEventListener("pointerdown", onDocDown);
     window.addEventListener("contextmenu", onDocDown);
     return () => {
-      window.removeEventListener("mousedown", onDocDown);
+      window.removeEventListener("pointerdown", onDocDown);
       window.removeEventListener("contextmenu", onDocDown);
     };
   }, [onClose]);
@@ -2069,19 +2079,20 @@ function CanvasContextMenu({
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const onDocDown = (e: MouseEvent) => {
+    // pointerdown (not mousedown) so an outside tap on touch dismisses too.
+    const onDocDown = (e: Event) => {
       if (!menuRef.current) return;
       if (!menuRef.current.contains(e.target as Node)) onClose();
     };
-    // Attach on the next tick so the right-click that opened this menu — which
-    // is still propagating to window — can't be caught here and self-dismiss.
+    // Attach on the next tick so the right-click/long-press that opened this
+    // menu — still propagating to window — can't be caught here and self-dismiss.
     const id = setTimeout(() => {
-      window.addEventListener("mousedown", onDocDown);
+      window.addEventListener("pointerdown", onDocDown);
       window.addEventListener("contextmenu", onDocDown);
     }, 0);
     return () => {
       clearTimeout(id);
-      window.removeEventListener("mousedown", onDocDown);
+      window.removeEventListener("pointerdown", onDocDown);
       window.removeEventListener("contextmenu", onDocDown);
     };
   }, [onClose]);
@@ -2122,7 +2133,7 @@ function GhostCard() {
         <div className="ghost-line short" />
         <div className="ghost-line tiny" />
       </div>
-      <div className="ghost-text">right-click anywhere to add a note</div>
+      <div className="ghost-text">tap + to add a note · or right-click the canvas</div>
     </div>
   );
 }
