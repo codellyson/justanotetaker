@@ -592,7 +592,8 @@ export default function JustNotes(props: JustNotesProps) {
     setNotes((ns) => (ns.some((n) => n.id === note.id) ? ns : [...ns, { ...note, w: null, h: null, kind: note.kind ?? "card", color: note.color ?? null }]));
   }
 
-  function startResize(e: React.MouseEvent<HTMLDivElement>, id: string, dir: ResizeDir) {
+  function startResize(e: React.PointerEvent<HTMLDivElement>, id: string, dir: ResizeDir) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
     const note = notesRef.current.find((n) => n.id === id);
@@ -602,10 +603,12 @@ export default function JustNotes(props: JustNotesProps) {
     const startH = note.h ?? el?.offsetHeight ?? 150;
     const startX = note.x, startY = note.y;
     const startSX = e.clientX, startSY = e.clientY;
+    const pointerId = e.pointerId;
     const MIN_W = 120, MIN_H = 60;
     // The n/w edges resize toward the anchored (opposite) side, so the note's
     // origin shifts as it grows — clamped so it can't slide past the min size.
-    const onMove = (ev: MouseEvent) => {
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
       const z = viewRef.current.zoom;
       const dx = (ev.clientX - startSX) / z;
       const dy = (ev.clientY - startSY) / z;
@@ -616,16 +619,19 @@ export default function JustNotes(props: JustNotesProps) {
       if (dir.includes("n")) { h = Math.max(MIN_H, startH - dy); y = startY + (startH - h); }
       setNotes((ns) => ns.map((n) => n.id === id ? { ...n, x, y, w, h } : n));
     };
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       const cur = notesRef.current.find((n) => n.id === id);
       if (cur && (cur.w !== startW || cur.h !== startH || cur.x !== startX || cur.y !== startY)) {
         onUpdate(id, { x: cur.x, y: cur.y, w: cur.w, h: cur.h });
       }
     };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   }
 
   function frameNotes(list: Note[]) {
@@ -760,78 +766,133 @@ export default function JustNotes(props: JustNotesProps) {
     prevViewRef.current = null;
   }
 
-  const onCanvasMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
+  // Pointer Events so touch works alongside mouse: one contact pans (⌘/Ctrl +
+  // drag marquee-selects on mouse), two contacts pinch-zoom. A second finger
+  // joins the in-flight gesture via canvasGestureRef rather than starting a new
+  // one. All contacts share canvasPtrs (id → live screen point).
+  const canvasPtrs = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const canvasGestureRef = useRef<((id: number, x: number, y: number) => void) | null>(null);
+
+  const onCanvasPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     if (!target.dataset.canvas) return;
-    e.preventDefault();
-    // Ignore the 2nd+ click of a multi-click: otherwise a double-tap spawns a
-    // note then commits (deletes) it. preventDefault above also blocks the
-    // native text-selection.
-    if (e.detail > 1) return;
-    markInteracted();
-    // Plain drag pans the canvas; ⌘/Ctrl + drag marquee-selects.
-    const wantsSelect = e.metaKey || e.ctrlKey;
-    const startSX = e.clientX, startSY = e.clientY;
-    const startPan = { ...viewRef.current.pan };
-    const startCanvas = screenToCanvas(startSX, startSY);
-    let moved = false;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
 
-    const onMove = (ev: MouseEvent) => {
+    // A second contact upgrades the running gesture to a pinch.
+    if (canvasGestureRef.current) {
+      e.preventDefault();
+      canvasGestureRef.current(e.pointerId, e.clientX, e.clientY);
+      return;
+    }
+
+    e.preventDefault();
+    if (e.detail > 1) return; // ignore the 2nd+ of a multi-click
+    markInteracted();
+
+    const ptrs = canvasPtrs.current;
+    ptrs.clear();
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    const startCanvas = screenToCanvas(e.clientX, e.clientY);
+    let mode: "pan" | "marquee" | "pinch" =
+      e.pointerType === "mouse" && (e.metaKey || e.ctrlKey) ? "marquee" : "pan";
+    let startSX = e.clientX, startSY = e.clientY;
+    let startPan = { ...viewRef.current.pan };
+    let moved = false;
+    let pinch: { startDist: number; startZoom: number; midCanvas: { x: number; y: number }; ids: [number, number] } | null = null;
+
+    // Called on the second pointer-down: switch this gesture to pinch.
+    canvasGestureRef.current = (id, x, y) => {
+      ptrs.set(id, { x, y });
+      if (ptrs.size < 2) return;
+      const [a, b] = [...ptrs.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      pinch = {
+        startDist: dist,
+        startZoom: viewRef.current.zoom,
+        midCanvas: screenToCanvas((a.x + b.x) / 2, (a.y + b.y) / 2),
+        ids: [...ptrs.keys()].slice(-2) as [number, number],
+      };
+      mode = "pinch";
+      moved = true;
+      setMarquee(null);
+    };
+
+    const onMove = (ev: PointerEvent) => {
+      if (!ptrs.has(ev.pointerId)) return;
+      ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (mode === "pinch" && pinch) {
+        const a = ptrs.get(pinch.ids[0]), b = ptrs.get(pinch.ids[1]);
+        if (!a || !b) return;
+        const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+        const midSX = (a.x + b.x) / 2, midSY = (a.y + b.y) / 2;
+        const nz = Math.max(0.32, Math.min(2.5, pinch.startZoom * (dist / pinch.startDist)));
+        bumpMoving();
+        setView({ zoom: nz, pan: { x: midSX - pinch.midCanvas.x * nz, y: midSY - pinch.midCanvas.y * nz } });
+        return;
+      }
       const dx = ev.clientX - startSX, dy = ev.clientY - startSY;
       if (!moved && dx * dx + dy * dy > 9) moved = true;
       if (!moved) return;
-      if (!wantsSelect) {
-        bumpMoving();
-        setView((v) => ({ ...v, pan: { x: startPan.x + dx, y: startPan.y + dy } }));
-      } else {
+      if (mode === "marquee") {
         const cur = screenToCanvas(ev.clientX, ev.clientY);
         setMarquee({
-          x0: Math.min(startCanvas.x, cur.x),
-          y0: Math.min(startCanvas.y, cur.y),
-          x1: Math.max(startCanvas.x, cur.x),
-          y1: Math.max(startCanvas.y, cur.y),
+          x0: Math.min(startCanvas.x, cur.x), y0: Math.min(startCanvas.y, cur.y),
+          x1: Math.max(startCanvas.x, cur.x), y1: Math.max(startCanvas.y, cur.y),
         });
+      } else {
+        bumpMoving();
+        setView((v) => ({ ...v, pan: { x: startPan.x + dx, y: startPan.y + dy } }));
       }
     };
-    const onUp = (ev: MouseEvent) => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+
+    const onUp = (ev: PointerEvent) => {
+      if (!ptrs.has(ev.pointerId)) return;
+      ptrs.delete(ev.pointerId);
+      // One finger lifted mid-pinch → keep panning with the remaining contact.
+      if (mode === "pinch" && ptrs.size === 1) {
+        const [p] = [...ptrs.values()];
+        mode = "pan"; pinch = null; moved = true;
+        startSX = p.x; startSY = p.y; startPan = { ...viewRef.current.pan };
+        return;
+      }
+      if (ptrs.size > 0) return;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      canvasGestureRef.current = null;
+      if (mode === "marquee") {
+        const cur = screenToCanvas(ev.clientX, ev.clientY);
+        const m = {
+          x0: Math.min(startCanvas.x, cur.x), y0: Math.min(startCanvas.y, cur.y),
+          x1: Math.max(startCanvas.x, cur.x), y1: Math.max(startCanvas.y, cur.y),
+        };
+        const w = tweakRef.current.noteWidth, h = 150;
+        const hit = new Set<string>();
+        for (const n of notesRef.current) {
+          if (n.x + w >= m.x0 && n.x <= m.x1 && n.y + h >= m.y0 && n.y <= m.y1) hit.add(n.id);
+        }
+        setSelectedIds(hit);
+        setMarquee(null);
+        return;
+      }
       if (!moved) {
-        // A bare click on empty canvas only dismisses transient state — notes
-        // are created via right-click, the toolbar +, or the file tree, never
-        // by clicking the canvas.
+        // A tap on empty canvas only dismisses transient state.
         if (prevViewRef.current) { animateView(prevViewRef.current); prevViewRef.current = null; return; }
         if (editingId) { commitEditing(); return; }
         if (ambientOpen) { closeAmbient(); return; }
         if (selectedIdsRef.current.size > 0) { setSelectedIds(new Set()); return; }
-        return;
       }
-      if (!wantsSelect) return;
-      const cur = screenToCanvas(ev.clientX, ev.clientY);
-      const m = {
-        x0: Math.min(startCanvas.x, cur.x),
-        y0: Math.min(startCanvas.y, cur.y),
-        x1: Math.max(startCanvas.x, cur.x),
-        y1: Math.max(startCanvas.y, cur.y),
-      };
-      const w = tweakRef.current.noteWidth, h = 150;
-      const hit = new Set<string>();
-      for (const n of notesRef.current) {
-        if (n.x + w >= m.x0 && n.x <= m.x1 && n.y + h >= m.y0 && n.y <= m.y1) {
-          hit.add(n.id);
-        }
-      }
-      setSelectedIds(hit);
-      setMarquee(null);
     };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingId, ambientOpen]);
 
-  const onNoteMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>, id: string) => {
-    if (e.button !== 0) return;
+  const onNoteMouseDown = useCallback((e: React.PointerEvent<HTMLDivElement>, id: string) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     // All modes are freeform + draggable; sticky/paper just declump on entry.
     if (editingId === id) return;
     e.stopPropagation();
@@ -848,10 +909,12 @@ export default function JustNotes(props: JustNotesProps) {
       startPositions.set(nid, { x: n.x, y: n.y });
     }
     const startSX = e.clientX, startSY = e.clientY;
+    const pointerId = e.pointerId;
     let moved = false;
     setDraggingId(id);
 
-    const onMove = (ev: MouseEvent) => {
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
       const dxs = ev.clientX - startSX, dys = ev.clientY - startSY;
       if (!moved && dxs * dxs + dys * dys > 9) moved = true;
       if (!moved) return;
@@ -867,9 +930,11 @@ export default function JustNotes(props: JustNotesProps) {
         return sp ? { ...n, ...at(sp) } : n;
       }));
     };
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       setDraggingId(null);
       if (!moved) {
         // Single click drops straight into editing the note in place (a drag,
@@ -909,8 +974,9 @@ export default function JustNotes(props: JustNotesProps) {
         }
       }
     };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingId, ambientOpen]);
 
@@ -1351,7 +1417,7 @@ export default function JustNotes(props: JustNotesProps) {
         zoom={view.zoom}
         grid={t.grid}
         smooth={smooth}
-        onMouseDown={onCanvasMouseDown}
+        onPointerDown={onCanvasPointerDown}
         onContextMenu={(e) => {
           // Notes stop propagation and open their own menu, so anything that
           // reaches here is empty canvas. Stop propagation so this event
@@ -1402,7 +1468,7 @@ export default function JustNotes(props: JustNotesProps) {
               focused={!!matchIds && matchIds[recallIdx] === n.id}
               selected={selectedIds.has(n.id)}
               scrubFade={scrubFadeFor(n)}
-              onMouseDown={(e) => onNoteMouseDown(e, n.id)}
+              onPointerDown={(e) => onNoteMouseDown(e, n.id)}
               clickPos={editingId === n.id ? editClickRef.current : null}
               onTextChange={(v) => updateNoteText(n.id, v)}
               onCommitEdit={commitEditing}
@@ -1543,13 +1609,13 @@ type CanvasProps = {
   zoom: number;
   grid: Tweaks["grid"];
   smooth: boolean;
-  onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void;
+  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
   onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
   children: React.ReactNode;
 };
 
 const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
-  { pan, zoom, grid, smooth, onMouseDown, onContextMenu, children },
+  { pan, zoom, grid, smooth, onPointerDown, onContextMenu, children },
   ref,
 ) {
   const gridStyle = useMemo<CSSProperties>(() => {
@@ -1585,7 +1651,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
       className="canvas"
       data-canvas="1"
       style={gridStyle}
-      onMouseDown={onMouseDown}
+      onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}
     >
       {children}
@@ -1597,7 +1663,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 function NoteCard({
   note, pos, fromClipboard, editing, dragging, snapping,
   dimmed, highlit, focused, selected, scrubFade,
-  onMouseDown, onTextChange, onCommitEdit, onContextMenu, onTagClick, onResizeStart, onHover, onToggleTask, clickPos,
+  onPointerDown, onTextChange, onCommitEdit, onContextMenu, onTagClick, onResizeStart, onHover, onToggleTask, clickPos,
 }: {
   note: Note;
   pos: { x: number; y: number };
@@ -1611,12 +1677,12 @@ function NoteCard({
   focused: boolean;
   selected: boolean;
   scrubFade: number;
-  onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void;
+  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
   onTextChange: (v: string) => void;
   onCommitEdit: () => void;
   onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
   onTagClick: (tag: string) => void;
-  onResizeStart: (e: React.MouseEvent<HTMLDivElement>, dir: ResizeDir) => void;
+  onResizeStart: (e: React.PointerEvent<HTMLDivElement>, dir: ResizeDir) => void;
   onToggleTask: (id: string, taskIndex: number) => void;
   clickPos?: { x: number; y: number } | null;
 }) {
@@ -1676,7 +1742,7 @@ function NoteCard({
       className={cls}
       data-note-id={note.id}
       style={style}
-      onMouseDown={(e) => {
+      onPointerDown={(e) => {
         const target = e.target as HTMLElement;
         const tagEl = target.closest("[data-tag]") as HTMLElement | null;
         if (tagEl && !editing) {
@@ -1686,7 +1752,7 @@ function NoteCard({
           if (tag) onTagClick(tag);
           return;
         }
-        onMouseDown(e);
+        onPointerDown(e);
       }}
       onMouseEnter={() => onHover(note.id)}
       onMouseLeave={() => onHover(null)}
@@ -1728,7 +1794,7 @@ function NoteCard({
           key={dir}
           className={`note-edge note-edge-${dir}`}
           aria-hidden="true"
-          onMouseDown={(e) => onResizeStart(e, dir)}
+          onPointerDown={(e) => onResizeStart(e, dir)}
         />
       ))}
     </div>

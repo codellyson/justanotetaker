@@ -62,6 +62,8 @@ body {
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
+  /* Take over touch so pointer events drive pan/pinch instead of page scroll. */
+  touch-action: none;
 }
 .canvas:active {
   cursor: grabbing;
@@ -131,6 +133,8 @@ body {
   cursor: default;
   user-select: none;
   overflow: hidden;
+  /* Touch drives drag/resize via pointer events, not scroll. */
+  touch-action: none;
   transition:
     opacity 220ms ease,
     filter 220ms ease,
@@ -381,6 +385,8 @@ body {
      no visible caret and no selection. Re-enable text selection for the editor. */
   -webkit-user-select: text;
   user-select: text;
+  /* While editing, let touch scroll/select text in the editor. */
+  touch-action: auto;
 }
 .note-cm .cm-editor {
   background: transparent;

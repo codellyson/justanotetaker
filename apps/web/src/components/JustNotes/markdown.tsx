@@ -28,7 +28,7 @@ function Img({ src, alt }: { src: string; alt: string }) {
       loading="lazy"
       referrerPolicy="no-referrer"
       draggable={false}
-      onMouseDown={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
       onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
     />
   );
@@ -37,7 +37,7 @@ function Img({ src, alt }: { src: string; alt: string }) {
 function Link({ href, children }: { href: string; children: React.ReactNode }) {
   if (!SAFE_HREF.test(href.trim())) return <>{children}</>;
   return (
-    <a href={href} target="_blank" rel="noreferrer" onMouseDown={(e) => e.stopPropagation()} onClick={onLinkClick(href)}>
+    <a href={href} target="_blank" rel="noreferrer" onMouseDown={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onClick={onLinkClick(href)}>
       {children}
     </a>
   );
@@ -189,7 +189,7 @@ export function renderBody(text: string, opts?: { onToggle?: (taskIndex: number)
             className="md-check"
             checked={done}
             onChange={() => onToggle?.(idx)}
-            onMouseDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           />
           <span>{renderInlineMd(task[2], `t${i}`)}</span>
@@ -272,7 +272,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
 
   if (!html) {
     return (
-      <pre className="md-code md-code-fallback" onMouseDown={(e) => e.stopPropagation()}>
+      <pre className="md-code md-code-fallback" onMouseDown={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
         <code>{code}</code>
       </pre>
     );
@@ -280,7 +280,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
   return (
     <div
       className="md-code"
-      onMouseDown={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
