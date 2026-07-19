@@ -54,8 +54,6 @@ body {
 .jn-root {
   position: fixed;
   inset: 0;
-  /* Soft fade when the canvas (re)mounts — smooths board switches. */
-  animation: justui-fade 140ms ease;
 }
 .canvas {
   position: absolute;
@@ -557,9 +555,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 11px 8px 9px 13px;
-  margin-bottom: 3px;
-  border-bottom: 1px solid rgb(var(--border) / 0.6);
+  padding: 10px 8px 7px 13px;
 }
 .ft-head-title {
   font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
@@ -586,11 +582,36 @@ body {
   background: rgb(var(--accent) / 0.16);
   color: rgb(var(--accent));
 }
+/* Recessed tray so the active board's lifted pill has something to sit in —
+   mirrors the old tab bar (darker track + inset shadow). */
 .ft-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 2px 6px 8px;
+  margin: 0 8px 8px;
+  padding: 4px;
+  border-radius: 10px;
+  background: rgb(var(--bg) / 0.38);
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.24);
   scrollbar-width: thin;
+  scrollbar-color: rgb(var(--text-secondary) / 0.28) transparent;
+}
+.ft-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+.ft-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.ft-scroll::-webkit-scrollbar-thumb {
+  background: rgb(var(--text-secondary) / 0.28);
+  border-radius: 5px;
+  /* Transparent border + padding-box clip makes the thumb read as a slim pill
+     inset from the panel edge rather than a full-width bar. */
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.ft-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--text-secondary) / 0.45);
+  background-clip: padding-box;
 }
 .ft-board-row {
   position: relative;
@@ -606,36 +627,37 @@ body {
   background: rgb(var(--text-primary) / 0.06);
   color: rgb(var(--text-primary));
 }
-/* Accent bar marks the active board. */
-.ft-board-row.active::before {
-  content: "";
-  position: absolute;
-  left: 1px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 2.5px;
-  height: 15px;
-  border-radius: 2px;
-  background: rgb(var(--accent));
+/* Active board: a lifted "bevelled" pill — accent tint under a top sheen, an
+   inset accent edge, and a soft drop shadow (the old active-tab treatment). */
+.ft-board-row.active {
+  color: rgb(var(--text-primary));
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.10), rgb(255 255 255 / 0.015)),
+    rgb(var(--accent) / 0.12);
+  box-shadow:
+    inset 0 0 0 1px rgb(var(--accent) / 0.20),
+    inset 0 1px 0 rgb(255 255 255 / 0.22),
+    0 2px 8px -3px rgb(0 0 0 / 0.35);
 }
-.ft-board-toggle {
-  flex: 1;
-  min-width: 0;
-  display: flex;
+.ft-board-row.active:hover {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.13), rgb(255 255 255 / 0.02)),
+    rgb(var(--accent) / 0.15);
+}
+.ft-board-row.active .ft-board-name {
+  color: rgb(var(--accent));
+  font-weight: 600;
+}
+.ft-caret-btn {
+  flex: none;
+  display: inline-flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
   padding: 0;
   border: 0;
   background: transparent;
   cursor: pointer;
   color: inherit;
-  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
-  font-size: 12.5px;
-  text-align: left;
-}
-.ft-board-row.active .ft-board-name {
-  color: rgb(var(--accent));
-  font-weight: 600;
 }
 .ft-caret {
   flex: none;
@@ -652,6 +674,15 @@ body {
 }
 .ft-board-name {
   flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 12.5px;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -680,25 +711,19 @@ body {
   background: rgb(var(--text-primary) / 0.06);
   transition: opacity 120ms ease;
 }
-/* On hover the row's action icons replace the count. */
+/* On hover the row's action icons replace the count, swapped in the same slot
+   in normal flow — no absolute overlay, so the icons are always clickable. */
 .ft-board-actions {
-  position: absolute;
-  right: 5px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
+  flex: none;
+  display: none;
   align-items: center;
   gap: 1px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease;
 }
 .ft-board-row:hover .ft-board-actions {
-  opacity: 1;
-  pointer-events: auto;
+  display: flex;
 }
 .ft-board-row:hover .ft-count {
-  opacity: 0;
+  display: none;
 }
 .ft-icon-btn {
   display: inline-flex;
@@ -723,13 +748,23 @@ body {
   color: rgb(var(--danger));
 }
 .ft-confirm {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
 }
 .ft-confirm-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   color: rgb(var(--text-muted));
+}
+.ft-confirm-btn {
+  flex: none;
 }
 .ft-confirm-btn {
   padding: 1px 7px;
@@ -754,13 +789,16 @@ body {
 }
 .ft-notes {
   list-style: none;
-  margin: 1px 0 4px;
+  margin: 2px 0 6px;
   padding: 0;
+}
+.ft-notes li + li {
+  margin-top: 2px;
 }
 .ft-note {
   width: 100%;
   display: block;
-  padding: 4px 8px 4px 27px;
+  padding: 5px 8px 5px 27px;
   border: 0;
   background: transparent;
   cursor: pointer;

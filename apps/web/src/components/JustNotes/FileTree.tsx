@@ -41,6 +41,7 @@ export function FileTree({
   selectedIds,
   onSelectNote,
   onCreateNote,
+  onSwitchBoard,
   onCreateBoard,
   onRenameBoard,
   onDeleteBoard,
@@ -52,6 +53,7 @@ export function FileTree({
   selectedIds: Set<string>;
   onSelectNote: (boardId: string, noteId: string) => void;
   onCreateNote: (boardId: string) => void;
+  onSwitchBoard: (id: string) => void;
   onCreateBoard: () => void;
   onRenameBoard: (id: string, name: string) => void;
   onDeleteBoard: (id: string) => void;
@@ -124,32 +126,43 @@ export function FileTree({
               <div className={"ft-board-row" + (active ? " active" : "")}>
                 <button
                   type="button"
-                  className="ft-board-toggle"
+                  className="ft-caret-btn"
                   onClick={() => toggle(b.id)}
                   aria-expanded={open}
+                  aria-label={(open ? "Collapse " : "Expand ") + b.name}
                 >
                   <span className={"ft-caret" + (open ? " open" : "")} aria-hidden="true">
                     {ICON.caret}
                   </span>
-                  {renaming ? (
-                    <input
-                      className="ft-rename-input"
-                      value={renameDraft}
-                      autoFocus
-                      onFocus={(e) => e.currentTarget.select()}
-                      onChange={(e) => setRenameDraft(e.target.value)}
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => {
-                        e.stopPropagation();
-                        if (e.key === "Enter") commitRename();
-                        else if (e.key === "Escape") setRenameId(null);
-                      }}
-                      onBlur={commitRename}
-                    />
-                  ) : (
-                    <span className="ft-board-name">{b.name}</span>
-                  )}
                 </button>
+                {renaming ? (
+                  <input
+                    className="ft-rename-input"
+                    value={renameDraft}
+                    autoFocus
+                    onFocus={(e) => e.currentTarget.select()}
+                    onChange={(e) => setRenameDraft(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === "Enter") commitRename();
+                      else if (e.key === "Escape") setRenameId(null);
+                    }}
+                    onBlur={commitRename}
+                  />
+                ) : confirming ? null : (
+                  <button
+                    type="button"
+                    className="ft-board-name"
+                    title={b.name}
+                    onClick={() => {
+                      setExpanded((prev) => new Set(prev).add(b.id));
+                      onSwitchBoard(b.id);
+                    }}
+                  >
+                    {b.name}
+                  </button>
+                )}
 
                 {!renaming && !confirming && (
                   <>

@@ -79,7 +79,8 @@ export type JustNotesProps = Persist & {
   onBoardCreate: (boardId: string) => void;
   spawnRequested?: boolean;
   onSpawnConsumed: () => void;
-  // File-tree board management (header "+", per-row rename/delete).
+  // File-tree board management (row click switches, header "+", rename/delete).
+  onSwitchBoard: (id: string) => void;
   onCreateBoard: () => void;
   onRenameBoard: (id: string, name: string) => void;
   onDeleteBoard: (id: string) => void;
@@ -100,7 +101,7 @@ type UndoOp =
 
 // ── App ────────────────────────────────────────────────────────────────
 export default function JustNotes(props: JustNotesProps) {
-  const { initialNotes, tweaks: t, setTweak, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete, refresh, boards, activeBoardId, notesByBoard, onBoardJump, focusNoteId, onFocusConsumed, onBoardCreate, spawnRequested, onSpawnConsumed, onCreateBoard, onRenameBoard, onDeleteBoard } = props;
+  const { initialNotes, tweaks: t, setTweak, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete, refresh, boards, activeBoardId, notesByBoard, onBoardJump, focusNoteId, onFocusConsumed, onBoardCreate, spawnRequested, onSpawnConsumed, onSwitchBoard, onCreateBoard, onRenameBoard, onDeleteBoard } = props;
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [tokensOpen, setTokensOpen] = useState(false);
 
@@ -1432,6 +1433,7 @@ export default function JustNotes(props: JustNotesProps) {
         selectedIds={selectedIds}
         onSelectNote={selectTreeNote}
         onCreateNote={createTreeNote}
+        onSwitchBoard={onSwitchBoard}
         onCreateBoard={onCreateBoard}
         onRenameBoard={onRenameBoard}
         onDeleteBoard={onDeleteBoard}

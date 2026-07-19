@@ -6,7 +6,6 @@ import { useBoards } from "../hooks/useBoards";
 import { useAllNotes } from "../hooks/useAllNotes";
 import { useSettings } from "../hooks/useSettings";
 import { authClient } from "../lib/auth-client";
-import { BoardTabs } from "./BoardTabs";
 
 export function JustNotesLoader() {
   const { data: session, isPending } = authClient.useSession();
@@ -21,19 +20,9 @@ function Session() {
   const allNotes = useAllNotes();
   if (!boards.ready || !settings.ready || !boards.activeBoard) return null;
 
-  return (
-    <>
-      <BoardTabs
-        boards={boards.boards}
-        activeBoardId={boards.activeBoardId}
-        onSwitch={boards.setActiveBoard}
-        onNew={() => void boards.createBoard()}
-        onRename={boards.renameBoard}
-        onClose={boards.deleteBoard}
-      />
-      <Canvas boards={boards} settings={settings} allNotes={allNotes} />
-    </>
-  );
+  // Board switching/creation/rename/delete all live in the file-tree sidebar
+  // now; the top tab bar was removed.
+  return <Canvas boards={boards} settings={settings} allNotes={allNotes} />;
 }
 
 // Owns the notes for the active board and swaps the rendered canvas only once
@@ -108,6 +97,7 @@ function Canvas({ boards, settings, allNotes }: {
       onBoardCreate={requestBoardCreate}
       spawnRequested={spawnRequested}
       onSpawnConsumed={() => setSpawnReq(null)}
+      onSwitchBoard={boards.setActiveBoard}
       onCreateBoard={() => void boards.createBoard()}
       onRenameBoard={boards.renameBoard}
       onDeleteBoard={boards.deleteBoard}
