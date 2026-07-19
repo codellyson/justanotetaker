@@ -5,9 +5,29 @@ import type { NotesByBoard } from "../../hooks/useAllNotes";
 
 type Entry = { id: string; title: string; t: number };
 
+// The tree shows plain-text titles, so strip the markdown the note stores:
+// leading block markers (heading/quote/list/task) then inline emphasis, code,
+// highlight, and link syntax. A bare `#tag` (no space) is left intact.
+function plainTitle(text: string): string {
+  let s = firstNonEmpty(text).trim();
+  if (!s) return "Untitled";
+  s = s
+    .replace(/^#{1,6}\s+/, "")
+    .replace(/^>\s+/, "")
+    .replace(/^(?:[-*+]|\d+\.)\s+(?:\[[ xX]\]\s+)?/, "");
+  s = s
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1")
+    .replace(/==([^=]+)==/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  return s.trim() || "Untitled";
+}
+
 function toEntries(notes: { id: string; text: string; t: number }[]): Entry[] {
   return notes
-    .map((n) => ({ id: n.id, title: firstNonEmpty(n.text).trim() || "Untitled", t: n.t }))
+    .map((n) => ({ id: n.id, title: plainTitle(n.text), t: n.t }))
     // Stable order by id — never reshuffles when a note is edited/selected, and
     // is identical whether the board is active (live) or not (snapshot).
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -21,6 +41,9 @@ export function FileTree({
   selectedIds,
   onSelectNote,
   onCreateNote,
+  onCreateBoard,
+  onRenameBoard,
+  onDeleteBoard,
 }: {
   boards: Board[];
   activeBoardId: string;
@@ -29,9 +52,15 @@ export function FileTree({
   selectedIds: Set<string>;
   onSelectNote: (boardId: string, noteId: string) => void;
   onCreateNote: (boardId: string) => void;
+  onCreateBoard: () => void;
+  onRenameBoard: (id: string, name: string) => void;
+  onDeleteBoard: (id: string) => void;
 }) {
   // The active board starts open; others collapsed. Toggling is per-session.
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([activeBoardId]));
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Active board's entries come from the live canvas notes (so edits/creates
   // show immediately); other boards from the all-boards snapshot.
@@ -55,39 +84,134 @@ export function FileTree({
       return next;
     });
 
+  const startRename = (b: Board) => {
+    setConfirmDeleteId(null);
+    setRenameDraft(b.name);
+    setRenameId(b.id);
+  };
+  const commitRename = () => {
+    if (renameId) {
+      const name = renameDraft.trim();
+      if (name) onRenameBoard(renameId, name);
+    }
+    setRenameId(null);
+  };
+
   return (
     <nav className="chrome file-tree" aria-label="Notes">
-      <div className="ft-head">Notes</div>
+      <div className="ft-head">
+        <span className="ft-head-title">Notes</span>
+        <button
+          type="button"
+          className="ft-head-add"
+          title="New board"
+          aria-label="New board"
+          onClick={onCreateBoard}
+        >
+          {ICON.plus}
+        </button>
+      </div>
       <div className="ft-scroll">
         {boards.map((b) => {
           const entries = entriesByBoard.get(b.id) ?? [];
           const open = expanded.has(b.id);
+          const active = b.id === activeBoardId;
+          const renaming = renameId === b.id;
+          const confirming = confirmDeleteId === b.id;
+          const canDelete = boards.length > 1;
           return (
             <div className="ft-board" key={b.id}>
-              <div className={"ft-board-row" + (b.id === activeBoardId ? " active" : "")}>
+              <div className={"ft-board-row" + (active ? " active" : "")}>
                 <button
                   type="button"
                   className="ft-board-toggle"
                   onClick={() => toggle(b.id)}
                   aria-expanded={open}
                 >
-                  <span className={"ft-caret" + (open ? " open" : "")} aria-hidden="true">›</span>
-                  <span className="ft-board-name">{b.name}</span>
+                  <span className={"ft-caret" + (open ? " open" : "")} aria-hidden="true">
+                    {ICON.caret}
+                  </span>
+                  {renaming ? (
+                    <input
+                      className="ft-rename-input"
+                      value={renameDraft}
+                      autoFocus
+                      onFocus={(e) => e.currentTarget.select()}
+                      onChange={(e) => setRenameDraft(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === "Enter") commitRename();
+                        else if (e.key === "Escape") setRenameId(null);
+                      }}
+                      onBlur={commitRename}
+                    />
+                  ) : (
+                    <span className="ft-board-name">{b.name}</span>
+                  )}
                 </button>
-                <button
-                  type="button"
-                  className="ft-add"
-                  title={"New note in " + b.name}
-                  aria-label={"New note in " + b.name}
-                  onClick={() => {
-                    setExpanded((prev) => new Set(prev).add(b.id));
-                    onCreateNote(b.id);
-                  }}
-                >
-                  +
-                </button>
-                <span className="ft-count">{entries.length}</span>
+
+                {!renaming && !confirming && (
+                  <>
+                    <div className="ft-board-actions">
+                      <button
+                        type="button"
+                        className="ft-icon-btn"
+                        title={"New note in " + b.name}
+                        aria-label={"New note in " + b.name}
+                        onClick={() => {
+                          setExpanded((prev) => new Set(prev).add(b.id));
+                          onCreateNote(b.id);
+                        }}
+                      >
+                        {ICON.plus}
+                      </button>
+                      <button
+                        type="button"
+                        className="ft-icon-btn"
+                        title={"Rename " + b.name}
+                        aria-label={"Rename " + b.name}
+                        onClick={() => startRename(b)}
+                      >
+                        {ICON.pencil}
+                      </button>
+                      {canDelete && (
+                        <button
+                          type="button"
+                          className="ft-icon-btn ft-del"
+                          title={"Delete " + b.name}
+                          aria-label={"Delete " + b.name}
+                          onClick={() => { setRenameId(null); setConfirmDeleteId(b.id); }}
+                        >
+                          {ICON.trash}
+                        </button>
+                      )}
+                    </div>
+                    <span className="ft-count">{entries.length}</span>
+                  </>
+                )}
+
+                {confirming && (
+                  <div className="ft-confirm">
+                    <span className="ft-confirm-label">delete?</span>
+                    <button
+                      type="button"
+                      className="ft-confirm-btn danger"
+                      onClick={() => { setConfirmDeleteId(null); onDeleteBoard(b.id); }}
+                    >
+                      yes
+                    </button>
+                    <button
+                      type="button"
+                      className="ft-confirm-btn"
+                      onClick={() => setConfirmDeleteId(null)}
+                    >
+                      no
+                    </button>
+                  </div>
+                )}
               </div>
+
               {open && (
                 <ul className="ft-notes">
                   {entries.length === 0 ? (
@@ -115,3 +239,27 @@ export function FileTree({
     </nav>
   );
 }
+
+const ICON = {
+  plus: (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  ),
+  caret: (
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 6l6 6-6 6" />
+    </svg>
+  ),
+  pencil: (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  ),
+  trash: (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+    </svg>
+  ),
+};

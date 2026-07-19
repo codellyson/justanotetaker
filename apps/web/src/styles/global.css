@@ -546,13 +546,45 @@ body {
   backdrop-filter: blur(8px);
   overflow: hidden;
 }
+/* No focus ring in the tree — it renders as a boxed outline on the dark panel
+   and the app suppresses outlines everywhere else. Active-board accent + row
+   hover carry the state instead. */
+.file-tree button:focus,
+.file-tree button:focus-visible {
+  outline: none;
+}
 .ft-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 8px 9px 13px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid rgb(var(--border) / 0.6);
+}
+.ft-head-title {
   font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 11px;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: rgb(var(--text-muted));
-  padding: 10px 12px 6px;
+}
+.ft-head-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgb(var(--text-muted));
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.ft-head-add:hover {
+  background: rgb(var(--accent) / 0.16);
+  color: rgb(var(--accent));
 }
 .ft-scroll {
   flex: 1;
@@ -561,11 +593,12 @@ body {
   scrollbar-width: thin;
 }
 .ft-board-row {
+  position: relative;
   width: 100%;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 6px;
+  padding: 5px 6px 5px 8px;
   border-radius: 8px;
   color: rgb(var(--text-secondary));
 }
@@ -573,12 +606,24 @@ body {
   background: rgb(var(--text-primary) / 0.06);
   color: rgb(var(--text-primary));
 }
+/* Accent bar marks the active board. */
+.ft-board-row.active::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2.5px;
+  height: 15px;
+  border-radius: 2px;
+  background: rgb(var(--accent));
+}
 .ft-board-toggle {
   flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -589,38 +634,16 @@ body {
   text-align: left;
 }
 .ft-board-row.active .ft-board-name {
-  color: rgb(var(--text-primary));
+  color: rgb(var(--accent));
   font-weight: 600;
 }
-.ft-add {
+.ft-caret {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 17px;
-  height: 17px;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: rgb(var(--text-muted));
-  font-size: 15px;
-  line-height: 1;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
-}
-.ft-board-row:hover .ft-add {
-  opacity: 1;
-}
-.ft-add:hover {
-  background: rgb(var(--accent) / 0.16);
-  color: rgb(var(--accent));
-}
-.ft-caret {
-  display: inline-flex;
-  justify-content: center;
-  width: 12px;
+  width: 14px;
+  height: 14px;
   color: rgb(var(--text-muted));
   transition: transform 150ms ease;
 }
@@ -633,19 +656,111 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.ft-rename-input {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 5px;
+  border: 1px solid rgb(var(--accent) / 0.6);
+  border-radius: 5px;
+  background: rgb(var(--bg) / 0.6);
+  color: rgb(var(--text-primary));
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 12.5px;
+  outline: none;
+}
 .ft-count {
+  flex: none;
+  min-width: 16px;
+  text-align: center;
+  padding: 1px 5px;
+  border-radius: 10px;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: rgb(var(--text-muted));
+  background: rgb(var(--text-primary) / 0.06);
+  transition: opacity 120ms ease;
+}
+/* On hover the row's action icons replace the count. */
+.ft-board-actions {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.ft-board-row:hover .ft-board-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.ft-board-row:hover .ft-count {
+  opacity: 0;
+}
+.ft-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 21px;
+  height: 21px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: rgb(var(--text-muted));
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.ft-icon-btn:hover {
+  background: rgb(var(--accent) / 0.16);
+  color: rgb(var(--accent));
+}
+.ft-icon-btn.ft-del:hover {
+  background: rgb(var(--danger) / 0.16);
+  color: rgb(var(--danger));
+}
+.ft-confirm {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ft-confirm-label {
   font-size: 11px;
   color: rgb(var(--text-muted));
 }
+.ft-confirm-btn {
+  padding: 1px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: rgb(var(--text-primary) / 0.08);
+  color: rgb(var(--text-secondary));
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ft-confirm-btn:hover {
+  background: rgb(var(--text-primary) / 0.14);
+  color: rgb(var(--text-primary));
+}
+.ft-confirm-btn.danger {
+  background: rgb(var(--danger) / 0.16);
+  color: rgb(var(--danger));
+}
+.ft-confirm-btn.danger:hover {
+  background: rgb(var(--danger) / 0.26);
+}
 .ft-notes {
   list-style: none;
-  margin: 0 0 2px;
+  margin: 1px 0 4px;
   padding: 0;
 }
 .ft-note {
   width: 100%;
   display: block;
-  padding: 4px 8px 4px 24px;
+  padding: 4px 8px 4px 27px;
   border: 0;
   background: transparent;
   cursor: pointer;
@@ -667,7 +782,7 @@ body {
   color: rgb(var(--accent));
 }
 .ft-empty {
-  padding: 3px 8px 3px 24px;
+  padding: 3px 8px 3px 27px;
   font-size: 11.5px;
   font-style: italic;
   color: rgb(var(--text-muted) / 0.7);

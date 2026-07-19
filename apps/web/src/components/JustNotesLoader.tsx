@@ -108,6 +108,9 @@ function Canvas({ boards, settings, allNotes }: {
       onBoardCreate={requestBoardCreate}
       spawnRequested={spawnRequested}
       onSpawnConsumed={() => setSpawnReq(null)}
+      onCreateBoard={() => void boards.createBoard()}
+      onRenameBoard={boards.renameBoard}
+      onDeleteBoard={boards.deleteBoard}
     />
   );
 }
