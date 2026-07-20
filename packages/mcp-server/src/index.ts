@@ -186,9 +186,10 @@ function runClaude(prompt: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const args = ["-p", "--output-format", "text", "--strict-mcp-config"];
     if (CLAUDE_MODEL) args.push("--model", CLAUDE_MODEL);
-    // shell:true so Windows resolves claude.cmd/.exe off PATH; the prompt goes
-    // in via stdin, never the command line, so there's nothing to escape.
-    const child = spawn(CLAUDE_BIN, args, { shell: true, windowsHide: true });
+    // No shell: POSIX resolves a bare "claude" off PATH; on Windows the CLI is a
+    // real .exe that cmd won't find on PATH, so point JUSTNOTE_CLAUDE_BIN at its
+    // full path. The prompt goes in via stdin, never the argv.
+    const child = spawn(CLAUDE_BIN, args, { windowsHide: true });
     let out = "";
     let err = "";
     child.stdout.on("data", (d) => (out += d.toString()));

@@ -145,8 +145,10 @@ so a note you drop in the composer just sits there until something pokes the
 agent. Watch mode is that poke: it turns a board into a live back-and-forth.
 
 ```sh
-# PowerShell
+# PowerShell (Windows: set JUSTNOTE_CLAUDE_BIN to the full claude.exe path —
+# the CLI isn't resolvable as a bare command outside PowerShell)
 $env:JUSTNOTE_TOKEN="jnt_…"; $env:JUSTNOTE_API_URL="http://localhost:8787"
+$env:JUSTNOTE_CLAUDE_BIN="$HOME\.local\bin\claude.exe"
 node packages/mcp-server/dist/index.js watch "Agent"
 ```
 
