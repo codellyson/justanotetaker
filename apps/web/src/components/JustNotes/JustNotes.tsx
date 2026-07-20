@@ -1715,7 +1715,6 @@ export default function JustNotes(props: JustNotesProps) {
         onOverview={() => { markInteracted(); toggleOverview(); }}
         relationsActive={relationsOn}
         onRelations={() => { markInteracted(); setRelationsOn((v) => !v); }}
-        agentSessionShow={isTauri}
         agentSessionActive={liveBoards.includes(activeBoardId)}
         onAgentSession={() => { markInteracted(); toggleLiveBoard(); }}
         onGraveyard={() => setGraveyardOpen(true)}
@@ -2100,7 +2099,6 @@ type ToolbarProps = {
   onOverview: () => void;
   relationsActive: boolean;
   onRelations: () => void;
-  agentSessionShow: boolean;
   agentSessionActive: boolean;
   onAgentSession: () => void;
   onGraveyard: () => void;
@@ -2121,15 +2119,13 @@ function Toolbar(p: ToolbarProps) {
       <TbBtn label="Search" onClick={p.onSearch}>{TB_ICON.search}</TbBtn>
       <TbBtn label="Overview" active={p.overviewActive} onClick={p.onOverview}>{TB_ICON.overview}</TbBtn>
       <TbBtn label="Relations" active={p.relationsActive} onClick={p.onRelations}>{TB_ICON.relations}</TbBtn>
-      {p.agentSessionShow && (
-        <TbBtn
-          label={p.agentSessionActive ? "Live agent session · on (click to stop)" : "Make this board a live agent session"}
-          active={p.agentSessionActive}
-          onClick={p.onAgentSession}
-        >
-          {TB_ICON.agent}
-        </TbBtn>
-      )}
+      <TbBtn
+        label={p.agentSessionActive ? "Live agent session · on (click to stop)" : "Make this a live agent session — the desktop app answers new turns"}
+        active={p.agentSessionActive}
+        onClick={p.onAgentSession}
+      >
+        {TB_ICON.agent}
+      </TbBtn>
       <TbBtn label="Recently deleted" onClick={p.onGraveyard}>{TB_ICON.graveyard}</TbBtn>
 
       <div className="tb-sep" aria-hidden="true" />
