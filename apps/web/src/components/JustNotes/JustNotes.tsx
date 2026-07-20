@@ -144,6 +144,18 @@ export default function JustNotes(props: JustNotesProps) {
     };
   }, [refresh]);
 
+  // Merge server notes we don't already hold, without clobbering an in-progress
+  // edit/drag or resurrecting a just-deleted note. Same guard as the background
+  // pull; used by the agent-session reply listener for an immediate refresh.
+  const mergeServer = useCallback((server: Note[]) => {
+    if (!server.length) return;
+    setNotes((prev) => {
+      const have = new Set(prev.map((n) => n.id));
+      const additions = server.filter((n) => !have.has(n.id) && !deletedRef.current.has(n.id));
+      return additions.length ? [...prev, ...additions] : prev;
+    });
+  }, []);
+
   const [view, setView] = useState<View>({ pan: { x: 0, y: 0 }, zoom: 1 });
   const viewRef = useRef(view);
   useEffect(() => { viewRef.current = view; }, [view]);
@@ -760,6 +772,15 @@ export default function JustNotes(props: JustNotesProps) {
   function createTreeNote(boardId: string) {
     if (boardId !== activeBoardId) { onBoardCreate(boardId); return; }
     spawnAtCenter("");
+  }
+
+  // Mark/unmark the current board as a live agent session (desktop watcher).
+  function toggleLiveBoard() {
+    const cur = tweakRef.current.liveBoards ?? [];
+    const next = cur.includes(activeBoardId)
+      ? cur.filter((id) => id !== activeBoardId)
+      : [...cur, activeBoardId];
+    setTweak("liveBoards", next);
   }
 
   // Composer: drop your next turn as a user note below the thread, then fly to
@@ -1430,6 +1451,55 @@ export default function JustNotes(props: JustNotesProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t.clipboardCapture]);
 
+  // Desktop agent sessions. The Rust watcher answers new turns on the boards the
+  // user marked live; keep it in sync with the persisted list. Empty → stop.
+  const liveBoards = t.liveBoards ?? [];
+  const liveKey = liveBoards.join(",");
+  useEffect(() => {
+    if (!isTauri) return;
+    void import("@tauri-apps/api/core").then(({ invoke }) => {
+      if (liveBoards.length === 0) {
+        void invoke("agent_sessions_stop");
+      } else {
+        void invoke("agent_sessions_start", { url: API_BASE_URL, boards: liveBoards });
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveKey]);
+
+  // When the watcher posts a reply, pull it onto the canvas at once (instead of
+  // waiting for the 20s background refresh) — but only if that board is on screen.
+  useEffect(() => {
+    if (!isTauri || !refresh) return;
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      if (cancelled) return;
+      unlisten = await listen<string>("agent-sessions://replied", async (e) => {
+        if (e.payload !== activeBoardId) return;
+        const server = await refresh();
+        if (!cancelled) mergeServer(server);
+      });
+    })();
+    return () => { cancelled = true; unlisten?.(); };
+  }, [refresh, activeBoardId, mergeServer]);
+
+  // Surface watcher failures (e.g. a wrong claude path, or claude erroring out).
+  useEffect(() => {
+    if (!isTauri) return;
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      if (cancelled) return;
+      unlisten = await listen<string>("agent-sessions://error", (e) => {
+        console.error("[agent-sessions]", e.payload);
+      });
+    })();
+    return () => { cancelled = true; unlisten?.(); };
+  }, []);
+
   // ── Render ─────────────────────────────────────────────────────────
   // Overview = zoomed way out, or entered via z (can settle at zoom≈1 for a
   // tight cluster). prevViewRef flips alongside a setView, so it's safe here.
@@ -1645,6 +1715,9 @@ export default function JustNotes(props: JustNotesProps) {
         onOverview={() => { markInteracted(); toggleOverview(); }}
         relationsActive={relationsOn}
         onRelations={() => { markInteracted(); setRelationsOn((v) => !v); }}
+        agentSessionShow={isTauri}
+        agentSessionActive={liveBoards.includes(activeBoardId)}
+        onAgentSession={() => { markInteracted(); toggleLiveBoard(); }}
         onGraveyard={() => setGraveyardOpen(true)}
         onTweaks={() => setTweaksOpen(true)}
         onHelp={() => setHelpOpen(true)}
@@ -1999,6 +2072,7 @@ const TB_ICON = {
   tweaks: svg(<><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="2.2" /><circle cx="15" cy="17" r="2.2" /></>),
   help: svg(<><circle cx="12" cy="12" r="9" /><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.3c-.9.4-1.4 1-1.4 2" /><path d="M12 17h.01" /></>),
   account: svg(<><circle cx="12" cy="8.5" r="3.5" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></>),
+  agent: svg(<path d="M12 3l1.5 5.2L18.5 10l-5 1.8L12 17l-1.5-5.2L5.5 10l5-1.8z" />, true),
 };
 
 function TbBtn({ label, active, dot, onClick, children }: {
@@ -2026,6 +2100,9 @@ type ToolbarProps = {
   onOverview: () => void;
   relationsActive: boolean;
   onRelations: () => void;
+  agentSessionShow: boolean;
+  agentSessionActive: boolean;
+  onAgentSession: () => void;
   onGraveyard: () => void;
   onTweaks: () => void;
   onHelp: () => void;
@@ -2044,6 +2121,15 @@ function Toolbar(p: ToolbarProps) {
       <TbBtn label="Search" onClick={p.onSearch}>{TB_ICON.search}</TbBtn>
       <TbBtn label="Overview" active={p.overviewActive} onClick={p.onOverview}>{TB_ICON.overview}</TbBtn>
       <TbBtn label="Relations" active={p.relationsActive} onClick={p.onRelations}>{TB_ICON.relations}</TbBtn>
+      {p.agentSessionShow && (
+        <TbBtn
+          label={p.agentSessionActive ? "Live agent session · on (click to stop)" : "Make this board a live agent session"}
+          active={p.agentSessionActive}
+          onClick={p.onAgentSession}
+        >
+          {TB_ICON.agent}
+        </TbBtn>
+      )}
       <TbBtn label="Recently deleted" onClick={p.onGraveyard}>{TB_ICON.graveyard}</TbBtn>
 
       <div className="tb-sep" aria-hidden="true" />

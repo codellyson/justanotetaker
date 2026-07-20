@@ -165,6 +165,15 @@ as an agent note. That means:
 Leave it running in a terminal for as long as you want the board to be live;
 `Ctrl+C` stops it. Set `JUSTNOTE_WATCH_MODEL` to pin a specific model.
 
+### In the desktop app
+
+The desktop build manages this for you — no terminal. Open a board and hit the
+**agent-session** button in the toolbar to mark it live; the app runs the same
+watch loop in-process, reusing your signed-in session (no token to set) and your
+local `claude` install, and answers new turns on every board you've marked.
+Click again to stop. It looks for `claude` at the default install path, or set
+`JUSTNOTE_CLAUDE_BIN` if yours lives elsewhere.
+
 ---
 
 ## How it works (for the curious)
