@@ -239,6 +239,14 @@ body {
     opacity: 0.5;
   }
 }
+/* The conversation spine is persistent, not a hover reveal — a calm dashed
+   tie from each answer back to its question. */
+.reply-threads path {
+  stroke: rgb(var(--accent));
+  stroke-dasharray: 3 6;
+  animation: none;
+  opacity: 0.4;
+}
 .note:hover:not(.editing):not(.dim):not(.dragging) {
   box-shadow: 0 0 0 1px rgb(var(--border));
 }

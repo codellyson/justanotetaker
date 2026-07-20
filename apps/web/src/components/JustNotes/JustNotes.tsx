@@ -1499,6 +1499,37 @@ export default function JustNotes(props: JustNotesProps) {
     return out;
   }, [relationsOn, hoveredId, selectedIds, notes, t.noteWidth]);
 
+  // Persistent conversation spine: on a board that holds agent replies, tie each
+  // reply back to the turn it answers (its nearest preceding non-agent note),
+  // reusing the relation-thread visual. Always on — it's what makes the board
+  // read as a thread, not the hover-gated tag relations.
+  const replyThreads = useMemo(() => {
+    if (!notes.some((n) => n.role === "assistant")) return [];
+    const ordered = [...notes].sort((a, b) => a.t - b.t);
+    const center = (n: Note) => ({
+      x: n.x + (n.w ?? t.noteWidth) / 2,
+      y: n.y + (n.h ?? 56) / 2,
+    });
+    const out: { id: string; d: string }[] = [];
+    for (let i = 0; i < ordered.length; i++) {
+      const ans = ordered[i];
+      if (ans.role !== "assistant") continue;
+      let q: Note | null = null;
+      for (let j = i - 1; j >= 0; j--) {
+        if (ordered[j].role !== "assistant") { q = ordered[j]; break; }
+      }
+      if (!q) continue;
+      const a = center(q), b = center(ans);
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const bow = Math.min(48, len * 0.14);
+      const cx = mx + (-dy / len) * bow, cy = my + (dx / len) * bow;
+      out.push({ id: ans.id, d: `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}` });
+    }
+    return out;
+  }, [notes, t.noteWidth]);
+
   const rootStyle: CSSProperties = {
     ["--radius" as string]: `${t.radius}px`,
     ["--note-w" as string]: `${t.noteWidth}px`,
@@ -1540,6 +1571,13 @@ export default function JustNotes(props: JustNotesProps) {
                 height: marquee.y1 - marquee.y0,
               }}
             />
+          )}
+          {replyThreads.length > 0 && (
+            <svg className="relation-threads reply-threads" aria-hidden="true">
+              {replyThreads.map((th) => (
+                <path key={th.id} d={th.d} pathLength={1} />
+              ))}
+            </svg>
           )}
           {relationThreads.length > 0 && (
             <svg className="relation-threads" aria-hidden="true">
