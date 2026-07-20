@@ -10,6 +10,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
+    "watch": "node dist/index.js watch",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

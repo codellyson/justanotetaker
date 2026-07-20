@@ -130,8 +130,38 @@ Restart the agent, and it will discover the three tools. Now just talk to it:
 |---|---|---|
 | `JUSTNOTE_TOKEN` | yes | — (your `jnt_…` token) |
 | `JUSTNOTE_API_URL` | no | `https://api.justanotetaker.kreativekorna.com` |
+| `JUSTNOTE_WATCH_INTERVAL` | no | `3000` (watch-mode poll, ms) |
+| `JUSTNOTE_WATCH_MODEL` | no | — (model for watch-mode replies) |
+| `JUSTNOTE_CLAUDE_BIN` | no | `claude` (CLI to drive in watch mode) |
 
 Point `JUSTNOTE_API_URL` at your own deployment if you self-host the API.
+
+---
+
+## Live agent sessions (watch mode)
+
+The MCP tools are **pull-only** — the agent replies only when *you* prompt it,
+so a note you drop in the composer just sits there until something pokes the
+agent. Watch mode is that poke: it turns a board into a live back-and-forth.
+
+```sh
+# PowerShell
+$env:JUSTNOTE_TOKEN="jnt_…"; $env:JUSTNOTE_API_URL="http://localhost:8787"
+node packages/mcp-server/dist/index.js watch "Agent"
+```
+
+It polls the board; when your latest note is an unanswered turn, it runs your
+local `claude` CLI **headless** (`claude -p`) to write a reply and posts it back
+as an agent note. That means:
+
+- **No API key** — it uses your existing Claude Code sign-in, same as the CLI.
+- Replies land on the canvas on their own — type in the composer, the answer
+  appears below it a few seconds later.
+- `--strict-mcp-config` keeps that headless run from re-loading this MCP server,
+  so it just writes text; the watcher owns the posting.
+
+Leave it running in a terminal for as long as you want the board to be live;
+`Ctrl+C` stops it. Set `JUSTNOTE_WATCH_MODEL` to pin a specific model.
 
 ---
 

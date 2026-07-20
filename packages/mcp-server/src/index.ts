@@ -13,6 +13,7 @@
 //   }
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { spawn } from "node:child_process";
 import { z } from "zod";
 
 const API_URL = (process.env.JUSTNOTE_API_URL ?? "https://api.justanotetaker.kreativekorna.com").replace(/\/$/, "");
@@ -170,6 +171,97 @@ server.registerTool(
   },
 );
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
-console.error(`[justanotetaker-mcp] connected → ${API_URL}`);
+// ── Watch mode ────────────────────────────────────────────────────────────
+// `justanotetaker-mcp watch <board>` turns a board into a live agent session:
+// poll for a new unanswered turn, drive the local `claude` CLI headless to
+// write a reply (the user's own auth — no API key), and post it back as an
+// assistant note. This is the push the MCP tools can't do on their own.
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const POLL_MS = Number(process.env.JUSTNOTE_WATCH_INTERVAL ?? 3000);
+const CLAUDE_BIN = process.env.JUSTNOTE_CLAUDE_BIN ?? "claude";
+const CLAUDE_MODEL = process.env.JUSTNOTE_WATCH_MODEL;
+
+function runClaude(prompt: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const args = ["-p", "--output-format", "text", "--strict-mcp-config"];
+    if (CLAUDE_MODEL) args.push("--model", CLAUDE_MODEL);
+    // shell:true so Windows resolves claude.cmd/.exe off PATH; the prompt goes
+    // in via stdin, never the command line, so there's nothing to escape.
+    const child = spawn(CLAUDE_BIN, args, { shell: true, windowsHide: true });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d) => (out += d.toString()));
+    child.stderr.on("data", (d) => (err += d.toString()));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve(out.trim());
+      else reject(new Error(`claude exited ${code}${err ? `: ${err.trim()}` : ""}`));
+    });
+    child.stdin.write(prompt);
+    child.stdin.end();
+  });
+}
+
+function buildPrompt(boardName: string, messages: { role: string; text: string }[]): string {
+  const transcript = messages
+    .map((m) => `[${m.role === "assistant" ? "you" : "them"}]: ${m.text}`)
+    .join("\n\n");
+  return [
+    `You are replying inside "${boardName}", a spatial note board someone is using as a chat with you.`,
+    `The conversation so far is below, oldest first. Write a helpful reply to their most recent message.`,
+    `Respond in GitHub-flavored markdown. Output only your reply — no preamble, no sign-off.`,
+    ``,
+    transcript,
+  ].join("\n");
+}
+
+async function postAssistantNote(board: Board, text: string) {
+  const notes = await threadNotes(board.id);
+  const last = notes[notes.length - 1];
+  const x = last ? last.x : 0;
+  const y = last ? last.y + 320 : 0;
+  await api("/api/notes", {
+    method: "POST",
+    body: JSON.stringify({ boardId: board.id, x, y, t: Date.now(), text, role: "assistant" }),
+  });
+}
+
+async function runWatcher(ref?: string) {
+  if (!ref) {
+    console.error('[watch] usage: justanotetaker-mcp watch "<board name or id>"');
+    process.exit(1);
+  }
+  const board = await resolveBoard(ref);
+  console.error(`[watch] listening on "${board.name}" (every ${POLL_MS}ms). New turns get a ${CLAUDE_BIN} reply. Ctrl+C to stop.`);
+  let handledT = -1;
+  for (;;) {
+    try {
+      const notes = await threadNotes(board.id);
+      const last = notes[notes.length - 1];
+      if (last && last.role !== "assistant" && last.t !== handledT) {
+        handledT = last.t; // claim it up front so a slow reply doesn't double-fire
+        const messages = notes.map((n) => ({ role: n.role === "assistant" ? "assistant" : "user", text: n.text }));
+        console.error(`[watch] new turn — asking ${CLAUDE_BIN}…`);
+        const reply = await runClaude(buildPrompt(board.name, messages));
+        if (reply) {
+          await postAssistantNote(board, reply);
+          console.error(`[watch] replied (${reply.length} chars).`);
+        } else {
+          console.error("[watch] claude returned nothing; skipping this turn.");
+        }
+      }
+    } catch (e) {
+      console.error(`[watch] ${(e as Error).message}`);
+    }
+    await sleep(POLL_MS);
+  }
+}
+
+if (process.argv[2] === "watch") {
+  await runWatcher(process.argv[3] ?? process.env.JUSTNOTE_WATCH_BOARD);
+} else {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error(`[justanotetaker-mcp] connected → ${API_URL}`);
+}
