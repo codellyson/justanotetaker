@@ -16,6 +16,7 @@ const createSchema = z.object({
   text: z.string().optional(),
   kind: kindSchema.optional(),
   color: z.string().max(32).nullable().optional(),
+  role: z.string().max(16).nullable().optional(),
 });
 
 const patchSchema = z.object({
@@ -27,6 +28,7 @@ const patchSchema = z.object({
   text: z.string().optional(),
   kind: kindSchema.optional(),
   color: z.string().max(32).nullable().optional(),
+  role: z.string().max(16).nullable().optional(),
 });
 
 const listQuery = z.object({
@@ -43,7 +45,7 @@ const searchQuery = z.object({
 
 const GRAVEYARD_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
-const NOTE_COLS = "id, user_id, x, y, w, h, t, text, updated_at, deleted_at, board_id, kind, color";
+const NOTE_COLS = "id, user_id, x, y, w, h, t, text, updated_at, deleted_at, board_id, kind, color, role";
 
 type NoteRow = {
   id: string;
@@ -59,6 +61,7 @@ type NoteRow = {
   board_id: string | null;
   kind: string;
   color: string | null;
+  role: string | null;
 };
 
 function toNote(r: NoteRow) {
@@ -76,6 +79,7 @@ function toNote(r: NoteRow) {
     boardId: r.board_id,
     kind: r.kind,
     color: r.color,
+    role: r.role,
   };
 }
 
@@ -193,11 +197,12 @@ export const notesRoutes = new Hono<Env>()
       boardId: body.boardId,
       kind: body.kind ?? "card",
       color: body.color ?? null,
+      role: body.role ?? null,
     };
     await c.env.DB.prepare(
-      `INSERT INTO notes (${NOTE_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO notes (${NOTE_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-      .bind(note.id, note.userId, note.x, note.y, note.w, note.h, note.t, note.text, note.updatedAt, note.deletedAt, note.boardId, note.kind, note.color)
+      .bind(note.id, note.userId, note.x, note.y, note.w, note.h, note.t, note.text, note.updatedAt, note.deletedAt, note.boardId, note.kind, note.color, note.role)
       .run();
     return c.json({ note });
   })
@@ -216,6 +221,7 @@ export const notesRoutes = new Hono<Env>()
     if (typeof body.text === "string") { sets.push("text = ?"); binds.push(body.text); }
     if (body.kind !== undefined) { sets.push("kind = ?"); binds.push(body.kind); }
     if (body.color !== undefined) { sets.push("color = ?"); binds.push(body.color); }
+    if (body.role !== undefined) { sets.push("role = ?"); binds.push(body.role); }
 
     const { results } = await c.env.DB.prepare(
       `UPDATE notes SET ${sets.join(", ")} WHERE id = ? AND user_id = ? RETURNING ${NOTE_COLS}`,
