@@ -13,6 +13,9 @@ export type Note = {
   text: string;
   kind: NoteKind;
   color: string | null;
+  // Conversational role for agent-session boards: "assistant" = written by an
+  // agent (via the MCP reply tool); null/absent = the person's own note.
+  role?: string | null;
 };
 
 export type Recency = "fresh" | "recent" | "older" | "ancient";

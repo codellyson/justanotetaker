@@ -45,6 +45,7 @@ function toUiNote(row: {
   updatedAt: number;
   kind?: string | null;
   color?: string | null;
+  role?: string | null;
 }): StoredNote {
   return {
     id: row.id,
@@ -57,6 +58,7 @@ function toUiNote(row: {
     updatedAt: row.updatedAt,
     kind: (row.kind as NoteKind) ?? "card",
     color: row.color ?? null,
+    role: row.role ?? null,
   };
 }
 

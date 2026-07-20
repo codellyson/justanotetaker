@@ -172,6 +172,39 @@ body {
   opacity: 0.85;
 }
 
+/* Agent-authored notes (role=assistant) — an accent bar down the left edge and
+   a corner "agent" chip, so a session board reads as a conversation: your notes
+   vs. the agent's replies. */
+.note.role-assistant::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: rgb(var(--accent));
+  border-radius: var(--radius, 2px) 0 0 var(--radius, 2px);
+  z-index: 2;
+}
+.note-agent {
+  position: absolute;
+  top: 6px;
+  right: 7px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1.5px 6px 1.5px 5px;
+  border-radius: 100px;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgb(var(--accent));
+  background: rgb(var(--accent) / 0.14);
+  pointer-events: none;
+}
+
 /* Relationship threads — drawn in the transformed notes-layer so paths use
    canvas coordinates directly. overflow:visible lets the 1px svg host paths
    anywhere (incl. negative coords on the infinite canvas). */
