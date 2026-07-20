@@ -2022,6 +2022,41 @@ body {
 .auth-switch:hover {
   color: rgb(var(--accent));
 }
+/* API tokens entry — surfaced on the account panel so it isn't only reachable
+   via the ⌘K command palette. */
+.auth-dev {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid rgb(var(--border) / 0.6);
+}
+.auth-dev-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  border: 1px solid rgb(var(--border));
+  background: transparent;
+  border-radius: 9px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.auth-dev-btn:hover {
+  border-color: rgb(var(--accent) / 0.5);
+  background: rgb(var(--accent) / 0.06);
+}
+.auth-dev-label {
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgb(var(--text-primary));
+}
+.auth-dev-hint {
+  font-size: 11px;
+  color: rgb(var(--text-muted));
+}
 
 /* ── Time scrub ─────────────────────────────────────────────────── */
 /* A horizontal rewind rail along the bottom edge. Left = now, dragging right

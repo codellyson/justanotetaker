@@ -1609,6 +1609,7 @@ export default function JustNotes(props: JustNotesProps) {
         identityLabel={identityLabel}
         accountEmail={user?.email}
         onSignOut={() => { void onSignOut(); setAuthPanelOpen(false); }}
+        onApiTokens={() => { setAuthPanelOpen(false); setTokensOpen(true); }}
       />
 
       {ambientOpen && (

@@ -14,6 +14,7 @@ export function AuthPanel({
   identityLabel,
   accountEmail,
   onSignOut,
+  onApiTokens,
 }: {
   open: boolean;
   onClose: () => void;
@@ -22,6 +23,7 @@ export function AuthPanel({
   identityLabel: string;
   accountEmail?: string;
   onSignOut: () => void;
+  onApiTokens: () => void;
 }) {
   const [mode, setMode] = useState<Mode>("sign-in");
   const [email, setEmail] = useState("");
@@ -201,6 +203,13 @@ export function AuthPanel({
         </div>
         </>
         )}
+
+        <div className="auth-dev">
+          <button type="button" className="auth-dev-btn" onClick={onApiTokens}>
+            <span className="auth-dev-label">API tokens</span>
+            <span className="auth-dev-hint">connect Claude Code &amp; agents</span>
+          </button>
+        </div>
       </div>
     </aside>
   );
