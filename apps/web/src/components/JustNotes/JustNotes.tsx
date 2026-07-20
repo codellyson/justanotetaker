@@ -762,6 +762,23 @@ export default function JustNotes(props: JustNotesProps) {
     spawnAtCenter("");
   }
 
+  // Composer: drop your next turn as a user note below the thread, then fly to
+  // it. The Composer surfaces on boards that already hold an agent reply.
+  function sendComposerTurn(text: string) {
+    const t = text.trim();
+    if (!t) return;
+    markInteracted();
+    const last = notesRef.current.reduce<Note | null>((m, n) => (!m || n.t > m.t ? n : m), null);
+    const base = last
+      ? { x: last.x, y: last.y + 340 }
+      : screenToCanvas(window.innerWidth / 2, window.innerHeight / 2);
+    const id = spawnCommitted(base.x, base.y, t);
+    requestAnimationFrame(() => {
+      const n = notesRef.current.find((nn) => nn.id === id);
+      if (n) flyTo(n);
+    });
+  }
+
   // Consume a pending cross-board create once this board's canvas has mounted.
   const spawnHandledRef = useRef(false);
   useEffect(() => {
@@ -1632,6 +1649,10 @@ export default function JustNotes(props: JustNotesProps) {
         setScrubMoment={setScrubMoment}
       />
 
+      {notes.some((n) => n.role === "assistant") && !editingId && (
+        <Composer onSend={sendComposerTurn} />
+      )}
+
       {t.compass && <Compass notes={notes} view={view} flyHome={flyHome} />}
 
       {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
@@ -2010,6 +2031,62 @@ function Toolbar(p: ToolbarProps) {
 }
 
 // ── HelpOverlay ────────────────────────────────────────────────────────
+// A chat-style input pinned to the bottom of a conversation board. Enter sends
+// the turn (Shift+Enter for a newline); keys are stopped from reaching the
+// canvas shortcuts. Autogrows up to a few lines.
+function Composer({ onSend }: { onSend: (text: string) => void }) {
+  const [text, setText] = useState("");
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+
+  function grow(el: HTMLTextAreaElement | null) {
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
+  }
+
+  function submit() {
+    const t = text.trim();
+    if (!t) return;
+    onSend(t);
+    setText("");
+    requestAnimationFrame(() => grow(ref.current));
+  }
+
+  return (
+    <div className="composer chrome">
+      <textarea
+        ref={ref}
+        className="composer-input"
+        value={text}
+        rows={1}
+        placeholder="message the agent…"
+        onChange={(e) => {
+          setText(e.target.value);
+          grow(e.target);
+        }}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+      />
+      <button
+        className="composer-send"
+        onClick={submit}
+        disabled={!text.trim()}
+        aria-label="send turn"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M7 11l5-5 5 5" />
+          <path d="M12 6v13" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 function HelpOverlay({ onClose }: { onClose: () => void }) {
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
   const mod = isMac ? "⌘" : "Ctrl";

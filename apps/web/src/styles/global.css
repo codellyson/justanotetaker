@@ -2091,6 +2091,59 @@ body {
   color: rgb(var(--text-muted));
 }
 
+/* ── Composer ───────────────────────────────────────────────────── */
+/* Chat-style turn input, pinned bottom-center on conversation boards (any
+   board that already holds an agent reply). Sits just above the time scrub. */
+.composer {
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  width: min(620px, calc(100vw - 32px));
+  padding: 7px 7px 7px 14px;
+  border-radius: 16px;
+  background: rgb(var(--bg-secondary) / 0.92);
+  border: 1px solid rgb(var(--border));
+  backdrop-filter: blur(12px);
+  box-shadow: 0 16px 40px -14px rgb(0 0 0 / 0.45);
+}
+.composer-input {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: rgb(var(--text-primary));
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+  padding: 6px 0;
+  max-height: 132px;
+}
+.composer-input::placeholder { color: rgb(var(--text-muted)); }
+.composer-send {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 11px;
+  background: rgb(var(--accent));
+  color: rgb(var(--bg));
+  cursor: pointer;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.composer-send:hover:not(:disabled) { transform: translateY(-1px); }
+.composer-send:disabled { opacity: 0.4; cursor: default; }
+@media (max-width: 640px) {
+  .composer { bottom: 14px; width: calc(100vw - 20px); }
+}
+
 /* ── Time scrub ─────────────────────────────────────────────────── */
 /* A horizontal rewind rail along the bottom edge. Left = now, dragging right
    rewinds the canvas further back in time. */
