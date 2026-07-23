@@ -32,6 +32,8 @@ type ApiNote = {
   y: number;
   t: number;
   text: string;
+  kind: string;
+  color: string | null;
   role: string | null;
 };
 
@@ -60,7 +62,9 @@ async function resolveBoard(ref: string): Promise<Board> {
   return found;
 }
 
-const server = new McpServer({ name: "justanotetaker", version: "0.1.0" });
+const server = new McpServer({ name: "justanotetaker", version: "0.2.0" });
+
+const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 
 server.registerTool(
   "list_boards",
@@ -70,7 +74,57 @@ server.registerTool(
   },
   async () => {
     const { boards } = await api<{ boards: Board[] }>("/api/boards");
-    return { content: [{ type: "text", text: JSON.stringify(boards, null, 2) }] };
+    return text(JSON.stringify(boards, null, 2));
+  },
+);
+
+server.registerTool(
+  "create_board",
+  {
+    description: "Create a new board (canvas).",
+    inputSchema: { name: z.string().min(1).describe("Board name") },
+  },
+  async ({ name }) => {
+    const { board } = await api<{ board: Board }>("/api/boards", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    return text(`Created board "${board.name}" (${board.id}).`);
+  },
+);
+
+server.registerTool(
+  "rename_board",
+  {
+    description: "Rename a board.",
+    inputSchema: {
+      board: z.string().describe("Current board name or id (see list_boards)"),
+      name: z.string().min(1).describe("New name"),
+    },
+  },
+  async ({ board, name }) => {
+    const b = await resolveBoard(board);
+    await api(`/api/boards/${encodeURIComponent(b.id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    });
+    return text(`Renamed "${b.name}" → "${name}".`);
+  },
+);
+
+server.registerTool(
+  "delete_board",
+  {
+    description:
+      "Delete a board. Destructive: the board and every note on it move to " +
+      "recently-deleted (notes are restorable in the app for 30 days). Ask the " +
+      "user before deleting anything you did not just create.",
+    inputSchema: { board: z.string().describe("Board name or id (see list_boards)") },
+  },
+  async ({ board }) => {
+    const b = await resolveBoard(board);
+    await api(`/api/boards/${encodeURIComponent(b.id)}`, { method: "DELETE" });
+    return text(`Deleted board "${b.name}" and its notes (restorable for 30 days).`);
   },
 );
 
@@ -95,11 +149,72 @@ server.registerTool(
       x: x ?? Math.round(Math.random() * 1200 - 200),
       y: y ?? Math.round(Math.random() * 700 - 100),
     };
-    const note = await api<{ id?: string }>("/api/notes", {
+    const { note } = await api<{ note?: { id?: string } }>("/api/notes", {
       method: "POST",
       body: JSON.stringify({ boardId: b.id, x: pos.x, y: pos.y, t: Date.now(), text }),
     });
     return { content: [{ type: "text", text: `Created note${note?.id ? ` ${note.id}` : ""} on "${b.name}".` }] };
+  },
+);
+
+server.registerTool(
+  "list_notes",
+  {
+    description:
+      "List a board's notes with their ids, positions, and text — use this to " +
+      "find the note id for update_note / delete_note.",
+    inputSchema: { board: z.string().describe("Board name or id (see list_boards)") },
+  },
+  async ({ board }) => {
+    const b = await resolveBoard(board);
+    const notes = await threadNotes(b.id);
+    const out = notes.map((n) => ({ id: n.id, x: n.x, y: n.y, t: n.t, kind: n.kind, text: n.text }));
+    return text(JSON.stringify({ board: b.name, notes: out }, null, 2));
+  },
+);
+
+server.registerTool(
+  "update_note",
+  {
+    description:
+      "Update an existing note by id (get ids from list_notes or search_notes). " +
+      "Any combination of: text (markdown, replaces the whole body), x/y position, " +
+      "kind ('card' = compact sticky, 'page' = full document surface).",
+    inputSchema: {
+      id: z.string().describe("Note id"),
+      text: z.string().optional().describe("New note body (markdown) — replaces the old text"),
+      x: z.number().optional().describe("New canvas x"),
+      y: z.number().optional().describe("New canvas y"),
+      kind: z.enum(["card", "page"]).optional().describe("Note kind"),
+    },
+  },
+  async ({ id, text: body, x, y, kind }) => {
+    const patch: Record<string, unknown> = {};
+    if (body !== undefined) { patch.text = body; patch.t = Date.now(); }
+    if (x !== undefined) patch.x = x;
+    if (y !== undefined) patch.y = y;
+    if (kind !== undefined) patch.kind = kind;
+    if (Object.keys(patch).length === 0) throw new Error("Nothing to update — pass text, x, y, or kind.");
+    await api(`/api/notes/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+    return text(`Updated note ${id}.`);
+  },
+);
+
+server.registerTool(
+  "delete_note",
+  {
+    description:
+      "Delete a note by id (get ids from list_notes or search_notes). The note " +
+      "moves to recently-deleted and is restorable in the app for 30 days. Ask " +
+      "the user before deleting anything you did not just create.",
+    inputSchema: { id: z.string().describe("Note id") },
+  },
+  async ({ id }) => {
+    await api(`/api/notes/${encodeURIComponent(id)}`, { method: "DELETE" });
+    return text(`Deleted note ${id} (restorable for 30 days).`);
   },
 );
 

@@ -1,17 +1,33 @@
 {
-  "name": "@justanotetaker/mcp-server",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@codellyson/justanotetaker-mcp",
+  "version": "0.2.0",
+  "description": "MCP server for Just a Notetaker — lets any MCP client (Claude, etc.) list, create, update, and delete boards and notes on your canvas, read boards as conversations, and reply as an agent.",
   "type": "module",
+  "license": "MIT",
   "bin": {
     "justanotetaker-mcp": "./dist/index.js"
   },
   "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "notes",
+    "canvas",
+    "justanotetaker"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
     "watch": "node dist/index.js watch",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

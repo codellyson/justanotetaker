@@ -44,13 +44,22 @@ notes you type yourself, and is instantly full-text searchable.
 
 ## The tools
 
-The server exposes three tools. An agent picks whichever it needs.
+The server exposes the full board/note lifecycle plus search and the
+conversation tools. An agent picks whichever it needs.
 
 ### `list_boards`
 Lists your canvases so the agent knows where notes can go. Returns each board's
 `id` and `name`.
 
 > *"Which boards do I have?"* → `Research`, `Project X`, `Inbox`, …
+
+### `create_board` / `rename_board` / `delete_board`
+Board management. `create_board` takes a `name`; `rename_board` and
+`delete_board` take a board **name or id**. Deleting a board soft-deletes it
+and every note on it — notes are restorable from the app's recently-deleted
+panel for 30 days.
+
+> *"Make me a board called Q3 planning."* → a fresh canvas appears in the app.
 
 ### `create_note`
 Creates a note on a board. The body is **markdown** and supports everything the
@@ -70,6 +79,22 @@ app renders:
 
 > *"Put a checklist of the release steps on Project X."* → a task-list note
 > appears on that board.
+
+### `list_notes`
+Lists a board's notes with their `id`, position, kind, and full text — the way
+an agent finds the note it wants to edit or delete.
+
+### `update_note`
+Updates a note by `id`: replace its `text` (markdown), move it (`x`/`y`), or
+switch its `kind` between `card` (compact sticky) and `page` (document
+surface).
+
+> *"Tick off the second item on my release checklist."* → the agent reads the
+> note with `list_notes`, rewrites the line, and `update_note`s it.
+
+### `delete_note`
+Deletes a note by `id`. Soft-delete — restorable from the app's
+recently-deleted panel for 30 days.
 
 ### `search_notes`
 Full-text search across **all** your notes. Returns matches with a short
@@ -91,25 +116,19 @@ Copy the `jnt_…` secret immediately — it's shown **once** and can't be
 retrieved again. You can revoke any token from the same panel at any time,
 which instantly cuts off whatever was using it.
 
-### 2. Build the server
+### 2. Register it with your agent
 
-```sh
-pnpm --filter @justanotetaker/mcp-server build
-```
-
-This produces `packages/mcp-server/dist/index.js`.
-
-### 3. Register it with your agent
-
-Add it to your MCP client config — `.mcp.json` for Claude Code, or the Claude
-Desktop config file:
+The server is published as
+[`@codellyson/justanotetaker-mcp`](https://www.npmjs.com/package/@codellyson/justanotetaker-mcp),
+so no checkout or build is needed. Add it to your MCP client config —
+`.mcp.json` for Claude Code, or the Claude Desktop config file:
 
 ```jsonc
 {
   "mcpServers": {
     "justanotetaker": {
-      "command": "node",
-      "args": ["<repo>/packages/mcp-server/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@codellyson/justanotetaker-mcp"],
       "env": {
         "JUSTNOTE_TOKEN": "jnt_…",
         "JUSTNOTE_API_URL": "https://api.justanotetaker.kreativekorna.com"
@@ -119,7 +138,10 @@ Desktop config file:
 }
 ```
 
-Restart the agent, and it will discover the three tools. Now just talk to it:
+(Working from the repo instead: `pnpm --filter @codellyson/justanotetaker-mcp build`
+and point `command` at `node <repo>/packages/mcp-server/dist/index.js`.)
+
+Restart the agent, and it will discover the tools. Now just talk to it:
 *"drop this on my Research board."*
 
 ---

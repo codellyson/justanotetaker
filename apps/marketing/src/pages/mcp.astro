@@ -12,8 +12,8 @@ const mark = `<svg viewBox="0 0 48 48"><defs><mask id="jn-gap"><rect width="48" 
 const config = `{
   "mcpServers": {
     "justanotetaker": {
-      "command": "node",
-      "args": ["<repo>/packages/mcp-server/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@codellyson/justanotetaker-mcp"],
       "env": {
         "JUSTNOTE_TOKEN": "jnt_…",
         "JUSTNOTE_API_URL": "https://api.justanotetaker.kreativekorna.com"
@@ -36,9 +36,19 @@ const tools = [
     body: "Lists every board by name and id, so the agent knows where a note can go before it writes one.",
   },
   {
+    name: "create_board · rename_board · delete_board",
+    title: "Manage boards",
+    body: "Spin up a fresh canvas, rename one, or delete it — deleted boards and their notes stay restorable in the app for 30 days.",
+  },
+  {
     name: "create_note",
     title: "Write a note to a board",
     body: "Drops a markdown note onto the board you name — headings, task checkboxes, bold, code, links, images. Position optional.",
+  },
+  {
+    name: "list_notes · update_note · delete_note",
+    title: "Edit the canvas",
+    body: "Read a board's notes with their ids, rewrite a note's text, move it, flip it between card and page, or delete it.",
   },
   {
     name: "search_notes",
@@ -234,14 +244,13 @@ const cases = [
           <div class="grid grid-cols-[auto_1fr] gap-5">
             <div class="text-[22px] font-extrabold leading-none tracking-[-0.02em] text-accent">02</div>
             <div>
-              <h3 class="mb-1.5 text-[18px] font-semibold text-primary">Build the server</h3>
+              <h3 class="mb-1.5 text-[18px] font-semibold text-primary">Nothing to install</h3>
               <p class="text-[15px] leading-relaxed text-secondary">
-                From the repo, build the package — it produces
-                <span class="font-mono text-[13px] text-accent">dist/index.js</span>.
+                The server is published as
+                <span class="font-mono text-[13px] text-accent">@codellyson/justanotetaker-mcp</span> —
+                your agent runs it straight off npm via
+                <span class="font-mono text-[13px] text-accent">npx</span>. No checkout, no build.
               </p>
-              <div class="mt-4 overflow-x-auto rounded-xl border border-border bg-bg-secondary px-5 py-4">
-                <code class="whitespace-pre font-mono text-[13px] text-primary">pnpm --filter @justanotetaker/mcp-server build</code>
-              </div>
             </div>
           </div>
           <!-- 3 -->
@@ -251,7 +260,7 @@ const cases = [
               <h3 class="mb-1.5 text-[18px] font-semibold text-primary">Register it with your agent</h3>
               <p class="text-[15px] leading-relaxed text-secondary">
                 Add it to your MCP config — <span class="font-mono text-[13px] text-accent">.mcp.json</span> for
-                Claude Code, or the Claude Desktop config. Restart, and the three tools show up.
+                Claude Code, or the Claude Desktop config. Restart, and the tools show up.
               </p>
               <div class="mt-4 overflow-x-auto rounded-xl border border-border bg-bg-secondary px-5 py-4">
                 <pre class="font-mono text-[12.5px] leading-[1.7] text-secondary"><code set:text={config} /></pre>
