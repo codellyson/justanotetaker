@@ -1515,6 +1515,11 @@ export default function JustNotes(props: JustNotesProps) {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+  // A page grows with its content and keeps h=null, so the PAPER_H guess can be
+  // far too short — culling by it unmounts a long document mid-scroll. Prefer the
+  // real DOM height, measured after each render (an unmounted note keeps its last
+  // measurement, which is what lets it come back into view).
+  const measuredHRef = useRef(new Map<string, number>());
   const visibleNotes = useMemo(() => {
     const W = window.innerWidth, H = window.innerHeight;
     const z = view.zoom;
@@ -1526,11 +1531,19 @@ export default function JustNotes(props: JustNotesProps) {
     return notes.filter((n) => {
       if (n.id === editingId || n.id === draggingId || selectedIds.has(n.id)) return true;
       const w = n.kind === "page" ? (n.w ?? PAPER_W) : (n.w ?? t.noteWidth);
-      const h = n.kind === "page" ? (n.h ?? PAPER_H) : (n.h ?? 500);
+      const h = measuredHRef.current.get(n.id) ?? (n.kind === "page" ? (n.h ?? PAPER_H) : (n.h ?? 500));
       return n.x < right && n.x + w > left && n.y < bottom && n.y + h > top;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notes, view, editingId, draggingId, selectedIds, t.noteWidth, viewportTick]);
+  useEffect(() => {
+    const els = canvasRef.current?.querySelectorAll<HTMLElement>("[data-note-id]");
+    if (!els) return;
+    for (const el of els) {
+      const id = el.dataset.noteId;
+      if (id) measuredHRef.current.set(id, el.offsetHeight);
+    }
+  }, [visibleNotes]);
 
   function scrubFadeFor(n: Note) {
     if (scrubMoment == null) return 1;
@@ -1673,6 +1686,7 @@ export default function JustNotes(props: JustNotesProps) {
               scrubFade={scrubFadeFor(n)}
               onPointerDown={(e) => onNoteMouseDown(e, n.id)}
               clickPos={editingId === n.id ? editClickRef.current : null}
+              measureSignal={editingId === n.id ? `${view.pan.x}:${view.pan.y}:${view.zoom}` : undefined}
               onTextChange={(v) => updateNoteText(n.id, v)}
               onCommitEdit={commitEditing}
               onContextMenu={(e) => {
@@ -1874,7 +1888,7 @@ const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
 function NoteCard({
   note, pos, fromClipboard, editing, dragging, snapping,
   dimmed, highlit, focused, selected, scrubFade,
-  onPointerDown, onTextChange, onCommitEdit, onContextMenu, onTagClick, onResizeStart, onHover, onToggleTask, clickPos,
+  onPointerDown, onTextChange, onCommitEdit, onContextMenu, onTagClick, onResizeStart, onHover, onToggleTask, clickPos, measureSignal,
 }: {
   note: Note;
   pos: { x: number; y: number };
@@ -1896,6 +1910,7 @@ function NoteCard({
   onResizeStart: (e: React.PointerEvent<HTMLDivElement>, dir: ResizeDir) => void;
   onToggleTask: (id: string, taskIndex: number) => void;
   clickPos?: { x: number; y: number } | null;
+  measureSignal?: unknown;
 }) {
   const rec = recencyOf(note.t);
 
@@ -1984,6 +1999,7 @@ function NoteCard({
             onCommit={onCommitEdit}
             className="note-cm"
             clickPos={clickPos}
+            measureSignal={measureSignal}
           />
         </Suspense>
       ) : startsWithBlock ? (

@@ -116,6 +116,7 @@ export default function CmEditor({
   placeholder = "just write.",
   className,
   clickPos,
+  measureSignal,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -126,6 +127,11 @@ export default function CmEditor({
   // Viewport point of the click that opened the editor, so the caret lands
   // where the user clicked instead of jumping to the end of the text.
   clickPos?: { x: number; y: number } | null;
+  // Changes whenever the canvas pans/zooms. CodeMirror windows its rendering
+  // to the visible band, and a CSS-transform pan fires no scroll event — so
+  // without a poke it keeps showing empty filler once you pan past the band
+  // it measured on focus. requestMeasure is batched, safe per pan frame.
+  measureSignal?: unknown;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -189,6 +195,10 @@ export default function CmEditor({
     // Editor is created once; external value changes are synced below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    viewRef.current?.requestMeasure();
+  }, [measureSignal]);
 
   // Reconcile an external text change (e.g. an agent edit) into the editor,
   // guarding against the echo of our own updateListener → onChange → value.
