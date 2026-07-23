@@ -17,6 +17,8 @@ import {
   GRID,
   parsePastedUrl,
   uid,
+  firstNonEmpty,
+  resolveNoteColor,
   NOTE_COLOR_KEYS,
   NOTE_COLOR_MAP,
   PAPER_W,
@@ -40,7 +42,7 @@ import {
   type NoteNodeHandlers,
 } from "./flow/useNoteGraph";
 import type { NotesByBoard } from "../../hooks/useAllNotes";
-import { toggleTaskLine } from "./markdown";
+import { renderBody, toggleTaskLine } from "./markdown";
 import { formatCapturedNote } from "./clipboard";
 import { clipboardOrigin } from "../../lib/clipboard-origin";
 import { AmbientBar, Compass, TimeScrub } from "./cherries";
@@ -209,6 +211,13 @@ function JustNotesInner(props: JustNotesProps) {
     movingTimer.current = window.setTimeout(() => setMoving(false), holdMs);
   };
   useEffect(() => () => { if (movingTimer.current) clearTimeout(movingTimer.current); }, []);
+
+  // Focus/read mode: a note opened in a fixed, legible overlay independent of
+  // canvas zoom, so reading never forces a pan-and-zoom hunt. j/k step through
+  // notes in reading order without touching the mouse.
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const focusIdRef = useRef<string | null>(null);
+  useEffect(() => { focusIdRef.current = focusId; }, [focusId]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const editingIdRef = useRef<string | null>(null);
@@ -838,6 +847,37 @@ function JustNotesInner(props: JustNotesProps) {
         setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, meta: errMeta } : n)));
       }),
     );
+  }
+
+  // ── Focus / read mode ──────────────────────────────────────────────
+  // Readable notes in reading order (top-to-bottom, then left-to-right),
+  // excluding frames (structure, not content) and members hidden inside a
+  // collapsed frame. This is the sequence j/k walks.
+  function readableOrder(): Note[] {
+    const collapsed = new Set(
+      notesRef.current.filter((n) => n.kind === "frame" && isCollapsed(n)).map((n) => n.id),
+    );
+    return notesRef.current
+      .filter((n) => n.kind !== "frame" && !(n.parentId && collapsed.has(n.parentId)))
+      .sort((a, b) => (Math.abs(a.y - b.y) > 40 ? a.y - b.y : a.x - b.x));
+  }
+
+  function openFocus(id: string) {
+    if (editingIdRef.current) commitEditing();
+    if (ambientOpen) closeAmbient();
+    setSelectedIds(new Set([id]));
+    setFocusId(id);
+    markInteracted();
+  }
+
+  // Step to the next/previous readable note without moving the camera.
+  function stepFocus(delta: number) {
+    const order = readableOrder();
+    if (order.length === 0) return;
+    const cur = focusIdRef.current;
+    const idx = order.findIndex((n) => n.id === cur);
+    const next = order[(idx + delta + order.length) % order.length];
+    if (next) { setFocusId(next.id); setSelectedIds(new Set([next.id])); }
   }
 
   // Named-neighborhood navigation: fit the frame (plus breathing room) in view.
@@ -1492,7 +1532,8 @@ function JustNotesInner(props: JustNotesProps) {
         // we handle it so the browser doesn't also act on Esc (e.g. exit
         // fullscreen); only fall through when there's nothing to dismiss.
         let handled = true;
-        if (contextMenu) setContextMenu(null);
+        if (focusIdRef.current) setFocusId(null);
+        else if (contextMenu) setContextMenu(null);
         else if (canvasMenu) setCanvasMenu(null);
         else if (selectedLinkRef.current) setSelectedLinkId(null);
         else if (selectedIdsRef.current.size > 0) setSelectedIds(new Set());
@@ -1513,6 +1554,23 @@ function JustNotesInner(props: JustNotesProps) {
       // (typed in inputs) or to closing the panel. Don't let canvas
       // shortcuts (z, /, ?, character→ambient) leak through.
       if (authPanelOpen) return;
+
+      // Focus/read mode owns the keyboard while open: step notes with
+      // j/k / arrows, edit the current one with Enter, everything else is
+      // swallowed so canvas shortcuts don't fire behind the reader.
+      if (focusIdRef.current) {
+        if (e.key === "j" || e.key === "ArrowDown" || e.key === "ArrowRight") { e.preventDefault(); stepFocus(1); return; }
+        if (e.key === "k" || e.key === "ArrowUp" || e.key === "ArrowLeft") { e.preventDefault(); stepFocus(-1); return; }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const id = focusIdRef.current;
+          const n = id ? notesRef.current.find((x) => x.id === id) : null;
+          setFocusId(null);
+          if (n && (n.kind === "card" || n.kind === "page")) { editClickRef.current = null; focusNoteForEdit(n); startEditingExisting(n.id); }
+          return;
+        }
+        return;
+      }
 
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         if (editingId) { e.preventDefault(); commitEditing(); return; }
@@ -1561,6 +1619,13 @@ function JustNotesInner(props: JustNotesProps) {
       }
 
       if (e.key === "?") { e.preventDefault(); setHelpOpen((h) => !h); return; }
+
+      // Enter on a single selected note opens it in the reader.
+      if (e.key === "Enter" && !editingId && !ambientOpen && selectedIdsRef.current.size === 1) {
+        e.preventDefault();
+        openFocus([...selectedIdsRef.current][0]);
+        return;
+      }
 
       if (ambientOpen) {
         if (e.key === "Enter") { e.preventDefault(); commitAmbient(false); return; }
@@ -1991,6 +2056,27 @@ function JustNotesInner(props: JustNotesProps) {
 
       {helpOpen && <HelpOverlay onClose={() => setHelpOpen(false)} />}
 
+      {focusId && (() => {
+        const order = readableOrder();
+        const idx = order.findIndex((n) => n.id === focusId);
+        const fn = idx >= 0 ? order[idx] : notes.find((n) => n.id === focusId);
+        if (!fn) return null;
+        return (
+          <FocusReader
+            note={fn}
+            index={idx < 0 ? 0 : idx}
+            total={order.length || 1}
+            onClose={() => setFocusId(null)}
+            onPrev={() => stepFocus(-1)}
+            onNext={() => stepFocus(1)}
+            onEdit={() => {
+              setFocusId(null);
+              if (fn.kind === "card" || fn.kind === "page") { editClickRef.current = null; focusNoteForEdit(fn); startEditingExisting(fn.id); }
+            }}
+          />
+        );
+      })()}
+
       {contextMenu && (() => {
         const n = notes.find((x) => x.id === contextMenu.id);
         return (
@@ -2002,6 +2088,7 @@ function JustNotesInner(props: JustNotesProps) {
             onSetKind={(k) => setNoteKind(contextMenu.id, k)}
             onSetColor={(c) => setNoteColor(contextMenu.id, c)}
             onClose={() => setContextMenu(null)}
+            onRead={n && n.kind !== "frame" ? () => { const id = contextMenu.id; setContextMenu(null); openFocus(id); } : undefined}
             onDelete={() => {
               const id = contextMenu.id;
               setContextMenu(null);
@@ -2290,13 +2377,15 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
 const NOTE_KINDS: NoteKind[] = ["card", "page"];
 
 function NoteContextMenu({
-  x, y, kind, color, onSetKind, onSetColor, onClose, onDelete, onDeleteContents,
+  x, y, kind, color, onSetKind, onSetColor, onClose, onDelete, onDeleteContents, onRead,
 }: {
   x: number; y: number;
   kind: NoteKind; color: string | null;
   onSetKind: (k: NoteKind) => void;
   onSetColor: (c: string | null) => void;
   onClose: () => void; onDelete: () => void;
+  // Open in the reader (non-frames).
+  onRead?: () => void;
   // Frames only: delete the frame together with its member notes.
   onDeleteContents?: () => void;
 }) {
@@ -2371,6 +2460,12 @@ function NoteContextMenu({
         ))}
       </div>
       <div className="note-ctx-sep" aria-hidden="true" />
+      {onRead && (
+        <button className="note-ctx-item" onClick={onRead}>
+          read
+          <span className="note-ctx-hint">↵</span>
+        </button>
+      )}
       <button className="note-ctx-item danger" onClick={onDelete}>
         {kind === "frame" ? "delete frame" : "delete"}
         <span className="note-ctx-hint">⌘Z to undo</span>
@@ -2440,6 +2535,67 @@ function CanvasContextMenu({
       <button className="note-ctx-item" onClick={onOpenFile}>open file…</button>
       <button className="note-ctx-item" onClick={onSelectAll} disabled={!hasNotes}>select all</button>
       <button className="note-ctx-item" onClick={onFit} disabled={!hasNotes}>fit to screen</button>
+    </div>
+  );
+}
+
+// ── FocusReader ────────────────────────────────────────────────────────
+// A note opened for reading in a fixed, legible overlay — decoupled from
+// canvas zoom, so a tiny note on the map is read at full size without
+// panning or zooming. ↑↓ / j k step through notes; Enter edits; Esc closes.
+function FocusReader({
+  note, index, total, onClose, onPrev, onNext, onEdit,
+}: {
+  note: Note; index: number; total: number;
+  onClose: () => void; onPrev: () => void; onNext: () => void; onEdit: () => void;
+}) {
+  const col = resolveNoteColor(note.color);
+  const meta = note.meta;
+  const editable = note.kind === "card" || note.kind === "page";
+  const title = firstNonEmpty(note.text) || (note.kind === "image" ? "Image" : note.kind === "task" ? "Task" : "Untitled");
+
+  const surface: CSSProperties = col
+    ? { background: col.bg, color: `rgb(${col.ink})`, ["--note-ink" as string]: col.ink }
+    : {};
+
+  return (
+    <div className="reader-scrim" onPointerDown={onClose}>
+      <div
+        className={"reader" + (col ? " tinted" : "") + ` reader-${note.kind}`}
+        style={surface}
+        onPointerDown={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Note reader"
+      >
+        <div className="reader-bar">
+          <span className="reader-count">{index + 1} / {total}</span>
+          <div className="reader-actions">
+            {editable && <button type="button" className="reader-btn" onClick={onEdit}>Edit <kbd>↵</kbd></button>}
+            <button type="button" className="reader-btn" onClick={onClose} aria-label="Close reader">Close <kbd>Esc</kbd></button>
+          </div>
+        </div>
+        <div className="reader-body">
+          {note.kind === "image" ? (
+            <>
+              {(meta as ImageMeta | null)?.key && (
+                <img className="reader-image" src={`${API_BASE_URL}/api/media/${(meta as ImageMeta).key}`} alt={(meta as ImageMeta).alt ?? ""} />
+              )}
+              {note.text && <div className="reader-caption">{note.text}</div>}
+            </>
+          ) : note.kind === "task" ? (
+            <>
+              <div className="reader-task-status">{(meta as TaskMeta | null)?.status ?? "queued"}</div>
+              {(meta as TaskMeta | null)?.prompt && <div className="reader-task-prompt">{(meta as TaskMeta).prompt}</div>}
+              {note.text && <div className="reader-prose">{renderBody(note.text)}</div>}
+            </>
+          ) : (
+            <div className="reader-prose">{note.text ? renderBody(note.text) : <span className="reader-empty">empty</span>}</div>
+          )}
+        </div>
+        <button type="button" className="reader-nav reader-prev" onClick={onPrev} aria-label="Previous note" title="Previous (↑/k)">‹</button>
+        <button type="button" className="reader-nav reader-next" onClick={onNext} aria-label="Next note" title="Next (↓/j)">›</button>
+        <div className="reader-hint" aria-hidden="true">{title}</div>
+      </div>
     </div>
   );
 }
