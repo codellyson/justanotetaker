@@ -62,7 +62,7 @@ async function resolveBoard(ref: string): Promise<Board> {
   return found;
 }
 
-const server = new McpServer({ name: "justanotetaker", version: "0.2.0" });
+const server = new McpServer({ name: "justanotetaker", version: "0.2.1" });
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 
