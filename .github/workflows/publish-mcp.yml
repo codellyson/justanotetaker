@@ -1,0 +1,57 @@
+# Publish @codellyson/justanotetaker-mcp to npm.
+#
+# Triggers:
+#   - push of a tag matching mcp-v* (e.g. mcp-v0.2.0)
+#   - workflow_dispatch -> manual publish
+#
+# Auth, in order of preference:
+#   1. Trusted publishing (GitHub OIDC) — configure on npmjs.com under the
+#      package's Settings -> Trusted Publisher: repo codellyson/justanotetaker,
+#      workflow publish-mcp.yml. No token, and provenance is attached
+#      automatically. Requires npm >= 11.5.1 (node 24 ships it).
+#   2. NPM_TOKEN repo secret (granular automation token) — needed only for
+#      the FIRST publish, since npm can't attach a trusted publisher to a
+#      package that doesn't exist yet. Delete the secret after configuring
+#      the trusted publisher.
+
+name: publish-mcp
+
+on:
+  push:
+    tags:
+      - "mcp-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # OIDC token for npm trusted publishing / provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          # node 24 bundles npm >= 11.5.1, the minimum for OIDC trusted publishing.
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm --filter @codellyson/justanotetaker-mcp build
+
+      - name: Publish
+        working-directory: packages/mcp-server
+        run: npm publish
+        env:
+          # Empty when unset — npm then falls through to OIDC trusted publishing.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
