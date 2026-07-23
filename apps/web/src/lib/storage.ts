@@ -16,6 +16,10 @@ export type StoredSettings = {
   seeded: boolean;
 };
 
+// A user-drawn relationship between two notes (undirected; pair normalized
+// a < b server-side).
+export type NoteLink = { id: string; a: string; b: string };
+
 export interface Storage {
   list(boardId: string): Promise<StoredNote[]>;
   listAll(): Promise<BoardNote[]>;
@@ -32,6 +36,9 @@ export interface Storage {
   previewUrl(url: string, opts?: { signal?: AbortSignal }): Promise<string | null>;
   getSettings(): Promise<StoredSettings>;
   putSettings(input: { tweaks?: Tweaks | null; seeded?: boolean }): Promise<StoredSettings>;
+  listLinks(boardId: string): Promise<NoteLink[]>;
+  createLink(input: { id?: string; boardId: string; aId: string; bId: string }): Promise<NoteLink>;
+  removeLink(id: string): Promise<void>;
 }
 
 function toUiNote(row: {
@@ -214,6 +221,32 @@ export const remoteStorage: Storage = {
       tweaks: tweaks ? safeParseTweaks(tweaks) : null,
       seeded: Boolean(seeded),
     };
+  },
+
+  async listLinks(boardId) {
+    const res = await api.api.links.$get({ query: { board: boardId } });
+    if (!res.ok) throw new Error(`list links: ${res.status}`);
+    const { links } = await res.json();
+    return links.map((l) => ({ id: l.id, a: l.aId, b: l.bId }));
+  },
+
+  async createLink(input) {
+    const res = await api.api.links.$post({
+      json: {
+        ...(input.id ? { id: input.id } : {}),
+        boardId: input.boardId,
+        aId: input.aId,
+        bId: input.bId,
+      },
+    });
+    if (!res.ok) throw new Error(`create link: ${res.status}`);
+    const { link } = await res.json();
+    return { id: link.id, a: link.aId, b: link.bId };
+  },
+
+  async removeLink(id) {
+    const res = await api.api.links[":id"].$delete({ param: { id } });
+    if (!res.ok && res.status !== 404) throw new Error(`delete link: ${res.status}`);
   },
 
   async putSettings(input) {

@@ -9,6 +9,7 @@ import React, {
 import {
   ReactFlowProvider,
   useReactFlow,
+  type Connection,
   type OnNodesChange,
   type Viewport,
 } from "@xyflow/react";
@@ -40,7 +41,7 @@ import { formatCapturedNote } from "./clipboard";
 import { clipboardOrigin } from "../../lib/clipboard-origin";
 import { AmbientBar, Compass, TimeScrub } from "./cherries";
 import { TweaksUI } from "./tweaks";
-import { remoteStorage } from "../../lib/storage";
+import { remoteStorage, type NoteLink } from "../../lib/storage";
 import { authClient, clearKeychainToken } from "../../lib/auth-client";
 import { API_BASE_URL, isTauri } from "../../lib/runtime";
 import { AuthPanel } from "../AuthPanel";
@@ -87,10 +88,12 @@ export type JustNotesProps = Persist & {
 
 type View = { pan: { x: number; y: number }; zoom: number };
 
-// Right edge of the left file-tree panel (CSS: 16px inset + 232px width) plus a
-// gap. Used to keep note-focus jumps centered in the visible canvas, not behind
-// the tree.
-const FILE_TREE_EDGE = 264;
+// How far the docked file tree's hover-peek overlays the canvas while
+// unpinned (the 232px panel opens over a 48px rail footprint). Used to keep
+// note-focus jumps centered in the visible canvas, not behind the peeked
+// tree; a pinned tree sits outside the canvas entirely, so the inset is 0.
+const FILE_TREE_PEEK = 184;
+const SIDEBAR_PIN_KEY = "justanotetaker.sidebar.pinned";
 
 type UndoOp =
   | { type: "create"; id: string }
@@ -216,6 +219,24 @@ function JustNotesInner(props: JustNotesProps) {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const selectedIdsRef = useRef<Set<string>>(new Set());
+
+  // User-drawn relationships (drag from a note's link dot onto another note).
+  // Always visible; click a thread to select it, Backspace deletes it.
+  const [links, setLinks] = useState<NoteLink[]>([]);
+  const linksRef = useRef<NoteLink[]>([]);
+  useEffect(() => { linksRef.current = links; }, [links]);
+  const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
+  const selectedLinkRef = useRef<string | null>(null);
+  useEffect(() => { selectedLinkRef.current = selectedLinkId; }, [selectedLinkId]);
+  useEffect(() => {
+    let cancelled = false;
+    remoteStorage.listLinks(activeBoardId)
+      .then((ls) => { if (!cancelled) setLinks(ls); })
+      .catch((err) => console.error("[links] list failed", err));
+    return () => { cancelled = true; };
+  // The board remounts this component (key), so one fetch per board.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Relationship threads: hidden by default, toggled on (palette / "r").
   // When on, hovering a note springs threads to cards sharing a #tag.
@@ -365,8 +386,16 @@ function JustNotesInner(props: JustNotesProps) {
     applyView(next, true);
   }
 
-  function screenToCanvas(sx: number, sy: number, v: View = viewRef.current) {
-    return { x: (sx - v.pan.x) / v.zoom, y: (sy - v.pan.y) / v.zoom };
+  // With the canvas docked beside the sidebar, screen coords no longer start
+  // at the pane origin — let RF subtract the pane's own offset.
+  function screenToCanvas(sx: number, sy: number) {
+    return rf.screenToFlowPosition({ x: sx, y: sy });
+  }
+  // Visible canvas dimensions (the pane, not the window — the docked sidebar
+  // gutter is outside it). Camera math centers within this.
+  function canvasSize() {
+    const r = canvasRef.current?.getBoundingClientRect();
+    return { W: r?.width ?? window.innerWidth, H: r?.height ?? window.innerHeight };
   }
   function pushOp(op: UndoOp) {
     historyRef.current.push(op);
@@ -527,7 +556,7 @@ function JustNotesInner(props: JustNotesProps) {
 
   function spawnAtCenter(initialText = "") {
     let v = viewRef.current;
-    const W = window.innerWidth, H = window.innerHeight;
+    const { W, H } = canvasSize();
     if (v.zoom < 0.95) {
       v = { pan: { x: W / 2, y: H / 2 }, zoom: 1 };
       animateView(v);
@@ -648,7 +677,7 @@ function JustNotesInner(props: JustNotesProps) {
 
   function frameNotes(list: Note[]) {
     if (!list.length) return;
-    const W = window.innerWidth, H = window.innerHeight;
+    const { W, H } = canvasSize();
     const NW = tweakRef.current.noteWidth, NH = 150;
     let xmin = Infinity, ymin = Infinity, xmax = -Infinity, ymax = -Infinity;
     for (const n of list) {
@@ -668,8 +697,9 @@ function JustNotesInner(props: JustNotesProps) {
   function panToNote(n: Note) {
     const v = viewRef.current;
     const NW = tweakRef.current.noteWidth;
+    const { W, H } = canvasSize();
     const cx = n.x + NW / 2, cy = n.y + 60;
-    const pan = { x: window.innerWidth / 2 - cx * v.zoom, y: window.innerHeight / 2 - cy * v.zoom };
+    const pan = { x: W / 2 - cx * v.zoom, y: H / 2 - cy * v.zoom };
     animateView({ pan, zoom: v.zoom });
   }
 
@@ -681,11 +711,17 @@ function JustNotesInner(props: JustNotesProps) {
     const p = { x: n.x, y: n.y };
     const NW = n.kind === "page" ? (n.w ?? PAPER_W) : (n.w ?? tweakRef.current.noteWidth);
     const NH = n.kind === "page" ? (n.h ?? PAPER_H) : (n.h ?? 220);
-    const W = window.innerWidth, H = window.innerHeight;
-    const fit = Math.min(((W - FILE_TREE_EDGE) * 0.7) / NW, (H * 0.7) / NH);
+    const { W, H } = canvasSize();
+    // Tree-click jumps land while the unpinned tree is peeked open over the
+    // canvas's left edge; a pinned tree is outside the canvas. Read the
+    // persisted pin at call time — no re-render depends on it.
+    let treePinned = false;
+    try { treePinned = localStorage.getItem(SIDEBAR_PIN_KEY) === "1"; } catch { /* blocked */ }
+    const edge = treePinned ? 0 : FILE_TREE_PEEK;
+    const fit = Math.min(((W - edge) * 0.7) / NW, (H * 0.7) / NH);
     const zoom = Math.max(0.9, Math.min(1.2, fit));
     const cx = p.x + NW / 2;
-    const visibleCx = (FILE_TREE_EDGE + W) / 2;
+    const visibleCx = (edge + W) / 2;
     // Vertically: center a note that fits, but for one taller than the viewport
     // pin its top near the top edge so the *start* of the card is always in
     // view — centering a tall card/page pushes its beginning off the top.
@@ -787,7 +823,7 @@ function JustNotesInner(props: JustNotesProps) {
     frameNotes(notesRef.current);
   }
   function flyTo(n: Note) {
-    const W = window.innerWidth, H = window.innerHeight;
+    const { W, H } = canvasSize();
     const cx = n.x + tweakRef.current.noteWidth / 2, cy = n.y + 60;
     animateView({ pan: { x: W / 2 - cx, y: H / 2 - cy }, zoom: 1 });
     prevViewRef.current = null;
@@ -799,7 +835,7 @@ function JustNotesInner(props: JustNotesProps) {
     for (const n of list) { sx += n.x; sy += n.y; }
     const cx = sx / list.length + tweakRef.current.noteWidth / 2;
     const cy = sy / list.length + 60;
-    const W = window.innerWidth, H = window.innerHeight;
+    const { W, H } = canvasSize();
     animateView({ pan: { x: W / 2 - cx, y: H / 2 - cy }, zoom: 1 });
     prevViewRef.current = null;
   }
@@ -894,7 +930,7 @@ function JustNotesInner(props: JustNotesProps) {
   function handleNodeClick(e: React.MouseEvent, node: NoteFlowNode) {
     if (justDraggedRef.current) return;
     markInteracted();
-    // Inline #tag chips open the ambient search instead of the editor.
+    // Inline #tag chips open the ambient search instead of selecting.
     const tagEl = (e.target as HTMLElement).closest("[data-tag]") as HTMLElement | null;
     if (tagEl && editingIdRef.current !== node.id) {
       const tag = tagEl.dataset.tag;
@@ -905,10 +941,19 @@ function JustNotesInner(props: JustNotesProps) {
       return;
     }
     if (editingIdRef.current === node.id) return;
-    // Single click drops straight into editing the note in place (a real drag
-    // is handled by RF's drag events instead). startEditingExisting commits
-    // any other open editor first. Remember where the click landed so the
-    // caret opens there rather than jumping to the end of the text.
+    // Single click selects; editing is a double-click (below).
+    if (editingIdRef.current) commitEditing();
+    if (ambientOpen) closeAmbient();
+    setSelectedIds(new Set([node.id]));
+  }
+
+  function handleNodeDoubleClick(e: React.MouseEvent, node: NoteFlowNode) {
+    markInteracted();
+    if (editingIdRef.current === node.id) return;
+    if ((e.target as HTMLElement).closest("[data-tag]")) return; // tag click already handled
+    // Double-click drops into editing the note in place. startEditingExisting
+    // commits any other open editor first. Remember where the click landed so
+    // the caret opens there rather than jumping to the end of the text.
     if (ambientOpen) closeAmbient();
     setSelectedIds(new Set([node.id]));
     editClickRef.current = { x: e.clientX, y: e.clientY };
@@ -921,6 +966,7 @@ function JustNotesInner(props: JustNotesProps) {
     if (prevViewRef.current) { animateView(prevViewRef.current); prevViewRef.current = null; return; }
     if (editingId) { commitEditing(); return; }
     if (ambientOpen) { closeAmbient(); return; }
+    if (selectedLinkRef.current) { setSelectedLinkId(null); return; }
     if (selectedIdsRef.current.size > 0) setSelectedIds(new Set());
   }
 
@@ -940,6 +986,54 @@ function JustNotesInner(props: JustNotesProps) {
     e.preventDefault();
     e.stopPropagation();
     setContextMenu({ id: node.id, x: e.clientX, y: e.clientY });
+  }
+
+  function handleConnect(conn: Pick<Connection, "source" | "target">) {
+    const s = conn.source, t2 = conn.target;
+    if (!s || !t2 || s === t2) return;
+    const [a, b] = s < t2 ? [s, t2] : [t2, s];
+    if (linksRef.current.some((l) => l.a === a && l.b === b)) return;
+    markInteracted();
+    const id = uid();
+    setLinks((ls) => [...ls, { id, a, b }]);
+    markWrite();
+    remoteStorage.createLink({ id, boardId: activeBoardId, aId: a, bId: b })
+      .then((saved) => {
+        // A duplicate races to the server's canonical row — adopt its id.
+        if (saved.id !== id) setLinks((ls) => ls.map((l) => (l.id === id ? saved : l)));
+      })
+      .catch((err) => console.error("[links] create failed", err));
+  }
+
+  // RF only completes a connection when the drop lands on a handle it knows
+  // about, and its cached handle bounds can go stale (e.g. across HMR). Treat
+  // any release over a card as a valid drop: resolve the note under the
+  // pointer ourselves and link to it.
+  function handleConnectEnd(
+    event: MouseEvent | TouchEvent,
+    state: { isValid: boolean | null; fromNode: { id: string } | null },
+  ) {
+    if (state.isValid || !state.fromNode) return; // valid drops came through onConnect
+    const pt = "changedTouches" in event ? event.changedTouches[0] : event;
+    if (!pt) return;
+    const el = document.elementFromPoint(pt.clientX, pt.clientY);
+    const target = el?.closest<HTMLElement>("[data-note-id]")?.dataset.noteId;
+    if (target) handleConnect({ source: state.fromNode.id, target });
+  }
+
+  function handleEdgeClick(e: React.MouseEvent, edge: { data?: { kind?: string; linkId?: string } }) {
+    if (edge.data?.kind !== "link" || !edge.data.linkId) return;
+    e.stopPropagation();
+    setSelectedLinkId((cur) => (cur === edge.data!.linkId ? null : edge.data!.linkId!));
+  }
+
+  function deleteSelectedLink() {
+    const id = selectedLinkRef.current;
+    if (!id) return;
+    setSelectedLinkId(null);
+    setLinks((ls) => ls.filter((l) => l.id !== id));
+    markWrite();
+    remoteStorage.removeLink(id).catch((err) => console.error("[links] delete failed", err));
   }
 
   // ── Ambient mode + command palette ─────────────────────────────────
@@ -1115,6 +1209,7 @@ function JustNotesInner(props: JustNotesProps) {
         let handled = true;
         if (contextMenu) setContextMenu(null);
         else if (canvasMenu) setCanvasMenu(null);
+        else if (selectedLinkRef.current) setSelectedLinkId(null);
         else if (selectedIdsRef.current.size > 0) setSelectedIds(new Set());
         else if (graveyardOpen) setGraveyardOpen(false);
         else if (authPanelOpen) setAuthPanelOpen(false);
@@ -1161,6 +1256,12 @@ function JustNotesInner(props: JustNotesProps) {
       }
 
       if (isInput) return;
+
+      if ((e.key === "Backspace" || e.key === "Delete") && selectedLinkRef.current) {
+        e.preventDefault();
+        deleteSelectedLink();
+        return;
+      }
 
       if ((e.key === "Backspace" || e.key === "Delete") && selectedIdsRef.current.size > 0) {
         e.preventDefault();
@@ -1429,8 +1530,8 @@ function JustNotesInner(props: JustNotesProps) {
   );
 
   const edges = useMemo(
-    () => buildThreadEdges({ notes, relationsOn, hoveredId, selectedIds }),
-    [notes, relationsOn, hoveredId, selectedIds],
+    () => buildThreadEdges({ notes, links, selectedLinkId, relationsOn, hoveredId, selectedIds }),
+    [notes, links, selectedLinkId, relationsOn, hoveredId, selectedIds],
   );
 
   const rootStyle: CSSProperties = {
@@ -1440,6 +1541,22 @@ function JustNotesInner(props: JustNotesProps) {
 
   return (
     <div className="jn-root" style={rootStyle}>
+      {/* First flex child: the docked tree. Its footprint (rail or pinned
+          panel) is layout width; the canvas flexes into the rest. */}
+      <FileTree
+        boards={boards}
+        activeBoardId={activeBoardId}
+        liveNotes={notes}
+        notesByBoard={notesByBoard}
+        selectedIds={selectedIds}
+        onSelectNote={selectTreeNote}
+        onCreateNote={createTreeNote}
+        onSwitchBoard={onSwitchBoard}
+        onCreateBoard={onCreateBoard}
+        onRenameBoard={onRenameBoard}
+        onDeleteBoard={onDeleteBoard}
+      />
+
       <div
         ref={canvasRef}
         className={"jn-flow" + (moving ? " moving" : "") + (inOverview ? " overview" : "")}
@@ -1454,6 +1571,7 @@ function JustNotesInner(props: JustNotesProps) {
           onMove={handleMove}
           onMoveStart={handleMoveStart}
           onNodeClick={handleNodeClick}
+          onNodeDoubleClick={handleNodeDoubleClick}
           onNodeContextMenu={handleNodeContextMenu}
           onNodeMouseEnter={(_, n) => onNoteHover(n.id)}
           onNodeMouseLeave={() => onNoteHover(null)}
@@ -1461,24 +1579,13 @@ function JustNotesInner(props: JustNotesProps) {
           onNodeDragStop={handleNodeDragStop}
           onPaneClick={handlePaneClick}
           onPaneContextMenu={handlePaneContextMenu}
+          onConnect={handleConnect}
+          onConnectEnd={handleConnectEnd}
+          onEdgeClick={handleEdgeClick}
         />
       </div>
 
       {notes.length === 0 && <GhostCard />}
-
-      <FileTree
-        boards={boards}
-        activeBoardId={activeBoardId}
-        liveNotes={notes}
-        notesByBoard={notesByBoard}
-        selectedIds={selectedIds}
-        onSelectNote={selectTreeNote}
-        onCreateNote={createTreeNote}
-        onSwitchBoard={onSwitchBoard}
-        onCreateBoard={onCreateBoard}
-        onRenameBoard={onRenameBoard}
-        onDeleteBoard={onDeleteBoard}
-      />
 
       <Toolbar
         onNewNote={() => { markInteracted(); spawnAtCenter(""); }}

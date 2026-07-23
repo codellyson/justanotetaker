@@ -54,12 +54,14 @@ body {
 .jn-root {
   position: fixed;
   inset: 0;
+  display: flex;
 }
 /* React Flow surface. RF owns pan/zoom/drag; these rules restyle its chrome
    to match the old hand-rolled canvas. */
 .jn-flow {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  flex: 1;
+  min-width: 0;
   background: rgb(var(--bg));
   user-select: none;
   -webkit-user-select: none;
@@ -99,17 +101,61 @@ body {
 .jn-flow .react-flow__nodesselection-rect {
   display: none;
 }
-/* RF requires handles for edges; threads compute their own geometry, so the
-   handles are invisible (but must stay rendered for edge bookkeeping). */
-.jn-flow .react-flow__handle.note-thread-handle {
-  opacity: 0;
-  pointer-events: none;
+/* Link handles. The source dot fades in on card hover — drag it onto another
+   note to define a relationship. The target is an invisible card-sized cover
+   that only takes pointer events while a connection is in flight, so it never
+   steals clicks/drags from the card. */
+.jn-flow .react-flow__handle.note-link-source {
+  /* Generous 24px grab zone; the visible dot is the ::after. */
+  right: -12px;
+  top: 50%;
+  transform: translate(0, -50%);
+  width: 24px;
+  height: 24px;
   min-width: 0;
   min-height: 0;
-  width: 1px;
-  height: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: none;
+  border-radius: 50%;
   background: transparent;
+  opacity: 0;
+  transition: opacity 140ms ease;
+  cursor: crosshair;
+  z-index: 6;
+}
+.jn-flow .react-flow__handle.note-link-source::after {
+  content: "";
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: rgb(var(--accent));
+  border: 2px solid rgb(var(--bg-secondary));
+}
+.jn-flow .react-flow__node:hover .note-link-source,
+.jn-flow .react-flow__node.selected .note-link-source {
+  opacity: 0.95;
+}
+.jn-flow .note.editing ~ .react-flow__handle.note-link-source {
+  opacity: 0;
+  pointer-events: none;
+}
+.jn-flow .react-flow__handle.note-link-target {
+  inset: 0;
+  transform: none;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  border: none;
+  border-radius: var(--radius, 2px);
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+}
+.jn-flow .react-flow__handle.note-link-target.active {
+  pointer-events: all;
 }
 .note.selected {
   box-shadow: 0 0 0 2px rgb(var(--accent));
@@ -263,6 +309,24 @@ body {
   stroke-dasharray: 3 6;
   animation: none;
   opacity: 0.4;
+}
+/* User-drawn relationships: persistent solid threads. Click selects (the fat
+   invisible twin below is the hit area); Backspace deletes. */
+.jn-flow .react-flow__edge .thread-link {
+  animation: none;
+  opacity: 0.55;
+}
+.jn-flow .react-flow__edge .thread-link.thread-hot {
+  stroke: rgb(var(--danger));
+  stroke-width: 2;
+  opacity: 0.95;
+}
+.jn-flow .react-flow__edge .thread-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  pointer-events: stroke;
+  cursor: pointer;
 }
 .note:hover:not(.editing):not(.dim):not(.dragging) {
   box-shadow: 0 0 0 1px rgb(var(--border));
@@ -553,31 +617,42 @@ body {
   background: rgb(var(--text-muted) / 0.5);
 }
 
-/* Left edge — the file tree: every board and its notes; click a note to fly
-   the canvas there. Always visible, mirrors the toolbar's translucent chrome. */
+/* Left edge — the file tree, docked flush beside the canvas: its layout
+   footprint is a slim rail (or the full panel while pinned), and the canvas
+   flexes into the rest, so notes are never hidden under it and no space goes
+   unused — the panel surface IS the column. Hovering the rail peeks the
+   panel open as an overlay so the canvas doesn't reflow until you pin. */
 .file-tree {
-  top: 16px;
-  left: 16px;
-  bottom: 40px;
+  position: relative;
+  z-index: 100;
+  flex: none;
+  width: 48px;
+  transition: width 200ms cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+.file-tree.ft-pinned {
   width: 232px;
-  pointer-events: auto;
+}
+.ft-surface {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 48px;
   display: flex;
   flex-direction: column;
-  border-radius: 14px;
-  background: rgb(var(--bg-secondary) / 0.85);
-  border: 1px solid rgb(var(--border));
+  background: rgb(var(--bg-secondary) / 0.92);
+  border-right: 1px solid rgb(var(--border));
   backdrop-filter: blur(8px);
   overflow: hidden;
   transition: width 200ms cubic-bezier(0.3, 0.7, 0.4, 1), box-shadow 200ms ease;
 }
-/* Collapsed to a slim rail; only the toggle shows. Peeks open on hover
-   (ft-open) or stays open when pinned. */
-.file-tree.ft-collapsed {
-  width: 48px;
-}
-.file-tree.ft-open {
+.file-tree.ft-open .ft-surface {
   width: 232px;
-  box-shadow: 0 18px 40px -22px rgb(0 0 0 / 0.5);
+}
+/* Peeking (open but not pinned) overlays the canvas — cast a shadow so the
+   panel reads as floating above it; pinned sits flush, no shadow. */
+.file-tree.ft-open:not(.ft-pinned) .ft-surface {
+  box-shadow: 12px 0 40px -18px rgb(0 0 0 / 0.5);
 }
 .file-tree.ft-collapsed .ft-head-title,
 .file-tree.ft-collapsed .ft-head-add,
@@ -780,8 +855,17 @@ body {
   background: rgb(var(--text-primary) / 0.06);
   transition: opacity 120ms ease;
 }
-/* On hover the row's action icons replace the count, swapped in the same slot
-   in normal flow — no absolute overlay, so the icons are always clickable. */
+/* On hover the row's action icons replace the count inside a fixed-size tail
+   slot, so the swap never reflows the row (no width/height jump — the name
+   keeps its space whether the count or the icons are showing). */
+.ft-row-tail {
+  flex: none;
+  width: 67px;
+  height: 21px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
 .ft-board-actions {
   flex: none;
   display: none;
@@ -2278,13 +2362,16 @@ body {
    Reflow the fixed chrome so it doesn't crowd the small canvas, and grow
    tap targets. The canvas itself is touch-driven (Pointer Events). */
 @media (max-width: 640px) {
-  /* Tighter insets — the panels overlay the canvas, so pull them to the edges. */
-  .file-tree {
-    top: 8px;
-    left: 8px;
-    bottom: 8px;
+  /* No room to push the canvas on a phone: the docked footprint stays a slim
+     rail even when pinned, and the opened panel overlays the canvas. */
+  .file-tree,
+  .file-tree.ft-pinned {
+    width: 40px;
   }
-  .file-tree.ft-open {
+  .ft-surface {
+    width: 40px;
+  }
+  .file-tree.ft-open .ft-surface {
     width: min(232px, 82vw);
   }
 
@@ -2301,6 +2388,10 @@ body {
   }
   .ft-icon-btn {
     width: 30px;
+    height: 30px;
+  }
+  .ft-row-tail {
+    width: 94px;
     height: 30px;
   }
   .ft-toggle {

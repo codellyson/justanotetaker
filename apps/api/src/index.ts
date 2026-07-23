@@ -4,6 +4,7 @@ import { createAuth, hasGoogleProvider } from "./auth";
 import type { Env } from "./env";
 import { boardsRoutes } from "./routes/boards";
 import { notesRoutes } from "./routes/notes";
+import { linksRoutes } from "./routes/links";
 import { previewRoutes } from "./routes/preview";
 import { settingsRoutes } from "./routes/settings";
 import { tokensRoutes, resolveApiToken } from "./routes/tokens";
@@ -149,11 +150,13 @@ const routes = app
   .use("/api/preview/*", requireUser as any)
   .use("/api/boards/*", requireUser as any)
   .use("/api/tokens/*", requireUser as any)
+  .use("/api/links/*", requireUser as any)
   .route("/api/notes", notesRoutes)
   .route("/api/settings", settingsRoutes)
   .route("/api/preview", previewRoutes)
   .route("/api/boards", boardsRoutes)
-  .route("/api/tokens", tokensRoutes);
+  .route("/api/tokens", tokensRoutes)
+  .route("/api/links", linksRoutes);
 
 export default app;
 

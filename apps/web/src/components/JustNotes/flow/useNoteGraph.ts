@@ -25,7 +25,14 @@ export type NoteNodeData = {
 };
 
 export type NoteFlowNode = Node<NoteNodeData, "note">;
-export type ThreadFlowEdge = Edge<{ kind: "relation" | "reply" }, "thread">;
+export type ThreadEdgeData = {
+  kind: "relation" | "reply" | "link";
+  // Set on user-drawn links: the persisted link id, and whether it's the
+  // currently selected one (drawn hot, Backspace deletes it).
+  linkId?: string;
+  selected?: boolean;
+};
+export type ThreadFlowEdge = Edge<ThreadEdgeData, "thread">;
 
 export function buildNoteNodes(args: {
   notes: Note[];
@@ -119,18 +126,21 @@ export function applyNoteNodeChanges(
   }
 }
 
-// Relation threads (tag-shared, shown for the hovered / lone-selected note when
-// relations are on) + the always-on reply spine (each assistant note tied to
-// its nearest preceding non-assistant note). Geometry lives in ThreadEdge.
+// User-drawn links (always on), relation threads (tag-shared, shown for the
+// hovered / lone-selected note when relations are on), and the always-on reply
+// spine (each assistant note tied to its nearest preceding non-assistant
+// note). Geometry lives in ThreadEdge.
 export function buildThreadEdges(args: {
   notes: Note[];
+  links: { id: string; a: string; b: string }[];
+  selectedLinkId: string | null;
   relationsOn: boolean;
   hoveredId: string | null;
   selectedIds: Set<string>;
 }): ThreadFlowEdge[] {
-  const { notes, relationsOn, hoveredId, selectedIds } = args;
+  const { notes, links, selectedLinkId, relationsOn, hoveredId, selectedIds } = args;
   const out: ThreadFlowEdge[] = [];
-  const mk = (id: string, source: string, target: string, kind: "relation" | "reply"): ThreadFlowEdge => ({
+  const mk = (id: string, source: string, target: string, kind: ThreadEdgeData["kind"]): ThreadFlowEdge => ({
     id,
     source,
     target,
@@ -139,6 +149,14 @@ export function buildThreadEdges(args: {
     selectable: false,
     focusable: false,
   });
+
+  const have = new Set(notes.map((n) => n.id));
+  for (const l of links) {
+    if (!have.has(l.a) || !have.has(l.b)) continue; // endpoint deleted/culled
+    const e = mk(`link-${l.id}`, l.a, l.b, "link");
+    e.data = { kind: "link", linkId: l.id, selected: l.id === selectedLinkId };
+    out.push(e);
+  }
 
   if (notes.some((n) => n.role === "assistant")) {
     const ordered = [...notes].sort((a, b) => a.t - b.t);

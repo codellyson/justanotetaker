@@ -5,9 +5,12 @@ import {
   PanOnScrollMode,
   ReactFlow,
   SelectionMode,
+  type EdgeMouseHandler,
   type EdgeTypes,
   type NodeMouseHandler,
   type NodeTypes,
+  type OnConnect,
+  type OnConnectEnd,
   type OnMove,
   type OnNodeDrag,
   type OnNodesChange,
@@ -37,6 +40,7 @@ type Props = {
   onMove: OnMove;
   onMoveStart: OnMove;
   onNodeClick: NodeMouseHandler<NoteFlowNode>;
+  onNodeDoubleClick: NodeMouseHandler<NoteFlowNode>;
   onNodeContextMenu: NodeMouseHandler<NoteFlowNode>;
   onNodeMouseEnter: NodeMouseHandler<NoteFlowNode>;
   onNodeMouseLeave: NodeMouseHandler<NoteFlowNode>;
@@ -44,6 +48,9 @@ type Props = {
   onNodeDragStop: OnNodeDrag<NoteFlowNode>;
   onPaneClick: (e: ReactMouseEvent) => void;
   onPaneContextMenu: (e: MouseEvent | ReactMouseEvent) => void;
+  onConnect: OnConnect;
+  onConnectEnd: OnConnectEnd;
+  onEdgeClick: EdgeMouseHandler<ThreadFlowEdge>;
 };
 
 export function FlowCanvas(p: Props) {
@@ -80,7 +87,14 @@ export function FlowCanvas(p: Props) {
       paneClickDistance={2}
       snapToGrid={p.snapEnabled}
       snapGrid={[GRID, GRID]}
-      nodesConnectable={false}
+      // Connections: drag from a note's link dot onto another note.
+      nodesConnectable
+      onConnect={p.onConnect}
+      onConnectEnd={p.onConnectEnd}
+      connectionRadius={30}
+      isValidConnection={(c) => c.source !== c.target}
+      connectionLineStyle={{ stroke: "rgb(var(--accent))", strokeWidth: 1.5, strokeDasharray: "4 4", fill: "none" }}
+      onEdgeClick={p.onEdgeClick}
       edgesFocusable={false}
       // The global keydown map stays authoritative: no RF delete key, no RF
       // arrow-nudge/Escape handling to fight the app's Escape cascade.
@@ -90,6 +104,7 @@ export function FlowCanvas(p: Props) {
       onMove={p.onMove}
       onMoveStart={p.onMoveStart}
       onNodeClick={p.onNodeClick}
+      onNodeDoubleClick={p.onNodeDoubleClick}
       onNodeContextMenu={p.onNodeContextMenu}
       onNodeMouseEnter={p.onNodeMouseEnter}
       onNodeMouseLeave={p.onNodeMouseLeave}

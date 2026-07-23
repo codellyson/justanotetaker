@@ -118,11 +118,12 @@ export function FileTree({
 
   return (
     <nav
-      className={"chrome file-tree" + (open ? " ft-open" : " ft-collapsed")}
+      className={"file-tree" + (open ? " ft-open" : " ft-collapsed") + (pinned ? " ft-pinned" : "")}
       aria-label="Notes"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
+      <div className="ft-surface">
       <div className="ft-head">
         <button
           type="button"
@@ -197,7 +198,7 @@ export function FileTree({
                 )}
 
                 {!renaming && !confirming && (
-                  <>
+                  <div className="ft-row-tail">
                     <div className="ft-board-actions">
                       <button
                         type="button"
@@ -233,7 +234,7 @@ export function FileTree({
                       )}
                     </div>
                     <span className="ft-count">{entries.length}</span>
-                  </>
+                  </div>
                 )}
 
                 {confirming && (
@@ -280,6 +281,7 @@ export function FileTree({
             </div>
           );
         })}
+      </div>
       </div>
     </nav>
   );

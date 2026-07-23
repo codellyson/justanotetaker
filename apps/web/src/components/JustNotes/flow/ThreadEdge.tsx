@@ -21,12 +21,20 @@ export function ThreadEdge({ source, target, data }: EdgeProps<ThreadFlowEdge>) 
   const len = Math.hypot(dx, dy) || 1;
   const bow = Math.min(48, len * 0.14);
   const cx = mx + (-dy / len) * bow, cy = my + (dx / len) * bow;
+  const d = `M ${p.x} ${p.y} Q ${cx} ${cy} ${q.x} ${q.y}`;
 
+  const kind = data?.kind ?? "relation";
   return (
-    <path
-      d={`M ${p.x} ${p.y} Q ${cx} ${cy} ${q.x} ${q.y}`}
-      pathLength={1}
-      className={`thread thread-${data?.kind ?? "relation"}`}
-    />
+    <>
+      <path
+        d={d}
+        pathLength={1}
+        className={`thread thread-${kind}` + (data?.selected ? " thread-hot" : "")}
+      />
+      {/* User links are clickable (select → Backspace deletes); the visible
+          1.5px curve is too thin a target, so a fat invisible twin takes the
+          pointer events. */}
+      {kind === "link" && <path d={d} className="thread-hit" />}
+    </>
   );
 }

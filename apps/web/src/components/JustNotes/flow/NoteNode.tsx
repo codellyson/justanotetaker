@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useState, type CSSProperties } from "react";
-import { Handle, NodeResizer, Position, type NodeProps } from "@xyflow/react";
+import { Handle, NodeResizer, Position, useConnection, type NodeProps } from "@xyflow/react";
 import {
   RECENCY_ALPHA,
   PAPER_W,
@@ -16,10 +16,14 @@ import type { NoteFlowNode } from "./useNoteGraph";
 // opens so it never touches the initial bundle or the canvas cards.
 const CmEditor = lazy(() => import("../CmEditor"));
 
-function NoteNodeInner({ data, selected }: NodeProps<NoteFlowNode>) {
+function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
   const { note, editing, dragging, dimmed, highlit, focused, fromClipboard, scrubFade, clickPos, handlers } = data;
   // Bumped on every canvas pan/zoom while editing → CmEditor re-measures.
   const [measureTick, setMeasureTick] = useState(0);
+  // While a connection drag is in flight from another note, the whole card
+  // becomes a drop target (the cover handle switches its pointer-events on).
+  // Selector returns a primitive so the store subscription stays stable.
+  const isConnectTarget = useConnection((c) => c.inProgress && c.fromNode?.id !== id);
   const rec = recencyOf(note.t);
 
   const first = firstNonEmpty(note.text);
@@ -84,7 +88,11 @@ function NoteNodeInner({ data, selected }: NodeProps<NoteFlowNode>) {
         onResize={(_, p) => handlers.onResize(note.id, p)}
         onResizeEnd={(_, p) => handlers.onResizeEnd(note.id, p)}
       />
-      <Handle type="target" position={Position.Top} isConnectable={false} className="note-thread-handle" />
+      <Handle
+        type="target"
+        position={Position.Left}
+        className={"note-link-target" + (isConnectTarget ? " active" : "")}
+      />
       <div className={cls} data-note-id={note.id} style={style}>
         {editing ? (
           <>
@@ -130,7 +138,14 @@ function NoteNodeInner({ data, selected }: NodeProps<NoteFlowNode>) {
         )}
         {!editing && <div className="note-pad-cover" aria-hidden="true" />}
       </div>
-      <Handle type="source" position={Position.Bottom} isConnectable={false} className="note-thread-handle" />
+      {/* Drag from this dot onto another note to link them (nodrag so the
+          gesture starts a connection, not a card drag). */}
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="note-link-source nodrag"
+        isConnectable={!editing}
+      />
     </>
   );
 }
