@@ -55,73 +55,100 @@ body {
   position: fixed;
   inset: 0;
 }
-.canvas {
+/* React Flow surface. RF owns pan/zoom/drag; these rules restyle its chrome
+   to match the old hand-rolled canvas. */
+.jn-flow {
   position: absolute;
   inset: 0;
-  cursor: grab;
-  overflow: hidden;
+  background: rgb(var(--bg));
   user-select: none;
   -webkit-user-select: none;
-  /* Take over touch so pointer events drive pan/pinch instead of page scroll. */
-  touch-action: none;
 }
-.canvas:active {
+.jn-flow .react-flow__pane {
+  cursor: grab;
+}
+.jn-flow .react-flow__pane.dragging {
   cursor: grabbing;
-}
-.notes-layer {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 0;
-  height: 0;
-  transform-origin: 0 0;
-}
-.notes-layer.smooth {
-  transition: transform 400ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 /* Composite only while moving — dropped when idle so text re-rasterizes crisp
    at the current zoom instead of stretching a cached texture. */
-.notes-layer.moving {
+.jn-flow.moving .react-flow__viewport {
   will-change: transform;
 }
-.marquee {
-  position: absolute;
+/* The RF node wrapper owns absolute position/transform; the card itself
+   renders in normal flow so the wrapper measures its real size. */
+.jn-flow .react-flow__node {
+  cursor: default;
+}
+.jn-flow .react-flow__node .note {
+  position: relative;
+}
+/* Glide to the cleared spot after a colliding drop (~340ms). */
+.jn-flow .react-flow__node.snapping {
+  transition: transform 300ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+/* Marquee (⌘/Ctrl-drag) */
+.jn-flow .react-flow__selection {
   border: 1px solid rgb(var(--accent) / 0.85);
   background: rgb(var(--accent) / 0.12);
   border-radius: 2px;
+}
+/* RF draws a group box over marquee-selected nodes that eats their clicks and
+   context menus. Selection is shown per-note (box-shadow) instead; group drag
+   still works by grabbing any selected note. */
+.jn-flow .react-flow__nodesselection-rect {
+  display: none;
+}
+/* RF requires handles for edges; threads compute their own geometry, so the
+   handles are invisible (but must stay rendered for edge bookkeeping). */
+.jn-flow .react-flow__handle.note-thread-handle {
+  opacity: 0;
   pointer-events: none;
-  z-index: 5;
+  min-width: 0;
+  min-height: 0;
+  width: 1px;
+  height: 1px;
+  border: none;
+  background: transparent;
 }
 .note.selected {
   box-shadow: 0 0 0 2px rgb(var(--accent));
 }
-/* Obsidian-style resize: the whole perimeter is the anchor. Eight invisible
-   drag zones — four edges + four corners — sit on the card border. Corners
-   outrank edges (higher z-index) so the diagonal cursor wins in the overlap. */
-.note-edge {
-  position: absolute;
-  z-index: 1;
+/* Obsidian-style resize via RF's NodeResizer: invisible lines on the edges
+   (ns/ew cursors) and invisible corner squares (diagonal cursors) sit on the
+   card border — same hit zones as the old hand-rolled handles. They render
+   before the card in the DOM, so lift them above it or the card eats the
+   pointer events on the overlap. */
+.jn-flow .react-flow__resize-control {
+  z-index: 5;
 }
-.note-edge-n { top: 0; left: 12px; right: 12px; height: 7px; cursor: ns-resize; }
-.note-edge-s { bottom: 0; left: 12px; right: 12px; height: 7px; cursor: ns-resize; }
-.note-edge-e { right: 0; top: 12px; bottom: 12px; width: 7px; cursor: ew-resize; }
-.note-edge-w { left: 0; top: 12px; bottom: 12px; width: 7px; cursor: ew-resize; }
-.note-edge-ne { top: 0; right: 0; width: 12px; height: 12px; z-index: 2; cursor: nesw-resize; }
-.note-edge-nw { top: 0; left: 0; width: 12px; height: 12px; z-index: 2; cursor: nwse-resize; }
-.note-edge-se { bottom: 0; right: 0; width: 12px; height: 12px; z-index: 2; cursor: nwse-resize; }
-.note-edge-sw { bottom: 0; left: 0; width: 12px; height: 12px; z-index: 2; cursor: nesw-resize; }
-/* Visible corner grip — shown only on touch/small screens (see media query);
-   the thin invisible edges are too fiddly for a finger. */
-.note-grip { display: none; }
+.jn-flow .react-flow__resize-control.line {
+  border-color: transparent;
+}
+.jn-flow .react-flow__resize-control.line.top,
+.jn-flow .react-flow__resize-control.line.bottom {
+  border-width: 4px;
+}
+.jn-flow .react-flow__resize-control.line.left,
+.jn-flow .react-flow__resize-control.line.right {
+  border-width: 4px;
+}
+.jn-flow .react-flow__resize-control.handle {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
 /* Discovery cue in place of the old grip: the border warms to the accent on
    hover so the card reads as grabbable, without any persistent chrome. */
 .note:hover:not(.selected) {
   box-shadow: 0 0 0 1px rgb(var(--accent) / 0.55);
 }
-.notes-layer.overview .note {
+.jn-flow.overview .note {
   cursor: pointer;
 }
-.notes-layer.overview .note:hover {
+.jn-flow.overview .note:hover {
   transform: translateY(-1px);
   box-shadow: 0 0 0 1px rgb(var(--accent) / 0.6);
 }
@@ -205,20 +232,11 @@ body {
   pointer-events: none;
 }
 
-/* Relationship threads — drawn in the transformed notes-layer so paths use
-   canvas coordinates directly. overflow:visible lets the 1px svg host paths
-   anywhere (incl. negative coords on the infinite canvas). */
-.relation-threads {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 1px;
-  height: 1px;
-  overflow: visible;
+/* Relationship threads — custom RF edges between note centers. */
+.jn-flow .react-flow__edge {
   pointer-events: none;
-  z-index: 0;
 }
-.relation-threads path {
+.jn-flow .react-flow__edge .thread {
   fill: none;
   stroke: rgb(var(--accent));
   stroke-width: 1.5;
@@ -241,8 +259,7 @@ body {
 }
 /* The conversation spine is persistent, not a hover reveal — a calm dashed
    tie from each answer back to its question. */
-.reply-threads path {
-  stroke: rgb(var(--accent));
+.jn-flow .react-flow__edge .thread-reply {
   stroke-dasharray: 3 6;
   animation: none;
   opacity: 0.4;
@@ -269,14 +286,6 @@ body {
   box-shadow: 0 0 0 1px rgb(var(--accent) / 0.55);
 }
 
-/* Glide to the cleared spot after a colliding drop (~340ms). */
-.note.snapping {
-  transition:
-    left 300ms cubic-bezier(0.22, 0.61, 0.36, 1),
-    top 300ms cubic-bezier(0.22, 0.61, 0.36, 1),
-    box-shadow 180ms ease;
-}
-
 .note.dim {
   opacity: 0.12 !important;
   filter: saturate(0.4);
@@ -293,23 +302,6 @@ body {
     0 0 0 1px rgb(var(--accent) / 0.85),
     0 0 22px 0 rgb(var(--accent) / 0.35);
   pointer-events: none;
-}
-
-/* ── View modes ─────────────────────────────────────────────────────
-   Mode is a class on .notes-layer; position/color are set inline by NoteCard.
-   `layout-animating` (mode-switch only) eases position/size; the base .note
-   never transitions position so dragging stays snappy. */
-.notes-layer.layout-animating .note {
-  transition:
-    left 560ms cubic-bezier(0.22, 0.61, 0.36, 1),
-    top 560ms cubic-bezier(0.22, 0.61, 0.36, 1),
-    width 560ms cubic-bezier(0.22, 0.61, 0.36, 1),
-    height 560ms cubic-bezier(0.22, 0.61, 0.36, 1),
-    min-height 560ms cubic-bezier(0.22, 0.61, 0.36, 1),
-    background-color 320ms ease,
-    color 320ms ease,
-    opacity 320ms ease,
-    box-shadow 320ms ease;
 }
 
 /* Page — document surface (width + min-height set inline); serif reading style.
@@ -2338,15 +2330,10 @@ body {
     max-width: calc(100vw - 16px);
   }
 
-  /* Finger-sized resize grip in each note's bottom-right corner. */
-  .note-grip {
-    display: block;
-    position: absolute;
-    right: 0;
-    bottom: 0;
+  /* Finger-sized resize grip: make the RF SE corner handle visible and big. */
+  .jn-flow .react-flow__resize-control.handle.bottom.right {
     width: 30px;
     height: 30px;
-    z-index: 3;
     cursor: nwse-resize;
     touch-action: none;
     opacity: 0.5;

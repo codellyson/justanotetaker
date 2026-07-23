@@ -1,7 +1,4 @@
 import React, {
-  forwardRef,
-  lazy,
-  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -10,15 +7,15 @@ import React, {
   type CSSProperties,
 } from "react";
 import {
+  ReactFlowProvider,
+  useReactFlow,
+  type OnNodesChange,
+  type Viewport,
+} from "@xyflow/react";
+import {
   GRID,
-  RECENCY_ALPHA,
-  firstNonEmpty,
   parsePastedUrl,
-  recencyOf,
-  restAfterFirst,
-  tagsOf,
   uid,
-  resolveNoteColor,
   NOTE_COLOR_KEYS,
   NOTE_COLOR_MAP,
   PAPER_W,
@@ -29,11 +26,16 @@ import {
   type Tweaks,
 } from "./lib";
 import { FileTree } from "./FileTree";
-// CodeMirror pulls in ~65KB gzipped; load it only when the focused editor
-// opens so it never touches the initial bundle or the canvas cards.
-const CmEditor = lazy(() => import("./CmEditor"));
+import { FlowCanvas } from "./flow/FlowCanvas";
+import {
+  applyNoteNodeChanges,
+  buildNoteNodes,
+  buildThreadEdges,
+  type NoteFlowNode,
+  type NoteNodeHandlers,
+} from "./flow/useNoteGraph";
 import type { NotesByBoard } from "../../hooks/useAllNotes";
-import { renderBody, renderHeadline, toggleTaskLine } from "./markdown";
+import { toggleTaskLine } from "./markdown";
 import { formatCapturedNote } from "./clipboard";
 import { clipboardOrigin } from "../../lib/clipboard-origin";
 import { AmbientBar, Compass, TimeScrub } from "./cherries";
@@ -45,8 +47,6 @@ import { AuthPanel } from "../AuthPanel";
 import { ApiTokensPanel } from "./api-tokens";
 import { filterCommands, type Command } from "../../lib/commands";
 import { Graveyard } from "./Graveyard";
-
-type ResizeDir = "n" | "e" | "s" | "w" | "ne" | "nw" | "se" | "sw";
 
 type Persist = {
   onCreate: (note: Note, opts?: { localOnly?: boolean }) => void | Promise<void>;
@@ -99,7 +99,17 @@ type UndoOp =
   | { type: "move"; id: string; prevX: number; prevY: number };
 
 // ── App ────────────────────────────────────────────────────────────────
+// The canvas is a React Flow surface; the provider gives the orchestrator
+// access to the viewport (useReactFlow) for camera moves.
 export default function JustNotes(props: JustNotesProps) {
+  return (
+    <ReactFlowProvider>
+      <JustNotesInner {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+function JustNotesInner(props: JustNotesProps) {
   const { initialNotes, tweaks: t, setTweak, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete, refresh, boards, activeBoardId, notesByBoard, onBoardJump, focusNoteId, onFocusConsumed, onBoardCreate, spawnRequested, onSpawnConsumed, onSwitchBoard, onCreateBoard, onRenameBoard, onDeleteBoard } = props;
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [tokensOpen, setTokensOpen] = useState(false);
@@ -156,12 +166,20 @@ export default function JustNotes(props: JustNotesProps) {
     });
   }, []);
 
-  const [view, setView] = useState<View>({ pan: { x: 0, y: 0 }, zoom: 1 });
+  // React Flow owns the viewport; `view` mirrors it (fed by onMove) for
+  // everything that reads the camera — screenToCanvas, overview detection,
+  // the Compass. Camera writes go through applyView → rf.setViewport.
+  const [initialViewport] = useState<Viewport>(() => ({
+    x: window.innerWidth / 2,
+    y: window.innerHeight / 2 - 40,
+    zoom: 1,
+  }));
+  const [view, setView] = useState<View>({ pan: { x: initialViewport.x, y: initialViewport.y }, zoom: 1 });
   const viewRef = useRef(view);
   useEffect(() => { viewRef.current = view; }, [view]);
-  const [smooth, setSmooth] = useState(false);
+  const rf = useReactFlow<NoteFlowNode>();
 
-  // Crisp text under zoom: promote the notes-layer (will-change) only while it's
+  // Crisp text under zoom: promote the RF viewport (will-change) only while it's
   // actively moving, then drop the hint when it settles. Compositing keeps
   // pan/zoom smooth; dropping it makes Chrome re-rasterize the static text at
   // the exact current scale instead of stretching a cached texture (blur).
@@ -211,7 +229,6 @@ export default function JustNotes(props: JustNotesProps) {
     setHoveredId(id);
   }, []);
   useEffect(() => { selectedIdsRef.current = selectedIds; }, [selectedIds]);
-  const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
 
   const [online, setOnline] = useState<boolean>(() =>
     typeof navigator === "undefined" ? true : navigator.onLine,
@@ -319,64 +336,38 @@ export default function JustNotes(props: JustNotesProps) {
   const tweakRef = useRef<Tweaks>(t);
   useEffect(() => { tweakRef.current = t; }, [t]);
 
-  // Center the canvas on first paint.
-  useEffect(() => {
-    if (!canvasRef.current) return;
-    const r = canvasRef.current.getBoundingClientRect();
-    setView({ pan: { x: r.width / 2, y: r.height / 2 - 40 }, zoom: 1 });
-  }, []);
+  // Camera writes route through React Flow; the mirror updates via onMove.
+  // Non-animated moves also stamp viewRef immediately so sequential camera
+  // math within one handler reads the fresh value.
+  function applyView(next: View, animate = false) {
+    if (!animate) viewRef.current = next;
+    void rf.setViewport(
+      { x: next.pan.x, y: next.pan.y, zoom: next.zoom },
+      animate ? { duration: 400 } : undefined,
+    );
+  }
 
   // Multiply zoom by `factor`, keeping the screen point (sx, sy) — relative to
-  // the canvas element — fixed under the cursor.
+  // the canvas element — fixed under the cursor. (⌘+/- path; wheel and pinch
+  // zoom are handled by React Flow itself.)
   function zoomAt(factor: number, sx: number, sy: number) {
     const v = viewRef.current;
     const nextZoom = Math.max(0.32, Math.min(2.5, v.zoom * factor));
     const canvasX = (sx - v.pan.x) / v.zoom;
     const canvasY = (sy - v.pan.y) / v.zoom;
-    setView({ pan: { x: sx - canvasX * nextZoom, y: sy - canvasY * nextZoom }, zoom: nextZoom });
+    applyView({ pan: { x: sx - canvasX * nextZoom, y: sy - canvasY * nextZoom }, zoom: nextZoom });
   }
-
-  // Wheel: plain = pan, ⌘/Ctrl (or mac trackpad pinch which fires ctrlKey) = zoom on cursor.
-  useEffect(() => {
-    const el = canvasRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      bumpMoving();
-      if (e.ctrlKey || e.metaKey) {
-        const rect = el.getBoundingClientRect();
-        // Normalize across input devices: line/page deltas → px, then clamp so
-        // a single chunky mouse notch doesn't jump zoom levels. Small factor
-        // keeps it gradual; trackpads send many small events that accumulate.
-        let dy = e.deltaY;
-        if (e.deltaMode === 1) dy *= 16;
-        else if (e.deltaMode === 2) dy *= el.clientHeight;
-        dy = Math.max(-120, Math.min(120, dy));
-        zoomAt(Math.exp(-dy * 0.002), e.clientX - rect.left, e.clientY - rect.top);
-      } else {
-        setView((v) => ({ ...v, pan: { x: v.pan.x - e.deltaX, y: v.pan.y - e.deltaY } }));
-      }
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, []);
 
   const markInteracted = () => { if (!interacted) setInteracted(true); };
 
   function animateView(next: View) {
-    setSmooth(true);
     bumpMoving(460);
-    setView(next);
-    window.setTimeout(() => setSmooth(false), 400);
+    applyView(next, true);
   }
 
   function screenToCanvas(sx: number, sy: number, v: View = viewRef.current) {
     return { x: (sx - v.pan.x) / v.zoom, y: (sy - v.pan.y) / v.zoom };
   }
-  function snap(v: number) {
-    return Math.round(v / GRID) * GRID;
-  }
-
   function pushOp(op: UndoOp) {
     historyRef.current.push(op);
     if (historyRef.current.length > 80) historyRef.current.shift();
@@ -403,7 +394,7 @@ export default function JustNotes(props: JustNotesProps) {
   // Rects of every note but `excludeId`, for collision resolution on drop /
   // spawn. Position is the note's x/y; size is measured from the DOM.
   function measureRects(excludeId?: string) {
-    const layer = canvasRef.current?.querySelector(".notes-layer");
+    const layer = canvasRef.current;
     const rects: { x: number; y: number; w: number; h: number }[] = [];
     for (const n of notesRef.current) {
       if (n.id === excludeId) continue;
@@ -655,48 +646,6 @@ export default function JustNotes(props: JustNotesProps) {
     setNotes((ns) => (ns.some((n) => n.id === note.id) ? ns : [...ns, { ...note, w: null, h: null, kind: note.kind ?? "card", color: note.color ?? null }]));
   }
 
-  function startResize(e: React.PointerEvent<HTMLDivElement>, id: string, dir: ResizeDir) {
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    e.stopPropagation();
-    e.preventDefault();
-    const note = notesRef.current.find((n) => n.id === id);
-    if (!note) return;
-    const el = (e.currentTarget.parentElement as HTMLElement | null);
-    const startW = note.w ?? el?.offsetWidth ?? tweakRef.current.noteWidth;
-    const startH = note.h ?? el?.offsetHeight ?? 150;
-    const startX = note.x, startY = note.y;
-    const startSX = e.clientX, startSY = e.clientY;
-    const pointerId = e.pointerId;
-    const MIN_W = 120, MIN_H = 60;
-    // The n/w edges resize toward the anchored (opposite) side, so the note's
-    // origin shifts as it grows — clamped so it can't slide past the min size.
-    const onMove = (ev: PointerEvent) => {
-      if (ev.pointerId !== pointerId) return;
-      const z = viewRef.current.zoom;
-      const dx = (ev.clientX - startSX) / z;
-      const dy = (ev.clientY - startSY) / z;
-      let x = startX, y = startY, w = startW, h = startH;
-      if (dir.includes("e")) w = Math.max(MIN_W, startW + dx);
-      if (dir.includes("w")) { w = Math.max(MIN_W, startW - dx); x = startX + (startW - w); }
-      if (dir.includes("s")) h = Math.max(MIN_H, startH + dy);
-      if (dir.includes("n")) { h = Math.max(MIN_H, startH - dy); y = startY + (startH - h); }
-      setNotes((ns) => ns.map((n) => n.id === id ? { ...n, x, y, w, h } : n));
-    };
-    const onUp = (ev: PointerEvent) => {
-      if (ev.pointerId !== pointerId) return;
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-      const cur = notesRef.current.find((n) => n.id === id);
-      if (cur && (cur.w !== startW || cur.h !== startH || cur.x !== startX || cur.y !== startY)) {
-        onUpdate(id, { x: cur.x, y: cur.y, w: cur.w, h: cur.h });
-      }
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-  }
-
   function frameNotes(list: Note[]) {
     if (!list.length) return;
     const W = window.innerWidth, H = window.innerHeight;
@@ -855,218 +804,143 @@ export default function JustNotes(props: JustNotesProps) {
     prevViewRef.current = null;
   }
 
-  // Pointer Events so touch works alongside mouse: one contact pans (⌘/Ctrl +
-  // drag marquee-selects on mouse), two contacts pinch-zoom. A second finger
-  // joins the in-flight gesture via canvasGestureRef rather than starting a new
-  // one. All contacts share canvasPtrs (id → live screen point).
-  const canvasPtrs = useRef<Map<number, { x: number; y: number }>>(new Map());
-  const canvasGestureRef = useRef<((id: number, x: number, y: number) => void) | null>(null);
+  // ── React Flow event handlers ──────────────────────────────────────
+  // Shift suspends grid snapping mid-drag (snapToGrid is recomputed live).
+  const [shiftHeld, setShiftHeld] = useState(false);
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => { if (e.key === "Shift") setShiftHeld(true); };
+    const up = (e: KeyboardEvent) => { if (e.key === "Shift") setShiftHeld(false); };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, []);
 
-  const onCanvasPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
-    if (!target.dataset.canvas) return;
-    if (e.pointerType === "mouse" && e.button !== 0) return;
+  // Drag-start positions for undo "move" ops, captured per dragged node.
+  const dragStartRef = useRef<Map<string, { x: number; y: number }> | null>(null);
+  const justDraggedRef = useRef(false);
 
-    // A second contact upgrades the running gesture to a pinch.
-    if (canvasGestureRef.current) {
-      e.preventDefault();
-      canvasGestureRef.current(e.pointerId, e.clientX, e.clientY);
+  // RF-measured node sizes, cached from "dimensions" changes and stamped back
+  // onto the derived nodes (see useNoteGraph). The tick re-derives the nodes
+  // when a measurement lands, since the map itself is a ref.
+  const measuredDimsRef = useRef(new Map<string, { width: number; height: number }>());
+  const [dimsTick, setDimsTick] = useState(0);
+
+  const onNodesChange: OnNodesChange<NoteFlowNode> = (changes) => {
+    applyNoteNodeChanges(changes, {
+      setNotes,
+      setSelectedIds,
+      measuredDims: measuredDimsRef.current,
+      onDimensions: () => setDimsTick((v) => v + 1),
+    });
+  };
+
+  function handleMove(_: unknown, vp: Viewport) {
+    setView({ pan: { x: vp.x, y: vp.y }, zoom: vp.zoom });
+    bumpMoving();
+  }
+
+  function handleMoveStart() {
+    markInteracted();
+  }
+
+  function handleNodeDragStart(_: unknown, node: NoteFlowNode, dragged: NoteFlowNode[]) {
+    markInteracted();
+    setDraggingId(node.id);
+    const map = new Map<string, { x: number; y: number }>();
+    for (const d of dragged) map.set(d.id, { x: d.position.x, y: d.position.y });
+    dragStartRef.current = map;
+  }
+
+  function handleNodeDragStop(_: unknown, node: NoteFlowNode, dragged: NoteFlowNode[]) {
+    // RF can fire a click on the drop target right after a drag; swallow it so
+    // a completed drag never falls into click-to-edit.
+    justDraggedRef.current = true;
+    window.setTimeout(() => { justDraggedRef.current = false; }, 0);
+    setDraggingId(null);
+    const starts = dragStartRef.current;
+    dragStartRef.current = null;
+    if (!starts) return;
+    if (dragged.length === 1) {
+      // Single-card drops snap to the nearest free spot so cards never stack.
+      const sp = starts.get(node.id);
+      const cur = notesRef.current.find((n) => n.id === node.id);
+      if (!sp || !cur || (sp.x === cur.x && sp.y === cur.y)) return;
+      const el = canvasRef.current?.querySelector<HTMLElement>(`[data-note-id="${node.id}"]`);
+      const selfW = el?.offsetWidth ?? cur.w ?? tweakRef.current.noteWidth;
+      const selfH = el?.offsetHeight ?? cur.h ?? 96;
+      const spot = resolveFreePosition(cur.x, cur.y, selfW, selfH, measureRects(node.id));
+      pushOp({ type: "move", id: node.id, prevX: sp.x, prevY: sp.y });
+      if (spot.x !== cur.x || spot.y !== cur.y) {
+        setNotes((ns) => ns.map((n) => (n.id === node.id ? { ...n, x: spot.x, y: spot.y } : n)));
+        setSnappingId(node.id);
+        window.setTimeout(() => setSnappingId((s) => (s === node.id ? null : s)), 340);
+      }
+      onUpdate(node.id, { x: spot.x, y: spot.y });
+    } else {
+      for (const d of dragged) {
+        const sp = starts.get(d.id);
+        if (!sp) continue;
+        const cur = notesRef.current.find((n) => n.id === d.id);
+        if (!cur || (sp.x === cur.x && sp.y === cur.y)) continue;
+        pushOp({ type: "move", id: d.id, prevX: sp.x, prevY: sp.y });
+        onUpdate(d.id, { x: cur.x, y: cur.y });
+      }
+    }
+  }
+
+  function handleNodeClick(e: React.MouseEvent, node: NoteFlowNode) {
+    if (justDraggedRef.current) return;
+    markInteracted();
+    // Inline #tag chips open the ambient search instead of the editor.
+    const tagEl = (e.target as HTMLElement).closest("[data-tag]") as HTMLElement | null;
+    if (tagEl && editingIdRef.current !== node.id) {
+      const tag = tagEl.dataset.tag;
+      if (tag) {
+        if (editingIdRef.current) commitEditing();
+        openAmbient("#" + tag);
+      }
       return;
     }
+    if (editingIdRef.current === node.id) return;
+    // Single click drops straight into editing the note in place (a real drag
+    // is handled by RF's drag events instead). startEditingExisting commits
+    // any other open editor first. Remember where the click landed so the
+    // caret opens there rather than jumping to the end of the text.
+    if (ambientOpen) closeAmbient();
+    setSelectedIds(new Set([node.id]));
+    editClickRef.current = { x: e.clientX, y: e.clientY };
+    startEditingExisting(node.id);
+  }
 
-    e.preventDefault();
-    if (e.detail > 1) return; // ignore the 2nd+ of a multi-click
+  function handlePaneClick() {
     markInteracted();
+    // A tap on empty canvas only dismisses transient state.
+    if (prevViewRef.current) { animateView(prevViewRef.current); prevViewRef.current = null; return; }
+    if (editingId) { commitEditing(); return; }
+    if (ambientOpen) { closeAmbient(); return; }
+    if (selectedIdsRef.current.size > 0) setSelectedIds(new Set());
+  }
 
-    const ptrs = canvasPtrs.current;
-    ptrs.clear();
-    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-    const startCanvas = screenToCanvas(e.clientX, e.clientY);
-    let mode: "pan" | "marquee" | "pinch" =
-      e.pointerType === "mouse" && (e.metaKey || e.ctrlKey) ? "marquee" : "pan";
-    let startSX = e.clientX, startSY = e.clientY;
-    let startPan = { ...viewRef.current.pan };
-    let moved = false;
-    let pinch: { startDist: number; startZoom: number; midCanvas: { x: number; y: number }; ids: [number, number] } | null = null;
-
-    // Called on the second pointer-down: switch this gesture to pinch.
-    canvasGestureRef.current = (id, x, y) => {
-      ptrs.set(id, { x, y });
-      if (ptrs.size < 2) return;
-      const [a, b] = [...ptrs.values()];
-      const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
-      pinch = {
-        startDist: dist,
-        startZoom: viewRef.current.zoom,
-        midCanvas: screenToCanvas((a.x + b.x) / 2, (a.y + b.y) / 2),
-        ids: [...ptrs.keys()].slice(-2) as [number, number],
-      };
-      mode = "pinch";
-      moved = true;
-      setMarquee(null);
-    };
-
-    const onMove = (ev: PointerEvent) => {
-      if (!ptrs.has(ev.pointerId)) return;
-      ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-      if (mode === "pinch" && pinch) {
-        const a = ptrs.get(pinch.ids[0]), b = ptrs.get(pinch.ids[1]);
-        if (!a || !b) return;
-        const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
-        const midSX = (a.x + b.x) / 2, midSY = (a.y + b.y) / 2;
-        const nz = Math.max(0.32, Math.min(2.5, pinch.startZoom * (dist / pinch.startDist)));
-        bumpMoving();
-        setView({ zoom: nz, pan: { x: midSX - pinch.midCanvas.x * nz, y: midSY - pinch.midCanvas.y * nz } });
-        return;
-      }
-      const dx = ev.clientX - startSX, dy = ev.clientY - startSY;
-      if (!moved && dx * dx + dy * dy > 9) moved = true;
-      if (!moved) return;
-      if (mode === "marquee") {
-        const cur = screenToCanvas(ev.clientX, ev.clientY);
-        setMarquee({
-          x0: Math.min(startCanvas.x, cur.x), y0: Math.min(startCanvas.y, cur.y),
-          x1: Math.max(startCanvas.x, cur.x), y1: Math.max(startCanvas.y, cur.y),
-        });
-      } else {
-        bumpMoving();
-        setView((v) => ({ ...v, pan: { x: startPan.x + dx, y: startPan.y + dy } }));
-      }
-    };
-
-    const onUp = (ev: PointerEvent) => {
-      if (!ptrs.has(ev.pointerId)) return;
-      ptrs.delete(ev.pointerId);
-      // One finger lifted mid-pinch → keep panning with the remaining contact.
-      if (mode === "pinch" && ptrs.size === 1) {
-        const [p] = [...ptrs.values()];
-        mode = "pan"; pinch = null; moved = true;
-        startSX = p.x; startSY = p.y; startPan = { ...viewRef.current.pan };
-        return;
-      }
-      if (ptrs.size > 0) return;
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-      canvasGestureRef.current = null;
-      if (mode === "marquee") {
-        const cur = screenToCanvas(ev.clientX, ev.clientY);
-        const m = {
-          x0: Math.min(startCanvas.x, cur.x), y0: Math.min(startCanvas.y, cur.y),
-          x1: Math.max(startCanvas.x, cur.x), y1: Math.max(startCanvas.y, cur.y),
-        };
-        const w = tweakRef.current.noteWidth, h = 150;
-        const hit = new Set<string>();
-        for (const n of notesRef.current) {
-          if (n.x + w >= m.x0 && n.x <= m.x1 && n.y + h >= m.y0 && n.y <= m.y1) hit.add(n.id);
-        }
-        setSelectedIds(hit);
-        setMarquee(null);
-        return;
-      }
-      if (!moved) {
-        // A tap on empty canvas only dismisses transient state.
-        if (prevViewRef.current) { animateView(prevViewRef.current); prevViewRef.current = null; return; }
-        if (editingId) { commitEditing(); return; }
-        if (ambientOpen) { closeAmbient(); return; }
-        if (selectedIdsRef.current.size > 0) { setSelectedIds(new Set()); return; }
-      }
-    };
-
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingId, ambientOpen]);
-
-  const onNoteMouseDown = useCallback((e: React.PointerEvent<HTMLDivElement>, id: string) => {
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    if (editingId === id) return;
+  function handlePaneContextMenu(e: MouseEvent | React.MouseEvent) {
+    // Stop propagation so this event doesn't bubble to an open menu's
+    // window-level dismiss listener, which would close the menu we're
+    // about to open.
+    e.preventDefault();
     e.stopPropagation();
     markInteracted();
-    const note = notesRef.current.find((n) => n.id === id);
-    if (!note) return;
-    const isSelected = selectedIdsRef.current.has(id);
-    const groupIds: string[] = isSelected ? Array.from(selectedIdsRef.current) : [id];
-    // A drag moves the grabbed card(s)' real x/y — only them, no reflow.
-    const startPositions = new Map<string, { x: number; y: number }>();
-    for (const nid of groupIds) {
-      const n = notesRef.current.find((x) => x.id === nid);
-      if (!n) continue;
-      startPositions.set(nid, { x: n.x, y: n.y });
-    }
-    const startSX = e.clientX, startSY = e.clientY;
-    const pointerId = e.pointerId;
-    let moved = false;
-    setDraggingId(id);
+    const c = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    setContextMenu(null);
+    setCanvasMenu({ x: e.clientX, y: e.clientY, cx: c.x, cy: c.y });
+  }
 
-    const onMove = (ev: PointerEvent) => {
-      if (ev.pointerId !== pointerId) return;
-      const dxs = ev.clientX - startSX, dys = ev.clientY - startSY;
-      if (!moved && dxs * dxs + dys * dys > 9) moved = true;
-      if (!moved) return;
-      const z = viewRef.current.zoom;
-      const dx = dxs / z, dy = dys / z;
-      const useSnap = tweakRef.current.snap && !ev.shiftKey;
-      const at = (sp: { x: number; y: number }) => ({
-        x: useSnap ? snap(sp.x + dx) : sp.x + dx,
-        y: useSnap ? snap(sp.y + dy) : sp.y + dy,
-      });
-      setNotes((ns) => ns.map((n) => {
-        const sp = startPositions.get(n.id);
-        return sp ? { ...n, ...at(sp) } : n;
-      }));
-    };
-    const onUp = (ev: PointerEvent) => {
-      if (ev.pointerId !== pointerId) return;
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-      setDraggingId(null);
-      if (!moved) {
-        // Single click drops straight into editing the note in place (a drag,
-        // handled below, moves it instead). startEditingExisting commits any
-        // other open editor first. Remember where the click landed so the caret
-        // opens there rather than jumping to the end of the text.
-        if (ambientOpen) closeAmbient();
-        setSelectedIds(new Set([id]));
-        editClickRef.current = { x: startSX, y: startSY };
-        startEditingExisting(id);
-        return;
-      }
-      // Single-card drops snap to the nearest free spot so cards never stack.
-      const el = canvasRef.current?.querySelector<HTMLElement>(`[data-note-id="${id}"]`);
-      const selfW = el?.offsetWidth ?? note.w ?? tweakRef.current.noteWidth;
-      const selfH = el?.offsetHeight ?? note.h ?? 96;
-      if (groupIds.length === 1) {
-        const sp = startPositions.get(id);
-        const cur = notesRef.current.find((n) => n.id === id);
-        if (sp && cur) {
-          const spot = resolveFreePosition(cur.x, cur.y, selfW, selfH, measureRects(id));
-          pushOp({ type: "move", id, prevX: sp.x, prevY: sp.y });
-          if (spot.x !== cur.x || spot.y !== cur.y) {
-            setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, x: spot.x, y: spot.y } : n)));
-            setSnappingId(id);
-            window.setTimeout(() => setSnappingId((s) => (s === id ? null : s)), 340);
-          }
-          onUpdate(id, { x: spot.x, y: spot.y });
-        }
-      } else {
-        for (const nid of groupIds) {
-          const sp = startPositions.get(nid);
-          if (!sp) continue;
-          pushOp({ type: "move", id: nid, prevX: sp.x, prevY: sp.y });
-          const cur = notesRef.current.find((n) => n.id === nid);
-          if (cur) onUpdate(nid, { x: cur.x, y: cur.y });
-        }
-      }
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingId, ambientOpen]);
+  function handleNodeContextMenu(e: React.MouseEvent, node: NoteFlowNode) {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ id: node.id, x: e.clientX, y: e.clientY });
+  }
 
   // ── Ambient mode + command palette ─────────────────────────────────
   const ambientMode: "search" | "command" =
@@ -1502,116 +1376,62 @@ export default function JustNotes(props: JustNotesProps) {
 
   // ── Render ─────────────────────────────────────────────────────────
   // Overview = zoomed way out, or entered via z (can settle at zoom≈1 for a
-  // tight cluster). prevViewRef flips alongside a setView, so it's safe here.
+  // tight cluster). prevViewRef flips alongside a camera move, so it's safe here.
   const inOverview = view.zoom < 0.95 || prevViewRef.current != null;
 
-  // Viewport culling: with hundreds of notes, mounting every card tanks pan/zoom.
-  // Render only cards whose (over-estimated) box intersects the viewport plus a
-  // buffer; the active/dragged/selected notes always render so interactions never
-  // break. `viewportTick` re-runs this on resize (window dims are read live).
-  const [viewportTick, setViewportTick] = useState(0);
-  useEffect(() => {
-    const onResize = () => setViewportTick((v) => v + 1);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  // A page grows with its content and keeps h=null, so the PAPER_H guess can be
-  // far too short — culling by it unmounts a long document mid-scroll. Prefer the
-  // real DOM height, measured after each render (an unmounted note keeps its last
-  // measurement, which is what lets it come back into view).
-  const measuredHRef = useRef(new Map<string, number>());
-  const visibleNotes = useMemo(() => {
-    const W = window.innerWidth, H = window.innerHeight;
-    const z = view.zoom;
-    const MARGIN = 500;
-    const left = -view.pan.x / z - MARGIN;
-    const top = -view.pan.y / z - MARGIN;
-    const right = (W - view.pan.x) / z + MARGIN;
-    const bottom = (H - view.pan.y) / z + MARGIN;
-    return notes.filter((n) => {
-      if (n.id === editingId || n.id === draggingId || selectedIds.has(n.id)) return true;
-      const w = n.kind === "page" ? (n.w ?? PAPER_W) : (n.w ?? t.noteWidth);
-      const h = measuredHRef.current.get(n.id) ?? (n.kind === "page" ? (n.h ?? PAPER_H) : (n.h ?? 500));
-      return n.x < right && n.x + w > left && n.y < bottom && n.y + h > top;
-    });
+  // Stable handler facade for node data: the identity never changes (so memo'd
+  // NoteNodes aren't re-rendered by handler churn) while the logic stays fresh
+  // through the ref, avoiding stale closures over editingId & co.
+  const nodeHandlersRef = useRef<NoteNodeHandlers>(null!);
+  nodeHandlersRef.current = {
+    onTextChange: (id, v) => updateNoteText(id, v),
+    onCommitEdit: () => commitEditing(),
+    onTagClick: (tag) => {
+      if (editingIdRef.current) commitEditing();
+      openAmbient("#" + tag);
+      markInteracted();
+    },
+    onToggleTask: (id, i) => toggleTask(id, i),
+    onResize: (id, p) =>
+      setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, x: p.x, y: p.y, w: p.width, h: p.height } : n))),
+    onResizeEnd: (id, p) => onUpdate(id, { x: p.x, y: p.y, w: p.width, h: p.height }),
+  };
+  const nodeHandlers = useMemo<NoteNodeHandlers>(() => ({
+    onTextChange: (id, v) => nodeHandlersRef.current.onTextChange(id, v),
+    onCommitEdit: () => nodeHandlersRef.current.onCommitEdit(),
+    onTagClick: (tag) => nodeHandlersRef.current.onTagClick(tag),
+    onToggleTask: (id, i) => nodeHandlersRef.current.onToggleTask(id, i),
+    onResize: (id, p) => nodeHandlersRef.current.onResize(id, p),
+    onResizeEnd: (id, p) => nodeHandlersRef.current.onResizeEnd(id, p),
+  }), []);
+
+  // Controlled React Flow graph derived from app state. Deliberately does NOT
+  // depend on `view`: pan/zoom moves the RF viewport transform without
+  // rebuilding (or re-rendering) a single card.
+  const nodes = useMemo(
+    () =>
+      buildNoteNodes({
+        notes,
+        selectedIds,
+        editingId,
+        draggingId,
+        snappingId,
+        matchSet,
+        focusId: matchIds ? matchIds[recallIdx] ?? null : null,
+        scrubMoment,
+        clipboardIds,
+        editClickPos: editClickRef.current,
+        measuredDims: measuredDimsRef.current,
+        handlers: nodeHandlers,
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, view, editingId, draggingId, selectedIds, t.noteWidth, viewportTick]);
-  useEffect(() => {
-    const els = canvasRef.current?.querySelectorAll<HTMLElement>("[data-note-id]");
-    if (!els) return;
-    for (const el of els) {
-      const id = el.dataset.noteId;
-      if (id) measuredHRef.current.set(id, el.offsetHeight);
-    }
-  }, [visibleNotes]);
+    [notes, selectedIds, editingId, draggingId, snappingId, matchSet, matchIds, recallIdx, scrubMoment, clipboardIds, nodeHandlers, dimsTick],
+  );
 
-  function scrubFadeFor(n: Note) {
-    if (scrubMoment == null) return 1;
-    return n.t <= scrubMoment ? 1 : 0;
-  }
-
-  // Threads from the active note (hovered, or the lone selection) to every
-  // note sharing a tag with it. Curved paths in canvas coordinates — the SVG
-  // lives inside the transformed notes-layer, so note x/y map 1:1.
-  const relationThreads = useMemo(() => {
-    if (!relationsOn) return [];
-    const activeId = hoveredId ?? (selectedIds.size === 1 ? [...selectedIds][0] : null);
-    if (!activeId) return [];
-    const active = notes.find((n) => n.id === activeId);
-    if (!active) return [];
-    const activeTags = new Set(tagsOf(active.text));
-    if (activeTags.size === 0) return [];
-
-    const center = (n: Note) => ({
-      x: n.x + (n.w ?? t.noteWidth) / 2,
-      y: n.y + (n.h ?? 56) / 2,
-    });
-    const a = center(active);
-    const out: { id: string; d: string }[] = [];
-    for (const n of notes) {
-      if (n.id === activeId) continue;
-      if (!tagsOf(n.text).some((tag) => activeTags.has(tag))) continue;
-      const b = center(n);
-      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const bow = Math.min(48, len * 0.14);
-      const cx = mx + (-dy / len) * bow, cy = my + (dx / len) * bow;
-      out.push({ id: n.id, d: `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}` });
-    }
-    return out;
-  }, [relationsOn, hoveredId, selectedIds, notes, t.noteWidth]);
-
-  // Persistent conversation spine: on a board that holds agent replies, tie each
-  // reply back to the turn it answers (its nearest preceding non-agent note),
-  // reusing the relation-thread visual. Always on — it's what makes the board
-  // read as a thread, not the hover-gated tag relations.
-  const replyThreads = useMemo(() => {
-    if (!notes.some((n) => n.role === "assistant")) return [];
-    const ordered = [...notes].sort((a, b) => a.t - b.t);
-    const center = (n: Note) => ({
-      x: n.x + (n.w ?? t.noteWidth) / 2,
-      y: n.y + (n.h ?? 56) / 2,
-    });
-    const out: { id: string; d: string }[] = [];
-    for (let i = 0; i < ordered.length; i++) {
-      const ans = ordered[i];
-      if (ans.role !== "assistant") continue;
-      let q: Note | null = null;
-      for (let j = i - 1; j >= 0; j--) {
-        if (ordered[j].role !== "assistant") { q = ordered[j]; break; }
-      }
-      if (!q) continue;
-      const a = center(q), b = center(ans);
-      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const bow = Math.min(48, len * 0.14);
-      const cx = mx + (-dy / len) * bow, cy = my + (dx / len) * bow;
-      out.push({ id: ans.id, d: `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}` });
-    }
-    return out;
-  }, [notes, t.noteWidth]);
+  const edges = useMemo(
+    () => buildThreadEdges({ notes, relationsOn, hoveredId, selectedIds }),
+    [notes, relationsOn, hoveredId, selectedIds],
+  );
 
   const rootStyle: CSSProperties = {
     ["--radius" as string]: `${t.radius}px`,
@@ -1620,91 +1440,29 @@ export default function JustNotes(props: JustNotesProps) {
 
   return (
     <div className="jn-root" style={rootStyle}>
-      <Canvas
+      <div
         ref={canvasRef}
-        pan={view.pan}
-        zoom={view.zoom}
-        grid={t.grid}
-        smooth={smooth}
-        onPointerDown={onCanvasPointerDown}
-        onContextMenu={(e) => {
-          // Notes stop propagation and open their own menu, so anything that
-          // reaches here is empty canvas. Stop propagation so this event
-          // doesn't bubble to an open menu's window-level dismiss listener,
-          // which would close the menu we're about to open.
-          e.preventDefault();
-          e.stopPropagation();
-          markInteracted();
-          const c = screenToCanvas(e.clientX, e.clientY);
-          setContextMenu(null);
-          setCanvasMenu({ x: e.clientX, y: e.clientY, cx: c.x, cy: c.y });
-        }}
+        className={"jn-flow" + (moving ? " moving" : "") + (inOverview ? " overview" : "")}
       >
-        <div
-          className={"notes-layer" + (smooth ? " smooth" : "") + (moving ? " moving" : "") + (inOverview ? " overview" : "")}
-          style={{ transform: `translate(${view.pan.x}px, ${view.pan.y}px) scale(${view.zoom})` }}
-        >
-          {marquee && (
-            <div
-              className="marquee"
-              style={{
-                left: marquee.x0,
-                top: marquee.y0,
-                width: marquee.x1 - marquee.x0,
-                height: marquee.y1 - marquee.y0,
-              }}
-            />
-          )}
-          {replyThreads.length > 0 && (
-            <svg className="relation-threads reply-threads" aria-hidden="true">
-              {replyThreads.map((th) => (
-                <path key={th.id} d={th.d} pathLength={1} />
-              ))}
-            </svg>
-          )}
-          {relationThreads.length > 0 && (
-            <svg className="relation-threads" aria-hidden="true">
-              {relationThreads.map((th) => (
-                <path key={th.id} d={th.d} pathLength={1} />
-              ))}
-            </svg>
-          )}
-          {visibleNotes.map((n) => (
-            <NoteCard
-              key={n.id}
-              note={n}
-              pos={{ x: n.x, y: n.y }}
-              fromClipboard={clipboardIds.has(n.id)}
-              onHover={onNoteHover}
-              editing={editingId === n.id}
-              dragging={draggingId === n.id}
-              snapping={snappingId === n.id}
-              dimmed={!!matchSet && !matchSet.has(n.id)}
-              highlit={!!matchSet && matchSet.has(n.id)}
-              focused={!!matchIds && matchIds[recallIdx] === n.id}
-              selected={selectedIds.has(n.id)}
-              scrubFade={scrubFadeFor(n)}
-              onPointerDown={(e) => onNoteMouseDown(e, n.id)}
-              clickPos={editingId === n.id ? editClickRef.current : null}
-              measureSignal={editingId === n.id ? `${view.pan.x}:${view.pan.y}:${view.zoom}` : undefined}
-              onTextChange={(v) => updateNoteText(n.id, v)}
-              onCommitEdit={commitEditing}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setContextMenu({ id: n.id, x: e.clientX, y: e.clientY });
-              }}
-              onTagClick={(tag) => {
-                if (editingId) commitEditing();
-                openAmbient("#" + tag);
-                markInteracted();
-              }}
-              onResizeStart={(e, dir) => startResize(e, n.id, dir)}
-              onToggleTask={toggleTask}
-            />
-          ))}
-        </div>
-      </Canvas>
+        <FlowCanvas
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          defaultViewport={initialViewport}
+          grid={t.grid}
+          snapEnabled={t.snap && !shiftHeld}
+          onMove={handleMove}
+          onMoveStart={handleMoveStart}
+          onNodeClick={handleNodeClick}
+          onNodeContextMenu={handleNodeContextMenu}
+          onNodeMouseEnter={(_, n) => onNoteHover(n.id)}
+          onNodeMouseLeave={() => onNoteHover(null)}
+          onNodeDragStart={handleNodeDragStart}
+          onNodeDragStop={handleNodeDragStop}
+          onPaneClick={handlePaneClick}
+          onPaneContextMenu={handlePaneContextMenu}
+        />
+      </div>
 
       {notes.length === 0 && <GhostCard />}
 
@@ -1824,230 +1582,6 @@ export default function JustNotes(props: JustNotesProps) {
       <TweaksUI t={t} setTweak={setTweak} open={tweaksOpen} onClose={() => setTweaksOpen(false)} />
 
       <ApiTokensPanel open={tokensOpen} onClose={() => setTokensOpen(false)} />
-    </div>
-  );
-}
-
-// ── Canvas ─────────────────────────────────────────────────────────────
-type CanvasProps = {
-  pan: { x: number; y: number };
-  zoom: number;
-  grid: Tweaks["grid"];
-  smooth: boolean;
-  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
-  onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
-  children: React.ReactNode;
-};
-
-const Canvas = forwardRef<HTMLDivElement, CanvasProps>(function Canvas(
-  { pan, zoom, grid, smooth, onPointerDown, onContextMenu, children },
-  ref,
-) {
-  const gridStyle = useMemo<CSSProperties>(() => {
-    const z = zoom;
-    if (grid === "off") return { background: "rgb(var(--bg))" };
-    if (grid === "lines") {
-      const line = "rgb(var(--text-secondary) / 0.06)";
-      const s = 56 * z;
-      return {
-        backgroundColor: "rgb(var(--bg))",
-        backgroundImage:
-          `linear-gradient(${line} 1px, transparent 1px), ` +
-          `linear-gradient(90deg, ${line} 1px, transparent 1px)`,
-        backgroundSize: `${s}px ${s}px, ${s}px ${s}px`,
-        backgroundPosition: `${pan.x}px ${pan.y}px, ${pan.x}px ${pan.y}px`,
-        transition: smooth ? "background-size 400ms cubic-bezier(.22,.61,.36,1), background-position 400ms cubic-bezier(.22,.61,.36,1)" : "none",
-      };
-    }
-    const s = GRID * z;
-    return {
-      backgroundColor: "rgb(var(--bg))",
-      backgroundImage:
-        "radial-gradient(circle, rgb(var(--text-secondary) / 0.12) 1px, transparent 1.4px)",
-      backgroundSize: `${s}px ${s}px`,
-      backgroundPosition: `${pan.x}px ${pan.y}px`,
-      transition: smooth ? "background-size 400ms cubic-bezier(.22,.61,.36,1), background-position 400ms cubic-bezier(.22,.61,.36,1)" : "none",
-    };
-  }, [pan.x, pan.y, zoom, grid, smooth]);
-
-  return (
-    <div
-      ref={ref}
-      className="canvas"
-      data-canvas="1"
-      style={gridStyle}
-      onPointerDown={onPointerDown}
-      onContextMenu={onContextMenu}
-    >
-      {children}
-    </div>
-  );
-});
-
-// ── NoteCard ───────────────────────────────────────────────────────────
-function NoteCard({
-  note, pos, fromClipboard, editing, dragging, snapping,
-  dimmed, highlit, focused, selected, scrubFade,
-  onPointerDown, onTextChange, onCommitEdit, onContextMenu, onTagClick, onResizeStart, onHover, onToggleTask, clickPos, measureSignal,
-}: {
-  note: Note;
-  pos: { x: number; y: number };
-  fromClipboard: boolean;
-  onHover: (id: string | null) => void;
-  editing: boolean;
-  dragging: boolean;
-  snapping: boolean;
-  dimmed: boolean;
-  highlit: boolean;
-  focused: boolean;
-  selected: boolean;
-  scrubFade: number;
-  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
-  onTextChange: (v: string) => void;
-  onCommitEdit: () => void;
-  onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
-  onTagClick: (tag: string) => void;
-  onResizeStart: (e: React.PointerEvent<HTMLDivElement>, dir: ResizeDir) => void;
-  onToggleTask: (id: string, taskIndex: number) => void;
-  clickPos?: { x: number; y: number } | null;
-  measureSignal?: unknown;
-}) {
-  const rec = recencyOf(note.t);
-
-  const first = firstNonEmpty(note.text);
-  const rest = restAfterFirst(note.text);
-  const headingMatch = first.trim().match(/^(#{1,6})\s+/);
-  const headingLevel = headingMatch ? Math.min(headingMatch[1].length, 3) : 0;
-  const isHeading = headingLevel > 0;
-  // When the note opens with a block (code fence, list, task, quote, ordered
-  // item, rule, or image), render the whole text through renderBody rather
-  // than treating the first line as a headline — otherwise a task list's
-  // first item becomes an un-checkable title and the toggle indices drift.
-  const startsWithBlock = /^\s*(`{3,}|>|[-*]\s+\[[ xX]\]|[-*]\s|\d+\.\s|!\[[^\]]*\]\(|(-{3,}|\*{3,})\s*$)/.test(first);
-  const onToggle = (taskIndex: number) => onToggleTask(note.id, taskIndex);
-
-  const cls = [
-    "note",
-    `rec-${rec}`,
-    editing ? "editing" : "",
-    dragging ? "dragging" : "",
-    snapping ? "snapping" : "",
-    dimmed ? "dim" : "",
-    highlit ? "hit" : "",
-    focused ? "focused" : "",
-    selected ? "selected" : "",
-    `kind-${note.kind}`,
-    note.color ? "tinted" : "",
-    note.role === "assistant" ? "role-assistant" : "",
-    isHeading && !editing ? "has-heading" : "",
-  ].filter(Boolean).join(" ");
-
-  // A tinted note carries its own bg/ink and opts out of the recency fade so
-  // the color stays true; the fade only applies to plain cards.
-  const col = resolveNoteColor(note.color);
-  // Body text: on a tinted note follow its ink (the theme's text-secondary is
-  // unreadable on a light tint); otherwise the usual dimmed secondary.
-  const bodyColor = col ? `rgb(${col.ink})` : "rgb(var(--text-secondary))";
-  const style: CSSProperties = {
-    left: pos.x,
-    top: pos.y,
-    backgroundColor: col ? col.bg : "rgb(var(--bg-secondary))",
-    color: col ? `rgb(${col.ink})` : "rgb(var(--text-primary))",
-    opacity: (note.kind === "card" && !col ? RECENCY_ALPHA[rec] : 1) * (scrubFade ?? 1),
-  };
-  // Exposed so a tinted note can re-point the muted theme tokens at its ink,
-  // keeping list/quote/mark colors legible in both the rendered view and editor.
-  if (col) (style as Record<string, string | number>)["--note-ink"] = col.ink;
-  if (note.kind === "page") {
-    style.width = note.w ?? PAPER_W;
-    style.minHeight = note.h ?? 200;
-  } else {
-    // card: resizable, else content-height from CSS.
-    if (note.w != null) style.width = note.w;
-    if (note.h != null) {
-      style.maxHeight = "none";
-      if (!editing) style.height = note.h;
-    }
-  }
-
-  return (
-    <div
-      className={cls}
-      data-note-id={note.id}
-      style={style}
-      onPointerDown={(e) => {
-        const target = e.target as HTMLElement;
-        const tagEl = target.closest("[data-tag]") as HTMLElement | null;
-        if (tagEl && !editing) {
-          e.stopPropagation();
-          e.preventDefault();
-          const tag = tagEl.dataset.tag;
-          if (tag) onTagClick(tag);
-          return;
-        }
-        onPointerDown(e);
-      }}
-      onMouseEnter={() => onHover(note.id)}
-      onMouseLeave={() => onHover(null)}
-      onContextMenu={onContextMenu}
-    >
-      {editing ? (
-        <Suspense fallback={<div className="note-cm note-cm-loading" />}>
-          <CmEditor
-            value={note.text}
-            onChange={onTextChange}
-            onCommit={onCommitEdit}
-            className="note-cm"
-            clickPos={clickPos}
-            measureSignal={measureSignal}
-          />
-        </Suspense>
-      ) : startsWithBlock ? (
-        <div className="note-rest" style={{ color: bodyColor }}>
-          {renderBody(note.text, { onToggle })}
-        </div>
-      ) : (
-        <>
-          {first
-            ? <div className={"note-first" + (headingLevel ? ` md-h md-h${headingLevel}` : "")}>{renderHeadline(first)}</div>
-            : <div className="note-first" style={{ opacity: 0.35 }}>empty</div>}
-          {rest && <div className="note-rest" style={{ color: bodyColor }}>{renderBody(rest, { onToggle })}</div>}
-        </>
-      )}
-      {!editing && fromClipboard && (
-        <div className="note-clip" title="captured from clipboard" aria-label="captured from clipboard">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <rect x="8" y="2" width="8" height="4" rx="1" />
-            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
-          </svg>
-        </div>
-      )}
-      {!editing && note.role === "assistant" && (
-        <div className="note-agent" title="agent reply" aria-label="agent reply">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M12 2l1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9z" />
-          </svg>
-          agent
-        </div>
-      )}
-      {!editing && <div className="note-pad-cover" aria-hidden="true" />}
-      {!editing && (["n", "e", "s", "w", "ne", "nw", "se", "sw"] as const).map((dir) => (
-        <div
-          key={dir}
-          className={`note-edge note-edge-${dir}`}
-          aria-hidden="true"
-          onPointerDown={(e) => onResizeStart(e, dir)}
-        />
-      ))}
-      {/* Touch: a visible, finger-sized corner grip (the thin edges are too
-          fiddly on a phone). Hidden on desktop, where hover + edges suffice. */}
-      {!editing && (
-        <div
-          className="note-grip"
-          aria-label="resize"
-          onPointerDown={(e) => onResizeStart(e, "se")}
-        />
-      )}
     </div>
   );
 }
