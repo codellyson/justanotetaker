@@ -1,5 +1,6 @@
 import type { Board, Note, NoteKind, NoteMeta, Tweaks } from "../components/JustNotes/lib";
-import { api } from "./api-client";
+import { api, readBearer } from "./api-client";
+import { API_BASE_URL } from "./runtime";
 
 export type StoredNote = Note & { updatedAt: number };
 
@@ -268,6 +269,25 @@ export const remoteStorage: Storage = {
     };
   },
 };
+
+// Multipart upload for image cards. Raw fetch rather than the typed hono
+// client (which doesn't do FormData cleanly); auth mirrors api-client — cookie
+// session in the browser, keychain bearer in Tauri.
+export async function uploadMedia(file: File): Promise<{ key: string; size: number }> {
+  const form = new FormData();
+  form.append("file", file);
+  const headers: Record<string, string> = {};
+  const bearer = await readBearer();
+  if (bearer) headers.authorization = `Bearer ${bearer}`;
+  const res = await fetch(`${API_BASE_URL}/api/media`, {
+    method: "POST",
+    body: form,
+    credentials: "include",
+    headers,
+  });
+  if (!res.ok) throw new Error(`upload media: ${res.status}`);
+  return (await res.json()) as { key: string; size: number };
+}
 
 function safeParseTweaks(raw: string): Tweaks | null {
   try {

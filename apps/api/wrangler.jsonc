@@ -26,6 +26,19 @@
     // is what Windows (WebView2) + Android send. All needed for the desktop app.
     "TRUSTED_ORIGINS": "http://localhost:5173,http://localhost:5174,http://localhost:4321,tauri://localhost,http://tauri.localhost,https://tauri.localhost"
   },
+  // Image-card storage. `wrangler dev --local` simulates the bucket; the real
+  // one is created out-of-band: wrangler r2 bucket create justanotetaker-media-dev
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "justanotetaker-media-dev"
+    }
+  ],
+  // Nightly purge of image objects whose notes aged out of the 30-day
+  // graveyard (see `scheduled` in src/index.ts).
+  "triggers": {
+    "crons": ["0 4 * * *"]
+  },
   // Secrets (NOT vars) live in .dev.vars locally and `wrangler secret put` in prod:
   //   BETTER_AUTH_SECRET    — random 32-byte hex; required.
   //   GOOGLE_CLIENT_ID      — optional; lights up the Google sign-in button.
@@ -52,6 +65,18 @@
           "migrations_dir": "migrations"
         }
       ],
+      // Named envs don't inherit bindings — declared again for prod.
+      // Out-of-band: wrangler r2 bucket create justanotetaker-media, and the
+      // deploy CLOUDFLARE_API_TOKEN needs the Workers R2 Storage: Edit scope.
+      "r2_buckets": [
+        {
+          "binding": "MEDIA",
+          "bucket_name": "justanotetaker-media"
+        }
+      ],
+      "triggers": {
+        "crons": ["0 4 * * *"]
+      },
       "routes": [
         {
           "pattern": "api.justanotetaker.kreativekorna.com",

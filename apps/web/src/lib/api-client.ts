@@ -6,7 +6,7 @@ import { API_BASE_URL, isTauri } from "./runtime";
 // writes to from auth-client.ts, so notes/settings/etc. carry whatever
 // token the most recent auth response minted.
 let cachedInvoke: ((cmd: string) => Promise<unknown>) | null = null;
-async function readBearer(): Promise<string | null> {
+export async function readBearer(): Promise<string | null> {
   if (!isTauri) return null;
   if (!cachedInvoke) {
     const { invoke } = await import("@tauri-apps/api/core");

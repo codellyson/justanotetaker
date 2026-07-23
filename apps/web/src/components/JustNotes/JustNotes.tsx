@@ -22,6 +22,7 @@ import {
   PAPER_W,
   PAPER_H,
   type FrameMeta,
+  type ImageMeta,
   type Note,
   type NoteKind,
   type Board,
@@ -43,7 +44,7 @@ import { formatCapturedNote } from "./clipboard";
 import { clipboardOrigin } from "../../lib/clipboard-origin";
 import { AmbientBar, Compass, TimeScrub } from "./cherries";
 import { TweaksUI } from "./tweaks";
-import { remoteStorage, type NoteLink } from "../../lib/storage";
+import { remoteStorage, uploadMedia, type NoteLink } from "../../lib/storage";
 import { authClient, clearKeychainToken } from "../../lib/auth-client";
 import { API_BASE_URL, isTauri } from "../../lib/runtime";
 import { AuthPanel } from "../AuthPanel";
@@ -523,6 +524,48 @@ function JustNotesInner(props: JustNotesProps) {
     enrichIfUrlNote(id);
     maybePromoteToPage(id);
     return id;
+  }
+
+  // Paste/drop an image file: optimistic placeholder card immediately, then
+  // the upload fills in meta and the note persists. Display size caps at
+  // 360px wide; natural dimensions live in meta.
+  async function uploadImageAt(cx: number, cy: number, file: File) {
+    const id = uid();
+    // Read natural dimensions via <img> — more lenient than createImageBitmap
+    // across formats/sizes. 4:3 is only a last-resort aspect fallback.
+    const { nw, nh } = await new Promise<{ nw: number; nh: number }>((resolve) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => { resolve({ nw: img.naturalWidth || 4, nh: img.naturalHeight || 3 }); URL.revokeObjectURL(url); };
+      img.onerror = () => { resolve({ nw: 4, nh: 3 }); URL.revokeObjectURL(url); };
+      img.src = url;
+    });
+    const dispW = Math.min(nw, 360);
+    const dispH = Math.max(1, Math.round(dispW * (nh / nw)));
+    const note: Note = {
+      id,
+      x: cx - dispW / 2,
+      y: cy - dispH / 2,
+      w: dispW,
+      h: dispH,
+      t: Date.now(),
+      text: "",
+      kind: "image",
+      color: null,
+      meta: null,
+    };
+    setNotes((ns) => [...ns, note]);
+    try {
+      const { key, size } = await uploadMedia(file);
+      const meta: ImageMeta = { key, w: nw, h: nh, size };
+      setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, meta } : n)));
+      pushOp({ type: "create", id });
+      void onCreate({ ...note, meta });
+      applyContainment(id);
+    } catch (err) {
+      console.error("[image] upload failed", err);
+      setNotes((ns) => ns.filter((n) => n.id !== id));
+    }
   }
 
   async function pasteAtCanvas(cx: number, cy: number) {
@@ -1158,6 +1201,8 @@ function JustNotesInner(props: JustNotesProps) {
   function handleNodeDoubleClick(e: React.MouseEvent, node: NoteFlowNode) {
     markInteracted();
     if (editingIdRef.current === node.id) return;
+    // Image cards have no editor (captions come later).
+    if (notesRef.current.find((n) => n.id === node.id)?.kind === "image") return;
     if ((e.target as HTMLElement).closest("[data-tag]")) return; // tag click already handled
     // Double-click drops into editing the note in place. startEditingExisting
     // commits any other open editor first. Remember where the click landed so
@@ -1587,6 +1632,19 @@ function JustNotesInner(props: JustNotesProps) {
       // here would just duplicate it. Cede the gesture while capture is on.
       if (isTauri && tweakRef.current.clipboardCapture) return;
 
+      // Image paste (screenshot in the clipboard, copied image file) becomes
+      // an image card, taking priority over any text representation.
+      const imageFiles = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith("image/"));
+      if (imageFiles.length > 0) {
+        e.preventDefault();
+        markInteracted();
+        const sx = lastMouseRef.current?.x ?? window.innerWidth / 2;
+        const sy = lastMouseRef.current?.y ?? window.innerHeight / 2;
+        const c = screenToCanvas(sx, sy);
+        imageFiles.forEach((f, i) => void uploadImageAt(c.x + i * 36, c.y + i * 36, f));
+        return;
+      }
+
       const text = e.clipboardData?.getData("text/plain")?.trim();
       if (!text) return;
       e.preventDefault();
@@ -1784,6 +1842,17 @@ function JustNotesInner(props: JustNotesProps) {
       <div
         ref={canvasRef}
         className={"jn-flow" + (moving ? " moving" : "") + (inOverview ? " overview" : "")}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+        }}
+        onDrop={(e) => {
+          const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+          if (files.length === 0) return;
+          e.preventDefault();
+          markInteracted();
+          const c = screenToCanvas(e.clientX, e.clientY);
+          files.forEach((f, i) => void uploadImageAt(c.x + i * 36, c.y + i * 36, f));
+        }}
       >
         <FlowCanvas
           nodes={nodes}

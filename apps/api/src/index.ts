@@ -5,9 +5,11 @@ import type { Env } from "./env";
 import { boardsRoutes } from "./routes/boards";
 import { notesRoutes } from "./routes/notes";
 import { linksRoutes } from "./routes/links";
+import { mediaRoutes } from "./routes/media";
 import { previewRoutes } from "./routes/preview";
 import { settingsRoutes } from "./routes/settings";
 import { tokensRoutes, resolveApiToken } from "./routes/tokens";
+import type { Bindings } from "./env";
 
 const app = new Hono<Env>();
 
@@ -156,8 +158,39 @@ const routes = app
   .route("/api/preview", previewRoutes)
   .route("/api/boards", boardsRoutes)
   .route("/api/tokens", tokensRoutes)
-  .route("/api/links", linksRoutes);
+  .route("/api/links", linksRoutes)
+  // Deliberately NOT behind the blanket requireUser: GET serves images
+  // publicly by unguessable key (an <img> can't send Authorization); POST
+  // checks the session/token inline.
+  .route("/api/media", mediaRoutes);
 
-export default app;
+// Nightly: purge R2 objects for image notes that aged out of the 30-day
+// graveyard, then release their bytes from the owner's quota. Deleting the
+// object at soft-delete time would break graveyard restore.
+const GRAVEYARD_MS = 30 * 24 * 60 * 60 * 1000;
+async function scheduled(_event: ScheduledController, env: Bindings): Promise<void> {
+  const cutoff = Date.now() - GRAVEYARD_MS;
+  const { results } = await env.DB.prepare(
+    `SELECT id, user_id, meta FROM notes
+     WHERE kind = 'image' AND deleted_at IS NOT NULL AND deleted_at < ? AND meta IS NOT NULL`,
+  )
+    .bind(cutoff)
+    .all<{ id: string; user_id: string; meta: string }>();
+  for (const r of results ?? []) {
+    try {
+      const meta = JSON.parse(r.meta) as { key?: string; size?: number };
+      if (meta.key) await env.MEDIA.delete(meta.key);
+      await env.DB.batch([
+        env.DB.prepare(`UPDATE notes SET meta = NULL WHERE id = ?`).bind(r.id),
+        env.DB.prepare(`UPDATE settings SET media_bytes = MAX(0, media_bytes - ?) WHERE user_id = ?`)
+          .bind(meta.size ?? 0, r.user_id),
+      ]);
+    } catch (err) {
+      console.error("[media-purge]", r.id, err);
+    }
+  }
+}
+
+export default { fetch: app.fetch, scheduled };
 
 export type AppType = typeof routes;

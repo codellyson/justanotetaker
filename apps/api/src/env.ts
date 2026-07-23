@@ -1,6 +1,9 @@
 import type { Auth, AuthEnv } from "./auth";
 
-export type Bindings = AuthEnv;
+export type Bindings = AuthEnv & {
+  // Image-card storage (R2). Simulated locally by `wrangler dev`.
+  MEDIA: R2Bucket;
+};
 
 export type Variables = {
   auth: Auth;
