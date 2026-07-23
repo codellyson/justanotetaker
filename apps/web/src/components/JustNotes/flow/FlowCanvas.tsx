@@ -22,10 +22,11 @@ import {
 import "@xyflow/react/dist/style.css";
 import { GRID, type Tweaks } from "../lib";
 import NoteNode from "./NoteNode";
+import FrameNode from "./FrameNode";
 import { ThreadEdge } from "./ThreadEdge";
 import type { NoteFlowNode, ThreadFlowEdge } from "./useNoteGraph";
 
-const nodeTypes: NodeTypes = { note: NoteNode };
+const nodeTypes: NodeTypes = { note: NoteNode, frame: FrameNode };
 const edgeTypes: EdgeTypes = { thread: ThreadEdge };
 // ⌘ on mac, Ctrl elsewhere — matching the old handlers, which accepted either.
 const MOD_KEYS = ["Meta", "Control"];
@@ -45,6 +46,7 @@ type Props = {
   onNodeMouseEnter: NodeMouseHandler<NoteFlowNode>;
   onNodeMouseLeave: NodeMouseHandler<NoteFlowNode>;
   onNodeDragStart: OnNodeDrag<NoteFlowNode>;
+  onNodeDrag: OnNodeDrag<NoteFlowNode>;
   onNodeDragStop: OnNodeDrag<NoteFlowNode>;
   onPaneClick: (e: ReactMouseEvent) => void;
   onPaneContextMenu: (e: MouseEvent | ReactMouseEvent) => void;
@@ -80,7 +82,10 @@ export function FlowCanvas(p: Props) {
       selectionKeyCode={MOD_KEYS}
       selectionMode={SelectionMode.Partial}
       multiSelectionKeyCode="Shift"
-      elevateNodesOnSelect
+      // Selection elevation is handled in buildNoteNodes' zIndex ladder — RF's
+      // +1000 would lift a selected frame above its members and eat their
+      // pointer events.
+      elevateNodesOnSelect={false}
       // Drag — 3px click-vs-drag slop; grid snap is tweak-gated and disabled
       // while Shift is held (state fed from the orchestrator).
       nodeDragThreshold={3}
@@ -109,6 +114,7 @@ export function FlowCanvas(p: Props) {
       onNodeMouseEnter={p.onNodeMouseEnter}
       onNodeMouseLeave={p.onNodeMouseLeave}
       onNodeDragStart={p.onNodeDragStart}
+      onNodeDrag={p.onNodeDrag}
       onNodeDragStop={p.onNodeDragStop}
       onPaneClick={p.onPaneClick}
       onPaneContextMenu={p.onPaneContextMenu}

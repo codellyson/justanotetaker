@@ -28,6 +28,7 @@ import {
 } from "./lib";
 import { FileTree } from "./FileTree";
 import { FlowCanvas } from "./flow/FlowCanvas";
+import { FRAME_DEFAULT_W, FRAME_DEFAULT_H } from "./flow/FrameNode";
 import {
   applyNoteNodeChanges,
   buildNoteNodes,
@@ -51,7 +52,7 @@ import { Graveyard } from "./Graveyard";
 
 type Persist = {
   onCreate: (note: Note, opts?: { localOnly?: boolean }) => void | Promise<void>;
-  onUpdate: (id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "kind" | "color">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "kind" | "color" | "parentId" | "meta">>) => void;
   onDelete: (id: string) => void;
 };
 
@@ -99,7 +100,9 @@ type UndoOp =
   | { type: "create"; id: string }
   | { type: "edit"; id: string; prevText: string; prevT: number }
   | { type: "delete"; note: Note }
-  | { type: "move"; id: string; prevX: number; prevY: number };
+  | { type: "move"; id: string; prevX: number; prevY: number }
+  // One frame/marquee drag = one undo press, however many notes rode along.
+  | { type: "move-group"; moves: { id: string; prevX: number; prevY: number }[] };
 
 // ── App ────────────────────────────────────────────────────────────────
 // The canvas is a React Flow surface; the provider gives the orchestrator
@@ -408,10 +411,37 @@ function JustNotesInner(props: JustNotesProps) {
     else if (op.type === "edit") setNotes((ns) => ns.map((n) => n.id === op.id ? { ...n, text: op.prevText, t: op.prevT } : n));
     else if (op.type === "delete") setNotes((ns) => [...ns, op.note]);
     else if (op.type === "move") setNotes((ns) => ns.map((n) => n.id === op.id ? { ...n, x: op.prevX, y: op.prevY } : n));
+    else if (op.type === "move-group") {
+      const byId = new Map(op.moves.map((m) => [m.id, m]));
+      setNotes((ns) => ns.map((n) => {
+        const m = byId.get(n.id);
+        return m ? { ...n, x: m.prevX, y: m.prevY } : n;
+      }));
+    }
   }
 
   function spawnAt(canvasX: number, canvasY: number, initialText = "", kind: NoteKind = "card") {
     const id = uid();
+    // Frames spawn committed and selected (no editor session — the label is
+    // edited via double-click), sized to their canonical footprint.
+    if (kind === "frame") {
+      const note: Note = {
+        id,
+        x: canvasX - FRAME_DEFAULT_W / 2,
+        y: canvasY - FRAME_DEFAULT_H / 2,
+        w: FRAME_DEFAULT_W,
+        h: FRAME_DEFAULT_H,
+        t: Date.now(),
+        text: initialText || "Frame",
+        kind,
+        color: null,
+      };
+      setNotes((ns) => [...ns, note]);
+      pushOp({ type: "create", id });
+      void onCreate(note);
+      setSelectedIds(new Set([id]));
+      return;
+    }
     const w = tweakRef.current.noteWidth;
     const spot = findFreeSpot(canvasX - w / 2, canvasY - 22);
     setNotes((ns) => [...ns, { id, x: spot.x, y: spot.y, w: null, h: null, t: Date.now(), text: initialText, kind, color: null }]);
@@ -427,6 +457,9 @@ function JustNotesInner(props: JustNotesProps) {
     const rects: { x: number; y: number; w: number; h: number }[] = [];
     for (const n of notesRef.current) {
       if (n.id === excludeId) continue;
+      // Frames are containers, not obstacles — colliding against them would
+      // make the free-spot spiral eject any note dropped inside one.
+      if (n.kind === "frame") continue;
       const el = layer?.querySelector<HTMLElement>(`[data-note-id="${n.id}"]`);
       rects.push({
         x: n.x,
@@ -658,6 +691,66 @@ function JustNotesInner(props: JustNotesProps) {
     markInteracted();
   }
 
+  // ── Frames: full containment ───────────────────────────────────────
+  function frameRectOf(f: Note) {
+    const m = measuredDimsRef.current.get(f.id);
+    return { x: f.x, y: f.y, w: f.w ?? m?.width ?? FRAME_DEFAULT_W, h: f.h ?? m?.height ?? FRAME_DEFAULT_H };
+  }
+
+  // Topmost frame containing the point — last match wins, mirroring paint
+  // order among equal-z frames.
+  function hitFrame(cx: number, cy: number): Note | null {
+    let hit: Note | null = null;
+    for (const f of notesRef.current) {
+      if (f.kind !== "frame") continue;
+      const r = frameRectOf(f);
+      if (cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h) hit = f;
+    }
+    return hit;
+  }
+
+  function noteCenter(n: Note) {
+    const m = measuredDimsRef.current.get(n.id);
+    return {
+      x: n.x + (m?.width ?? n.w ?? tweakRef.current.noteWidth) / 2,
+      y: n.y + (m?.height ?? n.h ?? 96) / 2,
+    };
+  }
+
+  // Re-derive a note's frame membership from where it sits; persist a change.
+  function applyContainment(id: string) {
+    const cur = notesRef.current.find((n) => n.id === id);
+    if (!cur || cur.kind === "frame") return;
+    const c = noteCenter(cur);
+    const nextParent = hitFrame(c.x, c.y)?.id ?? null;
+    if ((cur.parentId ?? null) === nextParent) return;
+    setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, parentId: nextParent } : n)));
+    onUpdate(id, { parentId: nextParent });
+  }
+
+  // After a frame moves or resizes, its border may have crossed notes in
+  // either direction — re-derive membership for the whole board.
+  function recheckAllContainment() {
+    for (const n of notesRef.current) {
+      if (n.kind !== "frame") applyContainment(n.id);
+    }
+  }
+
+  // Deleting a frame never implicitly deletes members unless asked: the plain
+  // path releases them to the board root first.
+  function deleteFrameById(id: string, withContents: boolean) {
+    const members = notesRef.current.filter((n) => n.parentId === id);
+    if (withContents) {
+      for (const m of members) deleteNoteById(m.id);
+    } else {
+      for (const m of members) {
+        setNotes((ns) => ns.map((n) => (n.id === m.id ? { ...n, parentId: null } : n)));
+        onUpdate(m.id, { parentId: null });
+      }
+    }
+    deleteNoteById(id);
+  }
+
   function deleteNoteById(id: string) {
     const cur = notesRef.current.find((n) => n.id === id);
     if (!cur) return;
@@ -671,8 +764,16 @@ function JustNotesInner(props: JustNotesProps) {
     onDelete(id);
   }
 
-  function reinsertRestoredNote(note: { id: string; x: number; y: number; t: number; text: string; kind?: NoteKind; color?: string | null }) {
-    setNotes((ns) => (ns.some((n) => n.id === note.id) ? ns : [...ns, { ...note, w: null, h: null, kind: note.kind ?? "card", color: note.color ?? null }]));
+  function reinsertRestoredNote(note: { id: string; x: number; y: number; w?: number | null; h?: number | null; t: number; text: string; kind?: NoteKind; color?: string | null; parentId?: string | null; meta?: Note["meta"] }) {
+    setNotes((ns) => (ns.some((n) => n.id === note.id) ? ns : [...ns, {
+      ...note,
+      w: note.w ?? null,
+      h: note.h ?? null,
+      kind: note.kind ?? "card",
+      color: note.color ?? null,
+      parentId: note.parentId ?? null,
+      meta: note.meta ?? null,
+    }]));
   }
 
   function frameNotes(list: Note[]) {
@@ -882,12 +983,46 @@ function JustNotesInner(props: JustNotesProps) {
     markInteracted();
   }
 
+  // Frame members ride along with a dragged frame. Snapshot their start
+  // positions keyed to their frame, skipping any the marquee already put in
+  // RF's own drag set (those would double-move).
+  const frameMembersRef = useRef<Map<string, { sx: number; sy: number; frameId: string }> | null>(null);
+
   function handleNodeDragStart(_: unknown, node: NoteFlowNode, dragged: NoteFlowNode[]) {
     markInteracted();
     setDraggingId(node.id);
     const map = new Map<string, { x: number; y: number }>();
     for (const d of dragged) map.set(d.id, { x: d.position.x, y: d.position.y });
     dragStartRef.current = map;
+
+    const members = new Map<string, { sx: number; sy: number; frameId: string }>();
+    for (const d of dragged) {
+      const n = notesRef.current.find((x) => x.id === d.id);
+      if (n?.kind !== "frame") continue;
+      for (const m of notesRef.current) {
+        if (m.parentId === n.id && !map.has(m.id) && !members.has(m.id)) {
+          members.set(m.id, { sx: m.x, sy: m.y, frameId: n.id });
+        }
+      }
+    }
+    frameMembersRef.current = members.size ? members : null;
+  }
+
+  // Live tick: move each riding member by its frame's delta so the group
+  // travels as one piece rather than snapping at drop.
+  function handleNodeDrag(_: unknown, _node: NoteFlowNode, dragged: NoteFlowNode[]) {
+    const members = frameMembersRef.current;
+    const starts = dragStartRef.current;
+    if (!members || !starts) return;
+    const framePos = new Map(dragged.map((d) => [d.id, d.position]));
+    setNotes((ns) => ns.map((n) => {
+      const m = members.get(n.id);
+      if (!m) return n;
+      const fp = framePos.get(m.frameId);
+      const fs = starts.get(m.frameId);
+      if (!fp || !fs) return n;
+      return { ...n, x: m.sx + (fp.x - fs.x), y: m.sy + (fp.y - fs.y) };
+    }));
   }
 
   function handleNodeDragStop(_: unknown, node: NoteFlowNode, dragged: NoteFlowNode[]) {
@@ -898,8 +1033,12 @@ function JustNotesInner(props: JustNotesProps) {
     setDraggingId(null);
     const starts = dragStartRef.current;
     dragStartRef.current = null;
+    const members = frameMembersRef.current;
+    frameMembersRef.current = null;
     if (!starts) return;
-    if (dragged.length === 1) {
+
+    const draggedAFrame = dragged.some((d) => notesRef.current.find((n) => n.id === d.id)?.kind === "frame");
+    if (dragged.length === 1 && !draggedAFrame) {
       // Single-card drops snap to the nearest free spot so cards never stack.
       const sp = starts.get(node.id);
       const cur = notesRef.current.find((n) => n.id === node.id);
@@ -915,16 +1054,35 @@ function JustNotesInner(props: JustNotesProps) {
         window.setTimeout(() => setSnappingId((s) => (s === node.id ? null : s)), 340);
       }
       onUpdate(node.id, { x: spot.x, y: spot.y });
-    } else {
-      for (const d of dragged) {
-        const sp = starts.get(d.id);
-        if (!sp) continue;
-        const cur = notesRef.current.find((n) => n.id === d.id);
-        if (!cur || (sp.x === cur.x && sp.y === cur.y)) continue;
-        pushOp({ type: "move", id: d.id, prevX: sp.x, prevY: sp.y });
-        onUpdate(d.id, { x: cur.x, y: cur.y });
+      applyContainment(node.id);
+      return;
+    }
+
+    // Group path: any frame drag (with riding members) or a marquee multi-drag.
+    // Everything persists as it landed — no collision resolve — and the whole
+    // gesture is one undo op.
+    const moves: { id: string; prevX: number; prevY: number }[] = [];
+    for (const d of dragged) {
+      const sp = starts.get(d.id);
+      const cur = notesRef.current.find((n) => n.id === d.id);
+      if (!sp || !cur || (sp.x === cur.x && sp.y === cur.y)) continue;
+      moves.push({ id: d.id, prevX: sp.x, prevY: sp.y });
+      onUpdate(d.id, { x: cur.x, y: cur.y });
+    }
+    if (members) {
+      for (const [id, m] of members) {
+        const cur = notesRef.current.find((n) => n.id === id);
+        if (!cur || (m.sx === cur.x && m.sy === cur.y)) continue;
+        moves.push({ id, prevX: m.sx, prevY: m.sy });
+        onUpdate(id, { x: cur.x, y: cur.y });
       }
     }
+    if (moves.length) pushOp({ type: "move-group", moves });
+    // Membership: dragged frames may have crossed notes; dragged notes may
+    // have entered/left frames. Members that rode along kept their relative
+    // position, so their membership is unchanged by construction.
+    if (draggedAFrame) recheckAllContainment();
+    else for (const d of dragged) applyContainment(d.id);
   }
 
   function handleNodeClick(e: React.MouseEvent, node: NoteFlowNode) {
@@ -1265,7 +1423,12 @@ function JustNotesInner(props: JustNotesProps) {
 
       if ((e.key === "Backspace" || e.key === "Delete") && selectedIdsRef.current.size > 0) {
         e.preventDefault();
-        for (const nid of Array.from(selectedIdsRef.current)) deleteNoteById(nid);
+        for (const nid of Array.from(selectedIdsRef.current)) {
+          // Never mass-delete a frame's contents from the keyboard — members
+          // are released to the root; the context menu has the explicit path.
+          if (notesRef.current.find((n) => n.id === nid)?.kind === "frame") deleteFrameById(nid, false);
+          else deleteNoteById(nid);
+        }
         setSelectedIds(new Set());
         return;
       }
@@ -1495,7 +1658,11 @@ function JustNotesInner(props: JustNotesProps) {
     onToggleTask: (id, i) => toggleTask(id, i),
     onResize: (id, p) =>
       setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, x: p.x, y: p.y, w: p.width, h: p.height } : n))),
-    onResizeEnd: (id, p) => onUpdate(id, { x: p.x, y: p.y, w: p.width, h: p.height }),
+    onResizeEnd: (id, p) => {
+      onUpdate(id, { x: p.x, y: p.y, w: p.width, h: p.height });
+      // A resized frame border may have swallowed or released notes.
+      if (notesRef.current.find((n) => n.id === id)?.kind === "frame") recheckAllContainment();
+    },
   };
   const nodeHandlers = useMemo<NoteNodeHandlers>(() => ({
     onTextChange: (id, v) => nodeHandlersRef.current.onTextChange(id, v),
@@ -1576,6 +1743,7 @@ function JustNotesInner(props: JustNotesProps) {
           onNodeMouseEnter={(_, n) => onNoteHover(n.id)}
           onNodeMouseLeave={() => onNoteHover(null)}
           onNodeDragStart={handleNodeDragStart}
+          onNodeDrag={handleNodeDrag}
           onNodeDragStop={handleNodeDragStop}
           onPaneClick={handlePaneClick}
           onPaneContextMenu={handlePaneContextMenu}
@@ -1660,8 +1828,14 @@ function JustNotesInner(props: JustNotesProps) {
             onDelete={() => {
               const id = contextMenu.id;
               setContextMenu(null);
-              deleteNoteById(id);
+              if (n?.kind === "frame") deleteFrameById(id, false);
+              else deleteNoteById(id);
             }}
+            onDeleteContents={n?.kind === "frame" ? () => {
+              const id = contextMenu.id;
+              setContextMenu(null);
+              deleteFrameById(id, true);
+            } : undefined}
           />
         );
       })()}
@@ -1939,13 +2113,15 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
 const NOTE_KINDS: NoteKind[] = ["card", "page"];
 
 function NoteContextMenu({
-  x, y, kind, color, onSetKind, onSetColor, onClose, onDelete,
+  x, y, kind, color, onSetKind, onSetColor, onClose, onDelete, onDeleteContents,
 }: {
   x: number; y: number;
   kind: NoteKind; color: string | null;
   onSetKind: (k: NoteKind) => void;
   onSetColor: (c: string | null) => void;
   onClose: () => void; onDelete: () => void;
+  // Frames only: delete the frame together with its member notes.
+  onDeleteContents?: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -1974,21 +2150,25 @@ function NoteContextMenu({
       style={{ left, top }}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <div className="note-ctx-label">Type</div>
-      <div className="note-ctx-types" role="radiogroup" aria-label="note type">
-        {NOTE_KINDS.map((k) => (
-          <button
-            key={k}
-            type="button"
-            role="radio"
-            aria-checked={k === kind}
-            className={"note-ctx-type" + (k === kind ? " active" : "")}
-            onClick={() => onSetKind(k)}
-          >
-            {k}
-          </button>
-        ))}
-      </div>
+      {kind !== "frame" && kind !== "image" && kind !== "task" && (
+        <>
+          <div className="note-ctx-label">Type</div>
+          <div className="note-ctx-types" role="radiogroup" aria-label="note type">
+            {NOTE_KINDS.map((k) => (
+              <button
+                key={k}
+                type="button"
+                role="radio"
+                aria-checked={k === kind}
+                className={"note-ctx-type" + (k === kind ? " active" : "")}
+                onClick={() => onSetKind(k)}
+              >
+                {k}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
       <div className="note-ctx-colors" role="radiogroup" aria-label="note color">
         <button
           type="button"
@@ -2015,9 +2195,14 @@ function NoteContextMenu({
       </div>
       <div className="note-ctx-sep" aria-hidden="true" />
       <button className="note-ctx-item danger" onClick={onDelete}>
-        delete
+        {kind === "frame" ? "delete frame" : "delete"}
         <span className="note-ctx-hint">⌘Z to undo</span>
       </button>
+      {kind === "frame" && onDeleteContents && (
+        <button className="note-ctx-item danger" onClick={onDeleteContents}>
+          delete frame + contents
+        </button>
+      )}
     </div>
   );
 }
@@ -2067,7 +2252,7 @@ function CanvasContextMenu({
     >
       <div className="note-ctx-label">New here</div>
       <div className="note-ctx-types" role="group" aria-label="new note type">
-        {NOTE_KINDS.map((k) => (
+        {([...NOTE_KINDS, "frame"] as NoteKind[]).map((k) => (
           <button key={k} type="button" className="note-ctx-type" onClick={() => onNew(k)}>
             {k}
           </button>

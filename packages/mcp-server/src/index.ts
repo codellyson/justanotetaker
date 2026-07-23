@@ -35,6 +35,8 @@ type ApiNote = {
   kind: string;
   color: string | null;
   role: string | null;
+  parentId?: string | null;
+  meta?: Record<string, unknown> | null;
 };
 
 async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
@@ -167,8 +169,8 @@ server.registerTool(
   },
   async ({ board }) => {
     const b = await resolveBoard(board);
-    const notes = await threadNotes(b.id);
-    const out = notes.map((n) => ({ id: n.id, x: n.x, y: n.y, t: n.t, kind: n.kind, text: n.text }));
+    const notes = await boardNotes(b.id);
+    const out = notes.map((n) => ({ id: n.id, x: n.x, y: n.y, t: n.t, kind: n.kind, text: n.text, parentId: n.parentId ?? null }));
     return text(JSON.stringify({ board: b.name, notes: out }, null, 2));
   },
 );
@@ -230,10 +232,15 @@ server.registerTool(
   },
 );
 
-async function threadNotes(boardId: string): Promise<ApiNote[]> {
+async function boardNotes(boardId: string): Promise<ApiNote[]> {
   const { notes } = await api<{ notes: ApiNote[] }>(`/api/notes?board=${encodeURIComponent(boardId)}`);
-  // Chronological order = conversation order.
   return [...notes].sort((a, b) => a.t - b.t);
+}
+
+// A board holds more than conversation (frames, images, task cards); only
+// card/page notes are turns. read_thread / reply / watch see this view.
+async function threadNotes(boardId: string): Promise<ApiNote[]> {
+  return (await boardNotes(boardId)).filter((n) => !n.kind || n.kind === "card" || n.kind === "page");
 }
 
 server.registerTool(

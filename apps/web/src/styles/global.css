@@ -160,6 +160,47 @@ body {
 .note.selected {
   box-shadow: 0 0 0 2px rgb(var(--accent));
 }
+/* Frames — containment regions. Rendered below every note (zIndex contract in
+   buildNoteNodes); a dashed border + faint wash so they read as ground, not
+   figure. --frame-tint comes from the note color's ink when tinted. */
+.note-frame {
+  position: relative;
+  border-radius: 12px;
+  border: 1.5px dashed rgb(var(--frame-tint, var(--text-muted)) / 0.45);
+  background: rgb(var(--frame-tint, var(--text-secondary)) / 0.05);
+  transition: border-color 140ms ease, background 140ms ease;
+}
+.note-frame.selected {
+  border-color: rgb(var(--accent) / 0.8);
+  border-style: solid;
+}
+.note-frame.dragging {
+  border-color: rgb(var(--accent) / 0.6);
+}
+.frame-label {
+  position: absolute;
+  top: -24px;
+  left: 4px;
+  max-width: calc(100% - 8px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgb(var(--frame-tint, var(--text-secondary)));
+}
+.frame-label-input {
+  width: 220px;
+  padding: 1px 5px;
+  border: 1px solid rgb(var(--accent) / 0.6);
+  border-radius: 5px;
+  background: rgb(var(--bg) / 0.85);
+  color: rgb(var(--text-primary));
+  font: inherit;
+  outline: none;
+}
 /* Obsidian-style resize via RF's NodeResizer: invisible lines on the edges
    (ns/ew cursors) and invisible corner squares (diagonal cursors) sit on the
    card border — same hit zones as the old hand-rolled handles. They render

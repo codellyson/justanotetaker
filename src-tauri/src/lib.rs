@@ -231,6 +231,15 @@ struct ApiNote {
     text: String,
     #[serde(default)]
     role: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
+}
+
+// A board holds more than conversation now (frames, images, task cards); only
+// card/page notes are turns. Without this filter, dropping a frame on a live
+// board would read as an unanswered message and trigger a spurious reply.
+fn is_conversational(n: &ApiNote) -> bool {
+    matches!(n.kind.as_deref(), None | Some("card") | Some("page"))
 }
 
 fn keychain_token() -> Option<String> {
@@ -350,6 +359,7 @@ fn agent_tick(
             .map_err(|e| e.to_string())?
             .json()
             .map_err(|e| e.to_string())?;
+        resp.notes.retain(is_conversational);
         resp.notes.sort_by_key(|n| n.t);
         let last = match resp.notes.last() {
             Some(n) => n,

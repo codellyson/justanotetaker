@@ -1,4 +1,4 @@
-import type { Board, Note, NoteKind, Tweaks } from "../components/JustNotes/lib";
+import type { Board, Note, NoteKind, NoteMeta, Tweaks } from "../components/JustNotes/lib";
 import { api } from "./api-client";
 
 export type StoredNote = Note & { updatedAt: number };
@@ -23,8 +23,8 @@ export type NoteLink = { id: string; a: string; b: string };
 export interface Storage {
   list(boardId: string): Promise<StoredNote[]>;
   listAll(): Promise<BoardNote[]>;
-  create(input: { id?: string; boardId: string; x: number; y: number; w?: number | null; h?: number | null; t: number; text?: string; kind?: NoteKind; color?: string | null }): Promise<StoredNote>;
-  update(id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "kind" | "color">>): Promise<StoredNote | null>;
+  create(input: { id?: string; boardId: string; x: number; y: number; w?: number | null; h?: number | null; t: number; text?: string; kind?: NoteKind; color?: string | null; parentId?: string | null; meta?: NoteMeta | null }): Promise<StoredNote>;
+  update(id: string, patch: Partial<Pick<Note, "x" | "y" | "w" | "h" | "t" | "text" | "kind" | "color" | "parentId" | "meta">>): Promise<StoredNote | null>;
   remove(id: string): Promise<void>;
   listBoards(): Promise<Board[]>;
   createBoard(input: { name: string; sort?: number }): Promise<Board>;
@@ -53,6 +53,8 @@ function toUiNote(row: {
   kind?: string | null;
   color?: string | null;
   role?: string | null;
+  parentId?: string | null;
+  meta?: unknown;
 }): StoredNote {
   return {
     id: row.id,
@@ -66,6 +68,8 @@ function toUiNote(row: {
     kind: (row.kind as NoteKind) ?? "card",
     color: row.color ?? null,
     role: row.role ?? null,
+    parentId: row.parentId ?? null,
+    meta: (row.meta as NoteMeta | null) ?? null,
   };
 }
 
@@ -99,6 +103,8 @@ export const remoteStorage: Storage = {
         ...(input.text !== undefined ? { text: input.text } : {}),
         ...(input.kind !== undefined ? { kind: input.kind } : {}),
         ...(input.color !== undefined ? { color: input.color } : {}),
+        ...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
+        ...(input.meta !== undefined ? { meta: input.meta } : {}),
       },
     });
     if (!res.ok) throw new Error(`create note: ${res.status}`);

@@ -3,7 +3,26 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import type { Env } from "../env";
 
-const kindSchema = z.enum(["card", "page"]);
+const kindSchema = z.enum(["card", "page", "frame", "image", "task"]);
+
+// Kind-specific payloads carried in the `meta` JSON column. The shapes are
+// disjoint (key vs status), so a plain union stays unambiguous even on
+// kind-less PATCHes.
+const imageMetaSchema = z.object({
+  key: z.string().max(200),
+  w: z.number().int().positive(),
+  h: z.number().int().positive(),
+  size: z.number().int().nonnegative(),
+  alt: z.string().max(500).optional(),
+});
+const taskMetaSchema = z.object({
+  status: z.enum(["queued", "running", "done", "error"]),
+  prompt: z.string().max(20000),
+  startedAt: z.number().optional(),
+  finishedAt: z.number().optional(),
+  error: z.string().max(4000).optional(),
+});
+const metaSchema = z.union([imageMetaSchema, taskMetaSchema]).nullable().optional();
 
 const createSchema = z.object({
   id: z.string().optional(),
@@ -17,6 +36,8 @@ const createSchema = z.object({
   kind: kindSchema.optional(),
   color: z.string().max(32).nullable().optional(),
   role: z.string().max(16).nullable().optional(),
+  parentId: z.string().max(64).nullable().optional(),
+  meta: metaSchema,
 });
 
 const patchSchema = z.object({
@@ -29,6 +50,8 @@ const patchSchema = z.object({
   kind: kindSchema.optional(),
   color: z.string().max(32).nullable().optional(),
   role: z.string().max(16).nullable().optional(),
+  parentId: z.string().max(64).nullable().optional(),
+  meta: metaSchema,
 });
 
 const listQuery = z.object({
@@ -45,7 +68,7 @@ const searchQuery = z.object({
 
 const GRAVEYARD_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
-const NOTE_COLS = "id, user_id, x, y, w, h, t, text, updated_at, deleted_at, board_id, kind, color, role";
+const NOTE_COLS = "id, user_id, x, y, w, h, t, text, updated_at, deleted_at, board_id, kind, color, role, parent_id, meta";
 
 type NoteRow = {
   id: string;
@@ -62,7 +85,18 @@ type NoteRow = {
   kind: string;
   color: string | null;
   role: string | null;
+  parent_id: string | null;
+  meta: string | null;
 };
+
+function parseMeta(raw: string | null): unknown {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
 
 function toNote(r: NoteRow) {
   return {
@@ -80,6 +114,8 @@ function toNote(r: NoteRow) {
     kind: r.kind,
     color: r.color,
     role: r.role,
+    parentId: r.parent_id,
+    meta: parseMeta(r.meta),
   };
 }
 
@@ -178,6 +214,20 @@ export const notesRoutes = new Hono<Env>()
       serverTime: Date.now(),
     });
   })
+  // Deliberately /by-id/:id, not /:id — a param GET beside the static GETs
+  // (/deleted, /search) trips RegExpRouter into the TrieRouter fallback,
+  // which breaks the Better Auth /api/auth/** wildcard (see AGENTS.md).
+  .get("/by-id/:id", zValidator("param", idParam), async (c) => {
+    const userId = c.get("userId");
+    const { id } = c.req.valid("param");
+    const { results } = await c.env.DB.prepare(
+      `SELECT ${NOTE_COLS} FROM notes WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
+    )
+      .bind(id, userId)
+      .all<NoteRow>();
+    if (!results || results.length === 0) return c.json({ error: "not found" }, 404);
+    return c.json({ note: toNote(results[0]) });
+  })
   .post("/", zValidator("json", createSchema), async (c) => {
     const userId = c.get("userId");
     const body = c.req.valid("json");
@@ -198,11 +248,13 @@ export const notesRoutes = new Hono<Env>()
       kind: body.kind ?? "card",
       color: body.color ?? null,
       role: body.role ?? null,
+      parentId: body.parentId ?? null,
+      meta: body.meta ?? null,
     };
     await c.env.DB.prepare(
-      `INSERT INTO notes (${NOTE_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO notes (${NOTE_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-      .bind(note.id, note.userId, note.x, note.y, note.w, note.h, note.t, note.text, note.updatedAt, note.deletedAt, note.boardId, note.kind, note.color, note.role)
+      .bind(note.id, note.userId, note.x, note.y, note.w, note.h, note.t, note.text, note.updatedAt, note.deletedAt, note.boardId, note.kind, note.color, note.role, note.parentId, note.meta == null ? null : JSON.stringify(note.meta))
       .run();
     return c.json({ note });
   })
@@ -222,6 +274,8 @@ export const notesRoutes = new Hono<Env>()
     if (body.kind !== undefined) { sets.push("kind = ?"); binds.push(body.kind); }
     if (body.color !== undefined) { sets.push("color = ?"); binds.push(body.color); }
     if (body.role !== undefined) { sets.push("role = ?"); binds.push(body.role); }
+    if (body.parentId !== undefined) { sets.push("parent_id = ?"); binds.push(body.parentId); }
+    if (body.meta !== undefined) { sets.push("meta = ?"); binds.push(body.meta == null ? null : JSON.stringify(body.meta)); }
 
     const { results } = await c.env.DB.prepare(
       `UPDATE notes SET ${sets.join(", ")} WHERE id = ? AND user_id = ? RETURNING ${NOTE_COLS}`,

@@ -24,7 +24,7 @@ export type NoteNodeData = {
   handlers: NoteNodeHandlers;
 };
 
-export type NoteFlowNode = Node<NoteNodeData, "note">;
+export type NoteFlowNode = Node<NoteNodeData>;
 export type ThreadEdgeData = {
   kind: "relation" | "reply" | "link";
   // Set on user-drawn links: the persisted link id, and whether it's the
@@ -55,15 +55,24 @@ export function buildNoteNodes(args: {
     const editing = args.editingId === n.id;
     const dragging = args.draggingId === n.id;
     const highlit = !!args.matchSet && args.matchSet.has(n.id);
+    const selected = args.selectedIds.has(n.id);
+    // zIndex contract: frames sit below EVERYTHING, always — even selected or
+    // dragging — so their members stay visible and clickable on top. All other
+    // kinds keep the editing/dragging/hit ladder, with selection elevated here
+    // because RF's elevateNodesOnSelect is disabled (it would lift a selected
+    // frame +1000 above its members).
+    const zIndex =
+      n.kind === "frame" ? -10 :
+      editing ? 60 : dragging ? 50 : highlit ? 40 : selected ? 30 : 0;
     return {
       id: n.id,
-      type: "note" as const,
+      type: n.kind === "frame" ? "frame" : n.kind === "image" ? "image" : n.kind === "task" ? "task" : "note",
       position: { x: n.x, y: n.y },
       measured: args.measuredDims.get(n.id),
-      selected: args.selectedIds.has(n.id),
+      selected,
       draggable: !editing,
       className: args.snappingId === n.id ? "snapping" : undefined,
-      zIndex: editing ? 60 : dragging ? 50 : highlit ? 40 : 0,
+      zIndex,
       data: {
         note: n,
         editing,
@@ -159,7 +168,11 @@ export function buildThreadEdges(args: {
   }
 
   if (notes.some((n) => n.role === "assistant")) {
-    const ordered = [...notes].sort((a, b) => a.t - b.t);
+    // The reply spine is a conversation view — frames/images/tasks aren't
+    // turns, so they neither anchor nor receive spine threads.
+    const ordered = notes
+      .filter((n) => n.kind === "card" || n.kind === "page")
+      .sort((a, b) => a.t - b.t);
     for (let i = 0; i < ordered.length; i++) {
       const ans = ordered[i];
       if (ans.role !== "assistant") continue;

@@ -1,7 +1,26 @@
 // How a single note presents itself. `card` is the everyday note (optionally
-// tinted with a color); `page` a document surface a long note auto-promotes to.
-// Configured per note (context menu), not per board.
-export type NoteKind = "card" | "page";
+// tinted with a color); `page` a document surface a long note auto-promotes to;
+// `frame` a containment region other notes belong to; `image` an uploaded
+// picture; `task` a live agent job with a status lifecycle.
+export type NoteKind = "card" | "page" | "frame" | "image" | "task";
+
+// Kind-specific payloads carried in `meta`.
+export type ImageMeta = {
+  key: string;
+  w: number;
+  h: number;
+  size: number;
+  alt?: string;
+};
+export type TaskStatus = "queued" | "running" | "done" | "error";
+export type TaskMeta = {
+  status: TaskStatus;
+  prompt: string;
+  startedAt?: number;
+  finishedAt?: number;
+  error?: string;
+};
+export type NoteMeta = ImageMeta | TaskMeta;
 
 export type Note = {
   id: string;
@@ -16,6 +35,10 @@ export type Note = {
   // Conversational role for agent-session boards: "assistant" = written by an
   // agent (via the MCP reply tool); null/absent = the person's own note.
   role?: string | null;
+  // Frame membership: id of the containing frame note (null = board root).
+  parentId?: string | null;
+  // Kind-specific payload (image/task); null for plain notes.
+  meta?: NoteMeta | null;
 };
 
 export type Recency = "fresh" | "recent" | "older" | "ancient";
