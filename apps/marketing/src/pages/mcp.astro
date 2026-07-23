@@ -5,7 +5,7 @@ import "../styles/global.css";
 const webUrl = import.meta.env.PUBLIC_WEB_URL ?? "http://localhost:5173";
 
 const description =
-  "Connect Claude Code, Claude Desktop, or any MCP client to your canvas. Your assistant can create notes, search what you've written, and see your boards — you point it at a board, it does the writing.";
+  "Connect Claude Code, Claude Desktop, or any MCP client to your canvas. Your assistant can create notes, search what you've written, and see your boards. You point it at a board and it does the writing.";
 
 const mark = `<svg viewBox="0 0 48 48"><defs><mask id="jn-gap"><rect width="48" height="48" fill="#fff"/><rect x="17" y="15" width="26" height="26" rx="8" fill="#000"/></mask></defs><rect x="7" y="8" width="22" height="22" rx="6" fill="#fff" mask="url(#jn-gap)"/><rect x="19" y="17" width="22" height="22" rx="6" fill="#fff"/></svg>`;
 
@@ -38,12 +38,12 @@ const tools = [
   {
     name: "create_board · rename_board · delete_board",
     title: "Manage boards",
-    body: "Spin up a fresh canvas, rename one, or delete it — deleted boards and their notes stay restorable in the app for 30 days.",
+    body: "Spin up a fresh canvas, rename one, or delete it. Deleted boards and their notes stay restorable in the app for 30 days.",
   },
   {
     name: "create_note",
     title: "Write a note to a board",
-    body: "Drops a markdown note onto the board you name — headings, task checkboxes, bold, code, links, images. Position optional.",
+    body: "Drops a markdown note onto the board you name, with headings, task checkboxes, bold, code, links, and images. The position is optional.",
   },
   {
     name: "list_notes · update_note · delete_note",
@@ -71,7 +71,7 @@ const cases = [
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Just a Notetaker — For AI agents (MCP)</title>
+    <title>Just a Notetaker for AI agents (MCP)</title>
     <meta name="description" content={description} />
 
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -79,11 +79,11 @@ const cases = [
     <link rel="alternate icon" type="image/x-icon" href="/favicon.ico" />
 
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="Just a Notetaker — For AI agents" />
+    <meta property="og:title" content="Just a Notetaker for AI agents" />
     <meta property="og:description" content={description} />
     <meta property="og:image" content="/og.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Just a Notetaker — For AI agents" />
+    <meta name="twitter:title" content="Just a Notetaker for AI agents" />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content="/og.png" />
 
@@ -122,14 +122,14 @@ const cases = [
 
     <!-- ░░░ HERO ░░░ -->
     <header class="mx-auto max-w-[760px] px-6 pt-16 md:px-12 md:pt-24 text-center">
-      <div class="mb-[30px] font-mono text-xs tracking-[0.16em] text-muted">FOR AI AGENTS · MCP</div>
+      <div class="mb-[30px] font-sans text-xs tracking-[0.16em] text-muted">FOR AI AGENTS · MCP</div>
       <h1 class="text-[38px] font-extrabold leading-[1.02] sm:text-[48px] md:text-[60px] tracking-[-0.045em] text-primary">
         Let your assistant<br /><span class="text-accent">write to your canvas.</span>
       </h1>
       <p class="mx-auto mt-[30px] max-w-[480px] text-[17px] md:text-[19px] leading-relaxed text-secondary">
-        A small bridge that connects Claude Code, Claude Desktop, and any MCP client to your boards —
-        so an assistant can create notes, search what you've written, and see your canvases. You point
-        it at a board; it does the writing.
+        A small bridge that connects Claude Code, Claude Desktop, and any MCP client to your boards.
+        Your assistant can create notes, search what you've written, and see your canvases. You point
+        it at a board and it does the writing.
       </p>
       <div class="mt-[38px] flex items-baseline justify-center gap-7">
         <a
@@ -150,7 +150,7 @@ const cases = [
     <!-- ░░░ WHAT YOU CAN DO — prompts ░░░ -->
     <section class="mx-auto mt-20 max-w-[1000px] px-6 md:mt-[110px] md:px-12">
       <div class="border-t border-border pt-12">
-        <div class="mb-2.5 font-mono text-xs tracking-[0.16em] text-muted">WHAT YOU CAN DO</div>
+        <div class="mb-2.5 font-sans text-xs tracking-[0.16em] text-muted">WHAT YOU CAN DO</div>
         <h2 class="max-w-[560px] text-[24px] font-extrabold leading-[1.12] md:text-[30px] tracking-[-0.03em] text-primary">
           Just ask. Notes appear where you'll find them.
         </h2>
@@ -158,7 +158,7 @@ const cases = [
           {
             prompts.map((p) => (
               <div class="rounded-2xl border border-border bg-bg-secondary px-6 py-5">
-                <div class="mb-2 font-mono text-[11px] tracking-[0.14em] text-muted">YOU</div>
+                <div class="mb-2 font-sans text-[11px] tracking-[0.14em] text-muted">YOU</div>
                 <p class="text-[16px] leading-relaxed text-primary" set:html={p} />
               </div>
             ))
@@ -170,20 +170,20 @@ const cases = [
     <!-- ░░░ THE TOOLKIT ░░░ -->
     <section class="mx-auto mt-20 max-w-[1000px] px-6 md:mt-[130px] md:px-12">
       <div class="border-t border-border pt-12">
-        <div class="mb-2.5 font-mono text-xs tracking-[0.16em] text-muted">THE TOOLKIT</div>
+        <div class="mb-2.5 font-sans text-xs tracking-[0.16em] text-muted">THE TOOLKIT</div>
         <h2 class="max-w-[560px] text-[24px] font-extrabold leading-[1.12] md:text-[30px] tracking-[-0.03em] text-primary">
           Three tools your agent can reach for.
         </h2>
         <p class="mt-3 max-w-[560px] text-[15px] leading-relaxed text-secondary">
-          It picks whichever it needs. Everything it writes is plain markdown — rendered exactly like
-          notes you type yourself, and instantly searchable.
+          It picks whichever it needs. Everything it writes is plain markdown. It renders exactly like
+          a note you typed yourself and is instantly searchable.
         </p>
         <div class="mt-10 grid grid-cols-1 gap-5 md:grid-cols-3">
           {
             tools.map((t) => (
               <div class="rounded-2xl border border-border bg-bg-secondary p-7">
                 <span
-                  class="inline-block rounded-md px-2.5 py-1 font-mono text-[13px] font-semibold text-accent"
+                  class="inline-block rounded-md px-2.5 py-1 font-sans text-[13px] font-semibold text-accent"
                   style="background:rgb(var(--accent) / 0.12);"
                 >
                   {t.name}
@@ -200,7 +200,7 @@ const cases = [
     <!-- ░░░ IN PRACTICE ░░░ -->
     <section class="mx-auto mt-20 max-w-[860px] px-6 md:mt-[130px] md:px-12">
       <div class="border-t border-border pt-12">
-        <div class="mb-2.5 font-mono text-xs tracking-[0.16em] text-muted">IN PRACTICE</div>
+        <div class="mb-2.5 font-sans text-xs tracking-[0.16em] text-muted">IN PRACTICE</div>
         <h2 class="text-[24px] font-extrabold leading-[1.12] md:text-[30px] tracking-[-0.03em] text-primary">
           Where it earns its keep.
         </h2>
@@ -220,7 +220,7 @@ const cases = [
     <!-- ░░░ SETUP ░░░ -->
     <section id="setup" class="mx-auto mt-20 max-w-[760px] px-6 md:mt-[130px] md:px-12">
       <div class="border-t border-border pt-12">
-        <div class="mb-2.5 font-mono text-xs tracking-[0.16em] text-muted">SETUP · ABOUT FIVE MINUTES</div>
+        <div class="mb-2.5 font-sans text-xs tracking-[0.16em] text-muted">SETUP · ABOUT FIVE MINUTES</div>
         <h2 class="text-[24px] font-extrabold leading-[1.12] md:text-[30px] tracking-[-0.03em] text-primary">
           Connect it once.
         </h2>
@@ -232,10 +232,10 @@ const cases = [
             <div class="min-w-0">
               <h3 class="mb-1.5 text-[18px] font-semibold text-primary">Mint a personal token</h3>
               <p class="text-[15px] leading-relaxed text-secondary">
-                In the app, open the command palette (<span class="font-mono text-[13px] text-accent">⌘K</span> /
-                <span class="font-mono text-[13px] text-accent">Ctrl-K</span>), run <b class="font-semibold text-primary">API tokens</b>,
+                In the app, open the command palette (<span class="font-sans text-[13px] text-accent">⌘K</span> /
+                <span class="font-sans text-[13px] text-accent">Ctrl-K</span>), run <b class="font-semibold text-primary">API tokens</b>,
                 name it, and hit <b class="font-semibold text-primary">Create</b>. Copy the
-                <span class="font-mono text-[13px] text-accent">jnt_…</span> secret — it's shown <b class="font-semibold text-primary">once</b>.
+                <span class="font-sans text-[13px] text-accent">jnt_…</span> secret. It is shown <b class="font-semibold text-primary">once</b>.
                 Revoke it anytime to instantly cut off access.
               </p>
             </div>
@@ -247,9 +247,9 @@ const cases = [
               <h3 class="mb-1.5 text-[18px] font-semibold text-primary">Nothing to install</h3>
               <p class="text-[15px] leading-relaxed text-secondary">
                 The server is published as
-                <span class="font-mono text-[13px] text-accent">@codellyson/justanotetaker-mcp</span> —
-                your agent runs it straight off npm via
-                <span class="font-mono text-[13px] text-accent">npx</span>. No checkout, no build.
+                <span class="font-sans text-[13px] text-accent">@codellyson/justanotetaker-mcp</span>,
+                so your agent runs it straight from npm via
+                <span class="font-sans text-[13px] text-accent">npx</span>. There is nothing to check out or build.
               </p>
             </div>
           </div>
@@ -259,14 +259,14 @@ const cases = [
             <div class="min-w-0">
               <h3 class="mb-1.5 text-[18px] font-semibold text-primary">Register it with your agent</h3>
               <p class="text-[15px] leading-relaxed text-secondary">
-                Add it to your MCP config — <span class="font-mono text-[13px] text-accent">.mcp.json</span> for
+                Add it to your MCP config: <span class="font-sans text-[13px] text-accent">.mcp.json</span> for
                 Claude Code, or the Claude Desktop config. Restart, and the tools show up.
               </p>
               <div class="mt-4 overflow-x-auto rounded-xl border border-border bg-bg-secondary px-5 py-4">
                 <pre class="font-mono text-[12.5px] leading-[1.7] text-secondary"><code set:text={config} /></pre>
               </div>
               <p class="mt-3 text-[13.5px] leading-relaxed text-muted">
-                <span class="font-mono text-accent">JUSTNOTE_API_URL</span> is optional — set it to your own
+                <span class="font-sans text-accent">JUSTNOTE_API_URL</span> is optional. Set it to your own
                 deployment if you self-host the API.
               </p>
             </div>
@@ -278,7 +278,7 @@ const cases = [
     <!-- ░░░ SECURITY ░░░ -->
     <section class="mx-auto mt-20 max-w-[1000px] px-6 md:mt-[130px] md:px-12">
       <div class="border-t border-border pt-12">
-        <div class="mb-2.5 font-mono text-xs tracking-[0.16em] text-muted">YOURS, AND ONLY YOURS</div>
+        <div class="mb-2.5 font-sans text-xs tracking-[0.16em] text-muted">YOURS, AND ONLY YOURS</div>
         <h2 class="text-[24px] font-extrabold leading-[1.12] md:text-[30px] tracking-[-0.03em] text-primary">
           How the token keeps it safe.
         </h2>
@@ -286,7 +286,7 @@ const cases = [
           <div class="rounded-2xl border border-border bg-bg-secondary p-6">
             <h3 class="mb-1.5 text-[16px] font-semibold text-primary">Runs locally</h3>
             <p class="text-[14px] leading-relaxed text-secondary">
-              A stdio server the agent launches as a subprocess — nothing listens on a network port.
+              A stdio server that the agent launches as a subprocess. Nothing listens on a network port.
             </p>
           </div>
           <div class="rounded-2xl border border-border bg-bg-secondary p-6">
@@ -311,7 +311,7 @@ const cases = [
         class="rounded-3xl border border-border bg-bg-secondary px-14 py-[80px] text-center"
         style="box-shadow:0 30px 70px -42px rgba(60,40,20,.28);"
       >
-        <div class="mb-[24px] font-mono text-xs tracking-[0.16em] text-muted">HANDS-FREE NOTES</div>
+        <div class="mb-[24px] font-sans text-xs tracking-[0.16em] text-muted">HANDS-FREE NOTES</div>
         <div class="text-[30px] font-extrabold leading-[1.06] sm:text-[36px] md:text-[42px] tracking-[-0.04em] text-primary">
           Let the assistant<br />do the <span class="text-accent">filing.</span>
         </div>
@@ -354,14 +354,14 @@ const cases = [
           </div>
           <div class="flex gap-16">
             <div>
-              <div class="mb-4 font-mono text-[11px] tracking-[0.14em] text-muted">PRODUCT</div>
+              <div class="mb-4 font-sans text-[11px] tracking-[0.14em] text-muted">PRODUCT</div>
               <div class="flex flex-col gap-3">
                 <a href={webUrl} class="whitespace-nowrap text-[14.5px] text-secondary no-underline transition-colors hover:text-accent">Open canvas</a>
                 <a href="/mcp" class="whitespace-nowrap text-[14.5px] text-secondary no-underline transition-colors hover:text-accent">For AI agents</a>
               </div>
             </div>
             <div>
-              <div class="mb-4 font-mono text-[11px] tracking-[0.14em] text-muted">ELSEWHERE</div>
+              <div class="mb-4 font-sans text-[11px] tracking-[0.14em] text-muted">ELSEWHERE</div>
               <div class="flex flex-col gap-3">
                 <a href="https://github.com/codellyson" class="text-[14.5px] text-secondary no-underline transition-colors hover:text-accent">GitHub</a>
                 <a href="https://kreativekorna.com" class="whitespace-nowrap text-[14.5px] text-secondary no-underline transition-colors hover:text-accent">Just Apps</a>
@@ -369,9 +369,8 @@ const cases = [
             </div>
           </div>
         </div>
-        <div class="mt-12 flex flex-wrap items-center justify-between gap-2.5 border-t border-border pb-[52px] pt-[22px] font-mono text-[12.5px] text-muted">
-          <span>© 2026 justanotetaker · a just app by KreativeKorna</span>
-          <span>local-first <span class="text-accent">·</span> open source</span>
+        <div class="mt-12 flex flex-wrap items-center justify-between gap-2.5 border-t border-border pb-[52px] pt-[22px] font-sans text-[12.5px] text-muted">
+          <span>© 2026 justanotetaker · a just app by <a href="https://kreativekorna.com" class="text-secondary no-underline transition-colors hover:text-accent">KreativeKorna</a></span>
         </div>
       </div>
     </footer>
