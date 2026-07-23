@@ -101,7 +101,7 @@ const cases = [
     </div>
 
     <!-- ░░░ NAV ░░░ -->
-    <nav class="mx-auto flex max-w-[1080px] items-center justify-between px-12 py-8">
+    <nav class="mx-auto flex max-w-[1080px] items-center justify-between px-6 py-6 md:px-12 md:py-8">
       <a href="/" class="flex items-center gap-2.5 no-underline">
         <span
           class="flex h-7 w-7 items-center justify-center rounded-lg [&_svg]:h-[15px] [&_svg]:w-[15px]"
@@ -121,12 +121,12 @@ const cases = [
     </nav>
 
     <!-- ░░░ HERO ░░░ -->
-    <header class="mx-auto max-w-[760px] px-12 pt-24 text-center">
+    <header class="mx-auto max-w-[760px] px-6 pt-16 md:px-12 md:pt-24 text-center">
       <div class="mb-[30px] font-mono text-xs tracking-[0.16em] text-muted">FOR AI AGENTS · MCP</div>
-      <h1 class="text-[60px] font-extrabold leading-[1.02] tracking-[-0.045em] text-primary">
+      <h1 class="text-[38px] font-extrabold leading-[1.02] sm:text-[48px] md:text-[60px] tracking-[-0.045em] text-primary">
         Let your assistant<br /><span class="text-accent">write to your canvas.</span>
       </h1>
-      <p class="mx-auto mt-[30px] max-w-[480px] text-[19px] leading-relaxed text-secondary">
+      <p class="mx-auto mt-[30px] max-w-[480px] text-[17px] md:text-[19px] leading-relaxed text-secondary">
         A small bridge that connects Claude Code, Claude Desktop, and any MCP client to your boards —
         so an assistant can create notes, search what you've written, and see your canvases. You point
         it at a board; it does the writing.
@@ -148,10 +148,10 @@ const cases = [
     </header>
 
     <!-- ░░░ WHAT YOU CAN DO — prompts ░░░ -->
-    <section class="mx-auto mt-[110px] max-w-[1000px] px-12">
+    <section class="mx-auto mt-20 max-w-[1000px] px-6 md:mt-[110px] md:px-12">
       <div class="border-t border-border pt-12">
         <div class="mb-2.5 font-mono text-xs tracking-[0.16em] text-muted">WHAT YOU CAN DO</div>
-        <h2 class="max-w-[560px] text-[30px] font-extrabold leading-[1.12] tracking-[-0.03em] text-primary">
+        <h2 class="max-w-[560px] text-[24px] font-extrabold leading-[1.12] md:text-[30px] tracking-[-0.03em] text-primary">
           Just ask. Notes appear where you'll find them.
         </h2>
         <div class="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -168,10 +168,10 @@ const cases = [
     </section>
 
     <!-- ░░░ THE TOOLKIT ░░░ -->
-    <section class="mx-auto mt-[130px] max-w-[1000px] px-12">
+    <section class="mx-auto mt-20 max-w-[1000px] px-6 md:mt-[130px] md:px-12">
       <div class="border-t border-border pt-12">
         <div class="mb-2.5 font-mono text-xs tracking-[0.16em] text-muted">THE TOOLKIT</div>
-        <h2 class="max-w-[560px] text-[30px] font-extrabold leading-[1.12] tracking-[-0.03em] text-primary">
+        <h2 class="max-w-[560px] text-[24px] font-extrabold leading-[1.12] md:text-[30px] tracking-[-0.03em] text-primary">
           Three tools your agent can reach for.
         </h2>
         <p class="mt-3 max-w-[560px] text-[15px] leading-relaxed text-secondary">
@@ -198,10 +198,10 @@ const cases = [
     </section>
 
     <!-- ░░░ IN PRACTICE ░░░ -->
-    <section class="mx-auto mt-[130px] max-w-[860px] px-12">
+    <section class="mx-auto mt-20 max-w-[860px] px-6 md:mt-[130px] md:px-12">
       <div class="border-t border-border pt-12">
         <div class="mb-2.5 font-mono text-xs tracking-[0.16em] text-muted">IN PRACTICE</div>
-        <h2 class="text-[30px] font-extrabold leading-[1.12] tracking-[-0.03em] text-primary">
+        <h2 class="text-[24px] font-extrabold leading-[1.12] md:text-[30px] tracking-[-0.03em] text-primary">
           Where it earns its keep.
         </h2>
         <div class="mt-9 flex flex-col divide-y divide-border border-y border-border">
@@ -218,10 +218,10 @@ const cases = [
     </section>
 
     <!-- ░░░ SETUP ░░░ -->
-    <section id="setup" class="mx-auto mt-[130px] max-w-[760px] px-12">
+    <section id="setup" class="mx-auto mt-20 max-w-[760px] px-6 md:mt-[130px] md:px-12">
       <div class="border-t border-border pt-12">
         <div class="mb-2.5 font-mono text-xs tracking-[0.16em] text-muted">SETUP · ABOUT FIVE MINUTES</div>
-        <h2 class="text-[30px] font-extrabold leading-[1.12] tracking-[-0.03em] text-primary">
+        <h2 class="text-[24px] font-extrabold leading-[1.12] md:text-[30px] tracking-[-0.03em] text-primary">
           Connect it once.
         </h2>
 
@@ -229,7 +229,7 @@ const cases = [
           <!-- 1 -->
           <div class="grid grid-cols-[auto_1fr] gap-5">
             <div class="text-[22px] font-extrabold leading-none tracking-[-0.02em] text-accent">01</div>
-            <div>
+            <div class="min-w-0">
               <h3 class="mb-1.5 text-[18px] font-semibold text-primary">Mint a personal token</h3>
               <p class="text-[15px] leading-relaxed text-secondary">
                 In the app, open the command palette (<span class="font-mono text-[13px] text-accent">⌘K</span> /
@@ -243,7 +243,7 @@ const cases = [
           <!-- 2 -->
           <div class="grid grid-cols-[auto_1fr] gap-5">
             <div class="text-[22px] font-extrabold leading-none tracking-[-0.02em] text-accent">02</div>
-            <div>
+            <div class="min-w-0">
               <h3 class="mb-1.5 text-[18px] font-semibold text-primary">Nothing to install</h3>
               <p class="text-[15px] leading-relaxed text-secondary">
                 The server is published as
@@ -256,7 +256,7 @@ const cases = [
           <!-- 3 -->
           <div class="grid grid-cols-[auto_1fr] gap-5">
             <div class="text-[22px] font-extrabold leading-none tracking-[-0.02em] text-accent">03</div>
-            <div>
+            <div class="min-w-0">
               <h3 class="mb-1.5 text-[18px] font-semibold text-primary">Register it with your agent</h3>
               <p class="text-[15px] leading-relaxed text-secondary">
                 Add it to your MCP config — <span class="font-mono text-[13px] text-accent">.mcp.json</span> for
@@ -276,10 +276,10 @@ const cases = [
     </section>
 
     <!-- ░░░ SECURITY ░░░ -->
-    <section class="mx-auto mt-[130px] max-w-[1000px] px-12">
+    <section class="mx-auto mt-20 max-w-[1000px] px-6 md:mt-[130px] md:px-12">
       <div class="border-t border-border pt-12">
         <div class="mb-2.5 font-mono text-xs tracking-[0.16em] text-muted">YOURS, AND ONLY YOURS</div>
-        <h2 class="text-[30px] font-extrabold leading-[1.12] tracking-[-0.03em] text-primary">
+        <h2 class="text-[24px] font-extrabold leading-[1.12] md:text-[30px] tracking-[-0.03em] text-primary">
           How the token keeps it safe.
         </h2>
         <div class="mt-9 grid grid-cols-1 gap-5 md:grid-cols-3">
@@ -306,13 +306,13 @@ const cases = [
     </section>
 
     <!-- ░░░ CLOSING ░░░ -->
-    <section class="mx-auto mt-[130px] max-w-[860px] px-12">
+    <section class="mx-auto mt-20 max-w-[860px] px-6 md:mt-[130px] md:px-12">
       <div
         class="rounded-3xl border border-border bg-bg-secondary px-14 py-[80px] text-center"
         style="box-shadow:0 30px 70px -42px rgba(60,40,20,.28);"
       >
         <div class="mb-[24px] font-mono text-xs tracking-[0.16em] text-muted">HANDS-FREE NOTES</div>
-        <div class="text-[42px] font-extrabold leading-[1.06] tracking-[-0.04em] text-primary">
+        <div class="text-[30px] font-extrabold leading-[1.06] sm:text-[36px] md:text-[42px] tracking-[-0.04em] text-primary">
           Let the assistant<br />do the <span class="text-accent">filing.</span>
         </div>
         <div class="mt-[34px] flex items-center justify-center gap-[22px]">
@@ -334,7 +334,7 @@ const cases = [
     </section>
 
     <!-- ░░░ FOOTER ░░░ -->
-    <footer class="mx-auto mt-[130px] max-w-[1080px] px-12">
+    <footer class="mx-auto mt-20 max-w-[1080px] px-6 md:mt-[130px] md:px-12">
       <div class="border-t border-border pt-12">
         <div class="flex flex-wrap items-start justify-between gap-10">
           <div class="max-w-[300px]">

@@ -52,7 +52,7 @@ const mark = `<svg viewBox="0 0 48 48"><defs><mask id="jn-gap"><rect width="48" 
     </div>
 
     <!-- ░░░ NAV ░░░ -->
-    <nav class="mx-auto flex max-w-[1080px] items-center justify-between px-12 py-8">
+    <nav class="mx-auto flex max-w-[1080px] items-center justify-between px-6 py-6 md:px-12 md:py-8">
       <a href={webUrl} class="flex items-center gap-2.5 no-underline">
         <span
           class="flex h-7 w-7 items-center justify-center rounded-lg [&_svg]:h-[15px] [&_svg]:w-[15px]"
@@ -72,12 +72,12 @@ const mark = `<svg viewBox="0 0 48 48"><defs><mask id="jn-gap"><rect width="48" 
     </nav>
 
     <!-- ░░░ HERO ░░░ -->
-    <header class="mx-auto max-w-[760px] px-12 pt-24 text-center">
+    <header class="mx-auto max-w-[760px] px-6 pt-16 text-center md:px-12 md:pt-24">
       <div class="mb-[30px] font-mono text-xs tracking-[0.16em] text-muted">A QUIET PLACE TO THINK</div>
-      <h1 class="text-[66px] font-extrabold leading-none tracking-[-0.045em] text-primary">
+      <h1 class="text-[42px] font-extrabold leading-none tracking-[-0.045em] text-primary sm:text-[54px] md:text-[66px]">
         Think in space,<br /><span class="text-accent">not in lists.</span>
       </h1>
-      <p class="mx-auto mt-[30px] max-w-[440px] text-[19px] leading-relaxed text-secondary">
+      <p class="mx-auto mt-[30px] max-w-[440px] text-[17px] leading-relaxed text-secondary md:text-[19px]">
         A single, infinite canvas for the notes you want to keep close. Write anywhere, place them
         where they make sense, and find them again the way you remember.
       </p>
@@ -100,24 +100,32 @@ const mark = `<svg viewBox="0 0 48 48"><defs><mask id="jn-gap"><rect width="48" 
     <!-- ░░░ HERO — the live canvas, framed. A real, interactive embed of the
          web app (PUBLIC_WEB_URL) rather than a static mock. Needs the web
          app to permit framing from this origin (frame-ancestors). ░░░ -->
-    <div class="mt-[72px] w-full px-6">
+    <div class="mt-10 w-full px-4 md:mt-[72px] md:px-6">
       <div
-        class="overflow-hidden rounded-2xl border border-border bg-bg-secondary"
+        class="relative overflow-hidden rounded-2xl border border-border bg-bg-secondary"
       >
         <iframe
           id="canvas-frame"
           src={webUrl}
           title="the justanotetaker canvas"
           loading="lazy"
-          class="block h-[78vh] min-h-[620px] w-full border-0"
+          class="block h-[60vh] min-h-[420px] w-full border-0 md:h-[78vh] md:min-h-[620px]"
           allow="clipboard-write"
         ></iframe>
+        <!-- On touch screens the live canvas would swallow page scrolling
+             (panning the embed instead). Cover it with a plain link: swipes
+             scroll the page, a tap opens the real app. -->
+        <a
+          href={webUrl}
+          aria-label="Open the canvas"
+          class="absolute inset-0 z-10 md:hidden"
+        ></a>
       </div>
     </div>
 
     <!-- ░░░ THREE QUIET IDEAS ░░░ -->
-    <section class="mx-auto mt-[130px] max-w-[1000px] px-12">
-      <div class="grid grid-cols-1 gap-12 border-t border-border pt-12 md:grid-cols-3">
+    <section class="mx-auto mt-20 max-w-[1000px] px-6 md:mt-[130px] md:px-12">
+      <div class="grid grid-cols-1 gap-10 border-t border-border pt-12 md:grid-cols-3 md:gap-12">
         <div>
           <div class="mb-[18px] text-2xl font-extrabold leading-none tracking-[-0.02em] text-accent">01</div>
           <h3 class="mb-2.5 text-[19px] font-semibold text-primary">Just write</h3>
@@ -143,11 +151,11 @@ const mark = `<svg viewBox="0 0 48 48"><defs><mask id="jn-gap"><rect width="48" 
     </section>
 
     <!-- ░░░ EDITORIAL STATEMENT ░░░ -->
-    <section class="mx-auto mt-[140px] max-w-[760px] px-12 text-center">
-      <div class="text-[46px] font-extrabold leading-[1.1] tracking-[-0.04em] text-primary">
+    <section class="mx-auto mt-24 max-w-[760px] px-6 text-center md:mt-[140px] md:px-12">
+      <div class="text-[32px] font-extrabold leading-[1.1] tracking-[-0.04em] text-primary sm:text-[40px] md:text-[46px]">
         A list forgets.<br /><span class="text-accent">A canvas remembers.</span>
       </div>
-      <p class="mx-auto mt-[34px] max-w-[520px] text-[17px] leading-[1.65] text-secondary">
+      <p class="mx-auto mt-[34px] max-w-[520px] text-[16px] leading-[1.65] text-secondary md:text-[17px]">
         Everything is written to your own device first and synced quietly in the background. Open the
         tab, close the tab — it's still there next time. No spinner, no account wall between you and a
         thought.
@@ -160,16 +168,16 @@ const mark = `<svg viewBox="0 0 48 48"><defs><mask id="jn-gap"><rect width="48" 
     </section>
 
     <!-- ░░░ CLOSING — calm & light ░░░ -->
-    <section id="get" class="mx-auto mt-[140px] max-w-[860px] px-12">
+    <section id="get" class="mx-auto mt-24 max-w-[860px] px-4 md:mt-[140px] md:px-12">
       <div
-        class="rounded-3xl border border-border bg-bg-secondary px-14 py-[90px] text-center"
+        class="rounded-3xl border border-border bg-bg-secondary px-6 py-14 text-center md:px-14 md:py-[90px]"
         style="box-shadow:0 30px 70px -42px rgba(60,40,20,.28);"
       >
         <div class="mb-[26px] font-mono text-xs tracking-[0.16em] text-muted">OPEN WHEN YOU'RE READY</div>
-        <div class="text-[48px] font-extrabold leading-[1.04] tracking-[-0.04em] text-primary">
+        <div class="text-[32px] font-extrabold leading-[1.04] tracking-[-0.04em] text-primary sm:text-[40px] md:text-[48px]">
           Somewhere to put<br />the <span class="text-accent">next</span> one.
         </div>
-        <div class="mt-[38px] flex items-center justify-center gap-[22px]">
+        <div class="mt-[38px] flex flex-col items-center justify-center gap-4 sm:flex-row sm:gap-[22px]">
           <a
             href={webUrl}
             class="whitespace-nowrap rounded-xl bg-accent px-7 py-[15px] text-[15.5px] font-semibold no-underline transition-colors hover:bg-accent-hover"
@@ -189,7 +197,7 @@ const mark = `<svg viewBox="0 0 48 48"><defs><mask id="jn-gap"><rect width="48" 
     </section>
 
     <!-- ░░░ FOOTER ░░░ -->
-    <footer class="mx-auto mt-[140px] max-w-[1080px] px-12">
+    <footer class="mx-auto mt-24 max-w-[1080px] px-6 md:mt-[140px] md:px-12">
       <div class="border-t border-border pt-12">
         <div class="flex flex-wrap items-start justify-between gap-10">
           <div class="max-w-[300px]">
@@ -207,7 +215,7 @@ const mark = `<svg viewBox="0 0 48 48"><defs><mask id="jn-gap"><rect width="48" 
               One quiet canvas.<br />Yours, wherever you are.
             </div>
           </div>
-          <div class="flex gap-16">
+          <div class="flex flex-wrap gap-10 md:gap-16">
             <div>
               <div class="mb-4 font-mono text-[11px] tracking-[0.14em] text-muted">PRODUCT</div>
               <div class="flex flex-col gap-3">
