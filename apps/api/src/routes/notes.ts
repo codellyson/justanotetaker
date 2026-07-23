@@ -22,7 +22,12 @@ const taskMetaSchema = z.object({
   finishedAt: z.number().optional(),
   error: z.string().max(4000).optional(),
 });
-const metaSchema = z.union([imageMetaSchema, taskMetaSchema]).nullable().optional();
+// Frame view state (collapsed folds the region to its label bar). Last in the
+// union — its fields are all optional, so it must not shadow the others.
+const frameMetaSchema = z.object({
+  collapsed: z.boolean().optional(),
+});
+const metaSchema = z.union([imageMetaSchema, taskMetaSchema, frameMetaSchema]).nullable().optional();
 
 const createSchema = z.object({
   id: z.string().optional(),

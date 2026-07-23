@@ -1,6 +1,6 @@
 import type { Edge, Node, NodeChange } from "@xyflow/react";
 import type { Dispatch, SetStateAction } from "react";
-import { tagsOf, type Note } from "../lib";
+import { countTasks, tagsOf, type FrameMeta, type Note } from "../lib";
 
 export type NoteNodeHandlers = {
   onTextChange: (id: string, v: string) => void;
@@ -9,7 +9,13 @@ export type NoteNodeHandlers = {
   onToggleTask: (id: string, taskIndex: number) => void;
   onResize: (id: string, p: { x: number; y: number; width: number; height: number }) => void;
   onResizeEnd: (id: string, p: { x: number; y: number; width: number; height: number }) => void;
+  // Frames: fold/unfold the region; fly the camera to it.
+  onToggleCollapse: (id: string) => void;
+  onFrameLabelClick: (id: string) => void;
 };
+
+// What a frame's label bar reports about its members.
+export type FrameStats = { count: number; done: number; total: number };
 
 export type NoteNodeData = {
   note: Note;
@@ -21,6 +27,9 @@ export type NoteNodeData = {
   fromClipboard: boolean;
   scrubFade: number;
   clickPos: { x: number; y: number } | null;
+  // Frames only.
+  collapsed?: boolean;
+  frameStats?: FrameStats;
   handlers: NoteNodeHandlers;
 };
 
@@ -51,7 +60,25 @@ export function buildNoteNodes(args: {
   measuredDims: Map<string, { width: number; height: number }>;
   handlers: NoteNodeHandlers;
 }): NoteFlowNode[] {
-  return args.notes.map((n) => {
+  // A collapsed frame folds to its label bar and its members disappear from
+  // the canvas (they stay in state and keep syncing — just not rendered).
+  const collapsedFrames = new Set(
+    args.notes
+      .filter((n) => n.kind === "frame" && (n.meta as FrameMeta | null)?.collapsed)
+      .map((n) => n.id),
+  );
+  const statsByFrame = new Map<string, FrameStats>();
+  for (const n of args.notes) {
+    if (!n.parentId || n.kind === "frame") continue;
+    const s = statsByFrame.get(n.parentId) ?? { count: 0, done: 0, total: 0 };
+    s.count++;
+    const t = countTasks(n.text);
+    s.done += t.done;
+    s.total += t.total;
+    statsByFrame.set(n.parentId, s);
+  }
+
+  return args.notes.filter((n) => !(n.parentId && collapsedFrames.has(n.parentId))).map((n) => {
     const editing = args.editingId === n.id;
     const dragging = args.draggingId === n.id;
     const highlit = !!args.matchSet && args.matchSet.has(n.id);
@@ -83,6 +110,8 @@ export function buildNoteNodes(args: {
         fromClipboard: args.clipboardIds.has(n.id),
         scrubFade: args.scrubMoment == null ? 1 : n.t <= args.scrubMoment ? 1 : 0,
         clickPos: editing ? args.editClickPos : null,
+        collapsed: n.kind === "frame" ? collapsedFrames.has(n.id) : undefined,
+        frameStats: n.kind === "frame" ? statsByFrame.get(n.id) ?? { count: 0, done: 0, total: 0 } : undefined,
         handlers: args.handlers,
       },
     };

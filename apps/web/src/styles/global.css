@@ -177,19 +177,74 @@ body {
 .note-frame.dragging {
   border-color: rgb(var(--accent) / 0.6);
 }
-.frame-label {
-  position: absolute;
-  top: -24px;
-  left: 4px;
-  max-width: calc(100% - 8px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* Collapsed: the frame folds to just its label bar. */
+.note-frame.collapsed {
+  height: auto;
+  border-style: solid;
+  background: rgb(var(--frame-tint, var(--text-secondary)) / 0.09);
+}
+.frame-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
   font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: rgb(var(--frame-tint, var(--text-secondary)));
+}
+.frame-chevron {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: background 120ms ease, opacity 120ms ease;
+}
+.frame-chevron:hover {
+  background: rgb(var(--accent) / 0.16);
+  color: rgb(var(--accent));
+  opacity: 1;
+}
+.frame-chevron svg {
+  transition: transform 160ms ease;
+}
+.frame-title {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+.frame-title:hover {
+  color: rgb(var(--accent));
+}
+.frame-stats {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-weight: 500;
+  font-size: 11px;
+  color: rgb(var(--frame-tint, var(--text-muted)) / 0.8);
 }
 .frame-label-input {
   width: 220px;

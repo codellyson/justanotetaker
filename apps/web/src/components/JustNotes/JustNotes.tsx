@@ -21,6 +21,7 @@ import {
   NOTE_COLOR_MAP,
   PAPER_W,
   PAPER_H,
+  type FrameMeta,
   type Note,
   type NoteKind,
   type Board,
@@ -697,12 +698,17 @@ function JustNotesInner(props: JustNotesProps) {
     return { x: f.x, y: f.y, w: f.w ?? m?.width ?? FRAME_DEFAULT_W, h: f.h ?? m?.height ?? FRAME_DEFAULT_H };
   }
 
+  function isCollapsed(f: Note) {
+    return !!(f.meta as FrameMeta | null)?.collapsed;
+  }
+
   // Topmost frame containing the point — last match wins, mirroring paint
-  // order among equal-z frames.
+  // order among equal-z frames. Collapsed frames don't capture: their visible
+  // footprint is just the label bar.
   function hitFrame(cx: number, cy: number): Note | null {
     let hit: Note | null = null;
     for (const f of notesRef.current) {
-      if (f.kind !== "frame") continue;
+      if (f.kind !== "frame" || isCollapsed(f)) continue;
       const r = frameRectOf(f);
       if (cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h) hit = f;
     }
@@ -721,6 +727,10 @@ function JustNotesInner(props: JustNotesProps) {
   function applyContainment(id: string) {
     const cur = notesRef.current.find((n) => n.id === id);
     if (!cur || cur.kind === "frame") return;
+    // Members of a folded frame are hidden and ride with it — their membership
+    // is not up for geometric re-derivation until the frame expands.
+    const curFrame = cur.parentId ? notesRef.current.find((n) => n.id === cur.parentId) : null;
+    if (curFrame && isCollapsed(curFrame)) return;
     const c = noteCenter(cur);
     const nextParent = hitFrame(c.x, c.y)?.id ?? null;
     if ((cur.parentId ?? null) === nextParent) return;
@@ -734,6 +744,37 @@ function JustNotesInner(props: JustNotesProps) {
     for (const n of notesRef.current) {
       if (n.kind !== "frame") applyContainment(n.id);
     }
+  }
+
+  // Fold/unfold a frame. Collapsed members vanish from the canvas (state and
+  // sync untouched), so they can't stay selected or mid-edit.
+  function toggleFrameCollapsed(id: string) {
+    const f = notesRef.current.find((n) => n.id === id);
+    if (!f || f.kind !== "frame") return;
+    const collapsed = !isCollapsed(f);
+    const meta: FrameMeta = { ...((f.meta as FrameMeta | null) ?? {}), collapsed };
+    setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, meta } : n)));
+    onUpdate(id, { meta });
+    if (collapsed) {
+      const memberIds = new Set(notesRef.current.filter((n) => n.parentId === id).map((n) => n.id));
+      if (editingIdRef.current && memberIds.has(editingIdRef.current)) commitEditing();
+      setSelectedIds((prev) => {
+        if (![...prev].some((x) => memberIds.has(x))) return prev;
+        return new Set([...prev].filter((x) => !memberIds.has(x)));
+      });
+    }
+    markInteracted();
+  }
+
+  // Named-neighborhood navigation: fit the frame (plus breathing room) in view.
+  function flyToFrame(f: Note) {
+    const r = frameRectOf(f);
+    const { W, H } = canvasSize();
+    const pad = 90;
+    const zoom = Math.max(0.32, Math.min(1.2, Math.min((W - pad * 2) / r.w, (H - pad * 2) / r.h)));
+    const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+    animateView({ pan: { x: W / 2 - cx * zoom, y: H / 2 - cy * zoom }, zoom });
+    prevViewRef.current = null;
   }
 
   // Deleting a frame never implicitly deletes members unless asked: the plain
@@ -839,6 +880,15 @@ function JustNotesInner(props: JustNotesProps) {
     // Committing to this note — leave any overview so its framing/dimming
     // doesn't fight the focus (otherwise the jump lands under overview state).
     prevViewRef.current = null;
+    // Frames navigate rather than edit.
+    if (n.kind === "frame") {
+      setSelectedIds(new Set([n.id]));
+      flyToFrame(n);
+      return;
+    }
+    // A member of a folded frame is invisible — unfold before flying there.
+    const parent = n.parentId ? notesRef.current.find((x) => x.id === n.parentId) : null;
+    if (parent && isCollapsed(parent)) toggleFrameCollapsed(parent.id);
     editClickRef.current = null; // tree jump has no click point → caret at end
     setSelectedIds(new Set([n.id]));
     focusNoteForEdit(n);
@@ -1663,6 +1713,11 @@ function JustNotesInner(props: JustNotesProps) {
       // A resized frame border may have swallowed or released notes.
       if (notesRef.current.find((n) => n.id === id)?.kind === "frame") recheckAllContainment();
     },
+    onToggleCollapse: (id) => toggleFrameCollapsed(id),
+    onFrameLabelClick: (id) => {
+      const f = notesRef.current.find((n) => n.id === id);
+      if (f) { markInteracted(); flyToFrame(f); }
+    },
   };
   const nodeHandlers = useMemo<NoteNodeHandlers>(() => ({
     onTextChange: (id, v) => nodeHandlersRef.current.onTextChange(id, v),
@@ -1671,6 +1726,8 @@ function JustNotesInner(props: JustNotesProps) {
     onToggleTask: (id, i) => nodeHandlersRef.current.onToggleTask(id, i),
     onResize: (id, p) => nodeHandlersRef.current.onResize(id, p),
     onResizeEnd: (id, p) => nodeHandlersRef.current.onResizeEnd(id, p),
+    onToggleCollapse: (id) => nodeHandlersRef.current.onToggleCollapse(id),
+    onFrameLabelClick: (id) => nodeHandlersRef.current.onFrameLabelClick(id),
   }), []);
 
   // Controlled React Flow graph derived from app state. Deliberately does NOT

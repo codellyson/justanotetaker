@@ -20,7 +20,20 @@ export type TaskMeta = {
   finishedAt?: number;
   error?: string;
 };
-export type NoteMeta = ImageMeta | TaskMeta;
+export type FrameMeta = {
+  collapsed?: boolean;
+};
+export type NoteMeta = ImageMeta | TaskMeta | FrameMeta;
+
+// Markdown task tally across a text: `- [ ]` and `- [x]` items.
+export function countTasks(text: string): { done: number; total: number } {
+  let done = 0, total = 0;
+  for (const m of text.matchAll(/^\s*[-*]\s+\[([ xX])\]\s/gm)) {
+    total++;
+    if (m[1] !== " ") done++;
+  }
+  return { done, total };
+}
 
 export type Note = {
   id: string;
