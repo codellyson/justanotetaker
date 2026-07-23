@@ -450,6 +450,113 @@ fn agent_sessions_stop(state: tauri::State<'_, Arc<AgentSessions>>) {
     state.running.store(false, Ordering::SeqCst);
 }
 
+const TASK_UPDATED_EVENT: &str = "task://updated";
+
+// Run a task card: read its prompt, mark it running, drive the local claude
+// CLI, then PATCH the result (done) or the failure (error) back. Spawned off
+// the UI thread; the webview reacts to task://updated. The optimistic "running"
+// flip already happened client-side, but we PATCH it too so other devices see
+// it and the timestamps are authoritative.
+#[tauri::command]
+fn run_task(app: AppHandle, url: String, note_id: String) {
+    thread::spawn(move || {
+        if let Err(e) = run_task_inner(&app, &url, &note_id) {
+            log::error!("[run_task] {e}");
+            let _ = app.emit(TASK_UPDATED_EVENT, note_id.clone());
+        }
+    });
+}
+
+fn patch_task(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    token: &str,
+    note_id: &str,
+    body: &serde_json::Value,
+) -> Result<(), String> {
+    client
+        .patch(format!("{url}/api/notes/{note_id}"))
+        .bearer_auth(token)
+        .json(body)
+        .send()
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn run_task_inner(app: &AppHandle, url: &str, note_id: &str) -> Result<(), String> {
+    let token = keychain_token().ok_or("signed out")?;
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(600))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    #[derive(serde::Deserialize)]
+    struct NoteResp {
+        note: TaskNoteRow,
+    }
+    #[derive(serde::Deserialize)]
+    struct TaskNoteRow {
+        #[serde(default)]
+        meta: Option<serde_json::Value>,
+    }
+
+    let resp: NoteResp = client
+        .get(format!("{url}/api/notes/by-id/{note_id}"))
+        .bearer_auth(&token)
+        .send()
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .map_err(|e| e.to_string())?;
+    let meta = resp.note.meta.unwrap_or_else(|| serde_json::json!({}));
+    let prompt = meta
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if prompt.is_empty() {
+        return Err("task has no prompt".into());
+    }
+
+    patch_task(
+        &client,
+        url,
+        &token,
+        note_id,
+        &serde_json::json!({ "meta": { "status": "running", "prompt": prompt, "startedAt": now_ms() } }),
+    )?;
+    let _ = app.emit(TASK_UPDATED_EVENT, note_id.to_string());
+
+    let claude = resolve_claude();
+    match run_claude(&claude, &prompt) {
+        Ok(result) => patch_task(
+            &client,
+            url,
+            &token,
+            note_id,
+            &serde_json::json!({
+                "meta": { "status": "done", "prompt": prompt, "finishedAt": now_ms() },
+                "text": result,
+                "t": now_ms(),
+            }),
+        )?,
+        Err(err) => patch_task(
+            &client,
+            url,
+            &token,
+            note_id,
+            &serde_json::json!({
+                "meta": { "status": "error", "prompt": prompt, "error": err.chars().take(4000).collect::<String>(), "finishedAt": now_ms() }
+            }),
+        )?,
+    }
+    let _ = app.emit(TASK_UPDATED_EVENT, note_id.to_string());
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[allow(unused_mut)]
@@ -496,6 +603,7 @@ pub fn run() {
             take_opened_files,
             agent_sessions_start,
             agent_sessions_stop,
+            run_task,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

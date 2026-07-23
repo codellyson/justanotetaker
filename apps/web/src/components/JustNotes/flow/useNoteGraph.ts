@@ -12,6 +12,8 @@ export type NoteNodeHandlers = {
   // Frames: fold/unfold the region; fly the camera to it.
   onToggleCollapse: (id: string) => void;
   onFrameLabelClick: (id: string) => void;
+  // Task cards (Tauri): run/retry the local claude job.
+  onRunTask?: (id: string) => void;
 };
 
 // What a frame's label bar reports about its members.

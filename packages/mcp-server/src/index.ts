@@ -64,7 +64,7 @@ async function resolveBoard(ref: string): Promise<Board> {
   return found;
 }
 
-const server = new McpServer({ name: "justanotetaker", version: "0.2.1" });
+const server = new McpServer({ name: "justanotetaker", version: "0.3.0" });
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 
@@ -217,6 +217,78 @@ server.registerTool(
   async ({ id }) => {
     await api(`/api/notes/${encodeURIComponent(id)}`, { method: "DELETE" });
     return text(`Deleted note ${id} (restorable for 30 days).`);
+  },
+);
+
+server.registerTool(
+  "create_task",
+  {
+    description:
+      "Create a task card on a board — a live agent job with a status " +
+      "lifecycle (queued → running → done/error). Use this when you're about " +
+      "to do a multi-step piece of work and want a visible marker of it on the " +
+      "canvas; then call update_task as you progress. The card shows the prompt " +
+      "and, when done, the result you write back.",
+    inputSchema: {
+      board: z.string().describe("Board name or id (see list_boards)"),
+      prompt: z.string().describe("What the task is — the work to be done"),
+      title: z.string().optional().describe("Short title (defaults to the prompt's first line)"),
+      x: z.number().optional().describe("Canvas x (optional)"),
+      y: z.number().optional().describe("Canvas y (optional)"),
+    },
+  },
+  async ({ board, prompt, title, x, y }) => {
+    const b = await resolveBoard(board);
+    const pos = {
+      x: x ?? Math.round(Math.random() * 1200 - 200),
+      y: y ?? Math.round(Math.random() * 700 - 100),
+    };
+    const { note } = await api<{ note?: { id?: string } }>("/api/notes", {
+      method: "POST",
+      body: JSON.stringify({
+        boardId: b.id,
+        x: pos.x,
+        y: pos.y,
+        t: Date.now(),
+        kind: "task",
+        text: title ?? prompt.split("\n")[0].slice(0, 120),
+        meta: { status: "queued", prompt },
+      }),
+    });
+    return text(`Created task ${note?.id ?? ""} on "${b.name}" (queued).`);
+  },
+);
+
+server.registerTool(
+  "update_task",
+  {
+    description:
+      "Update a task card's status by id (from create_task or list_notes). " +
+      "Set status to running when you start, done with a `result` (markdown, " +
+      "shown on the card and full-text searchable) when finished, or error with " +
+      "an `error` message if it failed.",
+    inputSchema: {
+      id: z.string().describe("Task card note id"),
+      status: z.enum(["queued", "running", "done", "error"]).describe("New status"),
+      result: z.string().optional().describe("Result markdown (on done — replaces the card body)"),
+      error: z.string().optional().describe("Error message (on error)"),
+    },
+  },
+  async ({ id, status, result, error }) => {
+    const { note } = await api<{ note: ApiNote }>(`/api/notes/by-id/${encodeURIComponent(id)}`);
+    const prev = (note.meta ?? {}) as Record<string, unknown>;
+    const now = Date.now();
+    const meta: Record<string, unknown> = { ...prev, status };
+    if (status === "running") meta.startedAt = now;
+    if (status === "done" || status === "error") meta.finishedAt = now;
+    if (error !== undefined) meta.error = error;
+    const patch: Record<string, unknown> = { meta };
+    if (status === "done" && result !== undefined) { patch.text = result; patch.t = now; }
+    await api(`/api/notes/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+    return text(`Task ${id} → ${status}.`);
   },
 );
 

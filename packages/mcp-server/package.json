@@ -1,6 +1,6 @@
 {
   "name": "@codellyson/justanotetaker-mcp",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "MCP server for Just a Notetaker — lets any MCP client (Claude, etc.) list, create, update, and delete boards and notes on your canvas, read boards as conversations, and reply as an agent.",
   "type": "module",
   "license": "MIT",

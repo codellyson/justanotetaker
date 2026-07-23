@@ -23,6 +23,7 @@ import {
   PAPER_H,
   type FrameMeta,
   type ImageMeta,
+  type TaskMeta,
   type Note,
   type NoteKind,
   type Board,
@@ -131,23 +132,44 @@ function JustNotesInner(props: JustNotesProps) {
   // consults this so a deleted note is never resurrected.
   const deletedRef = useRef<Set<string>>(new Set());
 
+  // Merge server notes we don't already hold, and additionally adopt server
+  // copies of TASK cards whose status/text changed out-of-band (an MCP agent
+  // or the Tauri run_task command driving the lifecycle) — the only kind we
+  // update in place, since a card/page could hold unsynced local edits. Never
+  // clobbers the note being edited or dragged, nor resurrects a just-deleted
+  // note (deletedRef guards the soft-delete race).
+  const mergeServer = useCallback((server: Note[]) => {
+    if (!server.length) return;
+    setNotes((prev) => {
+      const have = new Map(prev.map((n) => [n.id, n]));
+      const additions = server.filter((n) => !have.has(n.id) && !deletedRef.current.has(n.id));
+      const busy = new Set([editingIdRef.current, draggingIdRef.current].filter(Boolean) as string[]);
+      let changed = additions.length > 0;
+      const merged = prev.map((n) => {
+        if (n.kind !== "task" || busy.has(n.id)) return n;
+        const srv = have.has(n.id) ? server.find((s) => s.id === n.id) : undefined;
+        if (!srv) return n;
+        const sm = srv.meta as { status?: string } | null;
+        const nm = n.meta as { status?: string } | null;
+        if (srv.text === n.text && sm?.status === nm?.status) return n;
+        changed = true;
+        return { ...n, text: srv.text, meta: srv.meta, t: srv.t };
+      });
+      return changed ? [...merged, ...additions] : prev;
+    });
+  }, []);
+
   // Pull in notes created out-of-band — another device, or an agent piping via
   // the MCP server. The app has no realtime channel, so we poll gently while
-  // the tab is visible and refetch on focus. Only notes we don't already have
-  // are merged: an in-progress edit/drag is never clobbered, and a just-deleted
-  // note is never resurrected (deletedRef guards the soft-delete race).
+  // the tab is visible and refetch on focus.
   useEffect(() => {
     if (!refresh) return;
     let cancelled = false;
     const pull = async () => {
       if (document.hidden) return;
       const server = await refresh();
-      if (cancelled || server.length === 0) return;
-      setNotes((prev) => {
-        const have = new Set(prev.map((n) => n.id));
-        const additions = server.filter((n) => !have.has(n.id) && !deletedRef.current.has(n.id));
-        return additions.length ? [...prev, ...additions] : prev;
-      });
+      if (cancelled) return;
+      mergeServer(server);
     };
     const onFocus = () => void pull();
     const onVisible = () => { if (!document.hidden) void pull(); };
@@ -160,19 +182,7 @@ function JustNotesInner(props: JustNotesProps) {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refresh]);
-
-  // Merge server notes we don't already hold, without clobbering an in-progress
-  // edit/drag or resurrecting a just-deleted note. Same guard as the background
-  // pull; used by the agent-session reply listener for an immediate refresh.
-  const mergeServer = useCallback((server: Note[]) => {
-    if (!server.length) return;
-    setNotes((prev) => {
-      const have = new Set(prev.map((n) => n.id));
-      const additions = server.filter((n) => !have.has(n.id) && !deletedRef.current.has(n.id));
-      return additions.length ? [...prev, ...additions] : prev;
-    });
-  }, []);
+  }, [refresh, mergeServer]);
 
   // React Flow owns the viewport; `view` mirrors it (fed by onMove) for
   // everything that reads the camera — screenToCanvas, overview detection,
@@ -204,6 +214,8 @@ function JustNotesInner(props: JustNotesProps) {
   const editingIdRef = useRef<string | null>(null);
   useEffect(() => { editingIdRef.current = editingId; }, [editingId]);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const draggingIdRef = useRef<string | null>(null);
+  useEffect(() => { draggingIdRef.current = draggingId; }, [draggingId]);
   // A note that just glided to a free spot after a drop (drives the snap CSS).
   const [snappingId, setSnappingId] = useState<string | null>(null);
 
@@ -809,6 +821,25 @@ function JustNotesInner(props: JustNotesProps) {
     markInteracted();
   }
 
+  // Run (or retry) a task card: flip it to running optimistically, then let the
+  // Rust command drive the local claude CLI and PATCH the result back. The
+  // task://updated event pulls the final status/result onto the canvas.
+  function runTaskCard(id: string) {
+    if (!isTauri) return;
+    const cur = notesRef.current.find((n) => n.id === id);
+    if (!cur || cur.kind !== "task") return;
+    const meta: TaskMeta = { ...(cur.meta as TaskMeta), status: "running", startedAt: Date.now(), error: undefined };
+    setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, meta } : n)));
+    markInteracted();
+    void import("@tauri-apps/api/core").then(({ invoke }) =>
+      invoke("run_task", { url: API_BASE_URL, noteId: id }).catch((err) => {
+        console.error("[task] run failed", err);
+        const errMeta: TaskMeta = { ...(notesRef.current.find((n) => n.id === id)?.meta as TaskMeta), status: "error", error: String(err) };
+        setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, meta: errMeta } : n)));
+      }),
+    );
+  }
+
   // Named-neighborhood navigation: fit the frame (plus breathing room) in view.
   function flyToFrame(f: Note) {
     const r = frameRectOf(f);
@@ -1201,8 +1232,9 @@ function JustNotesInner(props: JustNotesProps) {
   function handleNodeDoubleClick(e: React.MouseEvent, node: NoteFlowNode) {
     markInteracted();
     if (editingIdRef.current === node.id) return;
-    // Image cards have no editor (captions come later).
-    if (notesRef.current.find((n) => n.id === node.id)?.kind === "image") return;
+    // Image and task cards have no in-place editor.
+    const dk = notesRef.current.find((n) => n.id === node.id)?.kind;
+    if (dk === "image" || dk === "task") return;
     if ((e.target as HTMLElement).closest("[data-tag]")) return; // tag click already handled
     // Double-click drops into editing the note in place. startEditingExisting
     // commits any other open editor first. Remember where the click landed so
@@ -1731,6 +1763,23 @@ function JustNotesInner(props: JustNotesProps) {
     return () => { cancelled = true; unlisten?.(); };
   }, [refresh, activeBoardId, mergeServer]);
 
+  // A local run_task job PATCHed a task card's status — pull the change in at
+  // once (the 20s poll would eventually catch it, but the run is interactive).
+  useEffect(() => {
+    if (!isTauri || !refresh) return;
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      if (cancelled) return;
+      unlisten = await listen<string>("task://updated", async () => {
+        const server = await refresh();
+        if (!cancelled) mergeServer(server);
+      });
+    })();
+    return () => { cancelled = true; unlisten?.(); };
+  }, [refresh, mergeServer]);
+
   // Surface watcher failures (e.g. a wrong claude path, or claude erroring out).
   useEffect(() => {
     if (!isTauri) return;
@@ -1776,6 +1825,7 @@ function JustNotesInner(props: JustNotesProps) {
       const f = notesRef.current.find((n) => n.id === id);
       if (f) { markInteracted(); flyToFrame(f); }
     },
+    onRunTask: (id) => runTaskCard(id),
   };
   const nodeHandlers = useMemo<NoteNodeHandlers>(() => ({
     onTextChange: (id, v) => nodeHandlersRef.current.onTextChange(id, v),
@@ -1786,6 +1836,7 @@ function JustNotesInner(props: JustNotesProps) {
     onResizeEnd: (id, p) => nodeHandlersRef.current.onResizeEnd(id, p),
     onToggleCollapse: (id) => nodeHandlersRef.current.onToggleCollapse(id),
     onFrameLabelClick: (id) => nodeHandlersRef.current.onFrameLabelClick(id),
+    onRunTask: (id) => nodeHandlersRef.current.onRunTask?.(id),
   }), []);
 
   // Controlled React Flow graph derived from app state. Deliberately does NOT

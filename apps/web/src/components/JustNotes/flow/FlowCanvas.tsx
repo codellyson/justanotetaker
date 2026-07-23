@@ -24,10 +24,11 @@ import { GRID, type Tweaks } from "../lib";
 import NoteNode from "./NoteNode";
 import FrameNode from "./FrameNode";
 import ImageNode from "./ImageNode";
+import TaskNode from "./TaskNode";
 import { ThreadEdge } from "./ThreadEdge";
 import type { NoteFlowNode, ThreadFlowEdge } from "./useNoteGraph";
 
-const nodeTypes: NodeTypes = { note: NoteNode, frame: FrameNode, image: ImageNode };
+const nodeTypes: NodeTypes = { note: NoteNode, frame: FrameNode, image: ImageNode, task: TaskNode };
 const edgeTypes: EdgeTypes = { thread: ThreadEdge };
 // ⌘ on mac, Ctrl elsewhere — matching the old handlers, which accepted either.
 const MOD_KEYS = ["Meta", "Control"];

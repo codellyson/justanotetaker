@@ -177,6 +177,88 @@ body {
 .note-frame.dragging {
   border-color: rgb(var(--accent) / 0.6);
 }
+/* Task cards — an agent job with a status lifecycle. */
+.task-card {
+  position: relative;
+  border-radius: var(--radius, 2px);
+  padding: 9px 11px 10px;
+  background: rgb(var(--bg-secondary));
+  box-shadow: 0 0 0 1px rgb(var(--border) / 0.7);
+  transition: opacity 220ms ease, box-shadow 180ms ease;
+}
+.task-card.selected { box-shadow: 0 0 0 2px rgb(var(--accent)); }
+.task-card.dim { opacity: 0.12; filter: saturate(0.4); }
+.task-card.task-running { box-shadow: 0 0 0 1px rgb(var(--accent) / 0.5); }
+.task-card.task-error { box-shadow: 0 0 0 1px rgb(var(--danger) / 0.5); }
+.task-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.task-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1.5px 8px 1.5px 6px;
+  border-radius: 100px;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.task-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.task-chip-queued { color: rgb(var(--text-muted)); background: rgb(var(--text-primary) / 0.06); }
+.task-chip-running { color: rgb(var(--accent)); background: rgb(var(--accent) / 0.14); }
+.task-chip-running .task-dot { animation: task-pulse 1s ease-in-out infinite; }
+.task-chip-done { color: rgb(34 160 90); background: rgb(34 160 90 / 0.14); }
+.task-chip-error { color: rgb(var(--danger)); background: rgb(var(--danger) / 0.14); }
+@keyframes task-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.task-run {
+  flex: none;
+  padding: 2px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: rgb(var(--accent));
+  color: rgb(var(--accent-text, 255 255 255));
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.task-run:hover { background: rgb(var(--accent-hover, var(--accent))); }
+.task-prompt {
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: rgb(var(--text-secondary));
+  white-space: pre-wrap;
+}
+.task-result {
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.task-error {
+  margin-top: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: rgb(var(--danger));
+  background: rgb(var(--danger) / 0.1);
+  white-space: pre-wrap;
+}
+
 /* Image cards — an uploaded picture with an optional caption. */
 .image-card {
   position: relative;
