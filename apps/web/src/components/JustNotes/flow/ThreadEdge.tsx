@@ -1,27 +1,45 @@
 import { useInternalNode, type EdgeProps } from "@xyflow/react";
 import type { ThreadFlowEdge } from "./useNoteGraph";
 
-// Floating edge between note centers — ignores handle positions entirely and
-// reproduces the hand-drawn thread look: a quadratic curve bowed perpendicular
-// to the line between centers. Centers use measured node sizes, so threads
-// anchor correctly on tall pages (the old SVG layer guessed 56px).
+type RfNode = { internals: { positionAbsolute: { x: number; y: number } }; measured: { width?: number; height?: number } };
+
+// Where the center→center line exits a note's rectangle, so the thread springs
+// from the card's border instead of starting hidden under it.
+function borderPoint(n: RfNode, towardX: number, towardY: number) {
+  const w = n.measured.width ?? 220;
+  const h = n.measured.height ?? 56;
+  const cx = n.internals.positionAbsolute.x + w / 2;
+  const cy = n.internals.positionAbsolute.y + h / 2;
+  const dx = towardX - cx, dy = towardY - cy;
+  if (dx === 0 && dy === 0) return { x: cx, y: cy };
+  // Scale the direction until it touches the nearest side of the half-extent box.
+  const scale = 1 / Math.max(Math.abs(dx) / (w / 2), Math.abs(dy) / (h / 2));
+  return { x: cx + dx * scale, y: cy + dy * scale };
+}
+
+// Floating edge between notes — ignores handle positions and draws the
+// hand-drawn thread: a soft cubic curve bowed to one side, anchored to each
+// note's border so it reads as a flowing connection, not a rigid strut.
 export function ThreadEdge({ source, target, data }: EdgeProps<ThreadFlowEdge>) {
   const a = useInternalNode(source);
   const b = useInternalNode(target);
   if (!a || !b) return null;
 
-  const center = (n: NonNullable<typeof a>) => ({
-    x: n.internals.positionAbsolute.x + (n.measured.width ?? 220) / 2,
-    y: n.internals.positionAbsolute.y + (n.measured.height ?? 56) / 2,
-  });
-  const p = center(a);
-  const q = center(b);
-  const mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2;
+  const ca = { x: a.internals.positionAbsolute.x + (a.measured.width ?? 220) / 2, y: a.internals.positionAbsolute.y + (a.measured.height ?? 56) / 2 };
+  const cb = { x: b.internals.positionAbsolute.x + (b.measured.width ?? 220) / 2, y: b.internals.positionAbsolute.y + (b.measured.height ?? 56) / 2 };
+  const p = borderPoint(a, cb.x, cb.y);
+  const q = borderPoint(b, ca.x, ca.y);
+
   const dx = q.x - p.x, dy = q.y - p.y;
   const len = Math.hypot(dx, dy) || 1;
-  const bow = Math.min(48, len * 0.14);
-  const cx = mx + (-dy / len) * bow, cy = my + (dx / len) * bow;
-  const d = `M ${p.x} ${p.y} Q ${cx} ${cy} ${q.x} ${q.y}`;
+  // A generous, length-scaled bow so long threads still visibly arc.
+  const bow = Math.max(26, Math.min(140, len * 0.28));
+  const nx = -dy / len, ny = dx / len;
+  // Two control points at 1/3 and 2/3, both pulled to the same side — a gentle,
+  // slightly asymmetric arc that flows rather than snapping to a rigid vertex.
+  const c1x = p.x + dx / 3 + nx * bow, c1y = p.y + dy / 3 + ny * bow;
+  const c2x = p.x + (dx * 2) / 3 + nx * bow * 0.82, c2y = p.y + (dy * 2) / 3 + ny * bow * 0.82;
+  const d = `M ${p.x} ${p.y} C ${c1x} ${c1y} ${c2x} ${c2y} ${q.x} ${q.y}`;
 
   const kind = data?.kind ?? "relation";
   return (
