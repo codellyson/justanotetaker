@@ -71,7 +71,7 @@ function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
     style.width = note.w ?? PAPER_W;
     style.minHeight = note.h ?? 200;
   } else {
-    // card: resizable, else content-height from CSS.
+    // card (legacy): resizable, else content-height from CSS.
     if (note.w != null) style.width = note.w;
     if (note.h != null) {
       style.maxHeight = "none";

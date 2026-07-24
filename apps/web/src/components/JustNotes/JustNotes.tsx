@@ -470,10 +470,13 @@ function JustNotesInner(props: JustNotesProps) {
     }
     const w = tweakRef.current.noteWidth;
     const spot = findFreeSpot(canvasX - w / 2, canvasY - 22);
-    setNotes((ns) => [...ns, { id, x: spot.x, y: spot.y, w: null, h: null, t: Date.now(), text: initialText, kind, color: null }]);
+    // Spawned inside a frame? Adopt it as a member so it moves with the frame.
+    const parentId = hitFrame(canvasX, canvasY)?.id ?? null;
+    setNotes((ns) => [...ns, { id, x: spot.x, y: spot.y, w: null, h: null, t: Date.now(), text: initialText, kind, color: null, parentId }]);
     editSnapshotRef.current = { id, isNew: true, prevText: "", prevT: Date.now() };
     editClickRef.current = null; // new note → caret at end, not a stale click point
     setEditingId(id);
+    if (parentId) scheduleFrameFit(id);
   }
 
   // Rects of every note but `excludeId`, for collision resolution on drop /
@@ -773,6 +776,45 @@ function JustNotesInner(props: JustNotesProps) {
     for (const n of notesRef.current) {
       if (n.kind !== "frame") applyContainment(n.id);
     }
+  }
+
+  const FRAME_PAD = 26;
+  const FRAME_LABEL_H = 34;
+  // Grow a frame so it wraps every member (plus padding + room for the label
+  // bar). Grow-only: a note that pokes out expands the frame; the frame never
+  // auto-shrinks, so intentional empty space is preserved. Members keep their
+  // absolute positions — only the frame's box changes.
+  function fitFrameToMembers(frameId: string) {
+    const frame = notesRef.current.find((n) => n.id === frameId);
+    if (!frame || frame.kind !== "frame" || isCollapsed(frame)) return;
+    const members = notesRef.current.filter((n) => n.parentId === frameId);
+    if (!members.length) return;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const m of members) {
+      const mm = measuredDimsRef.current.get(m.id);
+      const w = m.w ?? mm?.width ?? tweakRef.current.noteWidth;
+      const h = m.h ?? mm?.height ?? 96;
+      minX = Math.min(minX, m.x); minY = Math.min(minY, m.y);
+      maxX = Math.max(maxX, m.x + w); maxY = Math.max(maxY, m.y + h);
+    }
+    const cur = frameRectOf(frame);
+    const x = Math.min(cur.x, minX - FRAME_PAD);
+    const y = Math.min(cur.y, minY - FRAME_PAD - FRAME_LABEL_H);
+    const right = Math.max(cur.x + cur.w, maxX + FRAME_PAD);
+    const bottom = Math.max(cur.y + cur.h, maxY + FRAME_PAD);
+    const next = { x, y, w: right - x, h: bottom - y };
+    if (next.x === cur.x && next.y === cur.y && next.w === cur.w && next.h === cur.h) return;
+    setNotes((ns) => ns.map((n) => (n.id === frameId ? { ...n, ...next } : n)));
+    onUpdate(frameId, next);
+  }
+
+  // Grow a note's parent frame after its position/size/membership has settled.
+  // Deferred a frame so notesRef reflects the committed parentId + geometry.
+  function scheduleFrameFit(noteId: string) {
+    requestAnimationFrame(() => {
+      const n = notesRef.current.find((x) => x.id === noteId);
+      if (n?.parentId) fitFrameToMembers(n.parentId);
+    });
   }
 
   // Fold/unfold a frame. Collapsed members vanish from the canvas (state and
@@ -1184,6 +1226,7 @@ function JustNotesInner(props: JustNotesProps) {
       }
       onUpdate(node.id, { x: spot.x, y: spot.y });
       applyContainment(node.id);
+      scheduleFrameFit(node.id);
       return;
     }
 
@@ -1211,7 +1254,7 @@ function JustNotesInner(props: JustNotesProps) {
     // have entered/left frames. Members that rode along kept their relative
     // position, so their membership is unchanged by construction.
     if (draggedAFrame) recheckAllContainment();
-    else for (const d of dragged) applyContainment(d.id);
+    else for (const d of dragged) { applyContainment(d.id); scheduleFrameFit(d.id); }
   }
 
   function handleNodeClick(e: React.MouseEvent, node: NoteFlowNode) {
@@ -1275,6 +1318,17 @@ function JustNotesInner(props: JustNotesProps) {
   function handleNodeContextMenu(e: React.MouseEvent, node: NoteFlowNode) {
     e.preventDefault();
     e.stopPropagation();
+    // Right-click a frame's empty body → the create menu, so you can drop a
+    // note (or another frame) inside it; the note adopts the frame as parent.
+    // The label bar still opens the frame's own menu (color / collapse / delete).
+    const n = notesRef.current.find((x) => x.id === node.id);
+    if (n?.kind === "frame" && !(e.target as HTMLElement).closest(".frame-bar")) {
+      const c = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      setContextMenu(null);
+      setGlobalMenu(null);
+      setCanvasMenu({ x: e.clientX, y: e.clientY, cx: c.x, cy: c.y });
+      return;
+    }
     setContextMenu({ id: node.id, x: e.clientX, y: e.clientY });
   }
 
@@ -1879,8 +1933,11 @@ function JustNotesInner(props: JustNotesProps) {
       setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, x: p.x, y: p.y, w: p.width, h: p.height } : n))),
     onResizeEnd: (id, p) => {
       onUpdate(id, { x: p.x, y: p.y, w: p.width, h: p.height });
-      // A resized frame border may have swallowed or released notes.
-      if (notesRef.current.find((n) => n.id === id)?.kind === "frame") recheckAllContainment();
+      const n = notesRef.current.find((x) => x.id === id);
+      // A resized frame border may have swallowed or released notes; a resized
+      // member may now poke out of its frame — grow the frame to fit.
+      if (n?.kind === "frame") recheckAllContainment();
+      else if (n?.parentId) fitFrameToMembers(n.parentId);
     },
     onToggleCollapse: (id) => toggleFrameCollapsed(id),
     onFrameLabelClick: (id) => {
