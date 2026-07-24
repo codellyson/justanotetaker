@@ -250,7 +250,7 @@ export const notesRoutes = new Hono<Env>()
       updatedAt: now,
       deletedAt: null as number | null,
       boardId: body.boardId,
-      kind: body.kind ?? "card",
+      kind: body.kind ?? "page",
       color: body.color ?? null,
       role: body.role ?? null,
       parentId: body.parentId ?? null,

@@ -444,7 +444,7 @@ function JustNotesInner(props: JustNotesProps) {
     }
   }
 
-  function spawnAt(canvasX: number, canvasY: number, initialText = "", kind: NoteKind = "card") {
+  function spawnAt(canvasX: number, canvasY: number, initialText = "", kind: NoteKind = "page") {
     const id = uid();
     // Frames spawn committed and selected (no editor session — the label is
     // edited via double-click), sized to their canonical footprint.
@@ -539,12 +539,11 @@ function JustNotesInner(props: JustNotesProps) {
     const x = spot.x;
     const y = spot.y;
     const now = Date.now();
-    const note: Note = { id, x, y, w: null, h: null, t: now, text, kind: "card", color: null };
+    const note: Note = { id, x, y, w: null, h: null, t: now, text, kind: "page", color: null };
     setNotes((ns) => [...ns, note]);
     pushOp({ type: "create", id });
     void onCreate(note, opts);
     enrichIfUrlNote(id);
-    maybePromoteToPage(id);
     return id;
   }
 
@@ -695,17 +694,10 @@ function JustNotesInner(props: JustNotesProps) {
     enrichIfUrlNote(id);
     setEditingId(null);
     editSnapshotRef.current = null;
-    maybePromoteToPage(id);
   }
 
   function updateNoteText(id: string, text: string) {
     setNotes((ns) => ns.map((n) => n.id === id ? { ...n, text } : n));
-  }
-
-  function setNoteKind(id: string, kind: NoteKind) {
-    // Clear w/h so the note takes the new kind's canonical size, not a stale resize.
-    setNotes((ns) => ns.map((n) => n.id === id ? { ...n, kind, w: null, h: null } : n));
-    onUpdate(id, { kind, w: null, h: null });
   }
 
   function setNoteColor(id: string, color: string | null) {
@@ -713,36 +705,6 @@ function JustNotesInner(props: JustNotesProps) {
     onUpdate(id, { color });
   }
 
-  // A card whose content overflows its height cap becomes a page — measured
-  // from the DOM. Clears w/h so it takes the page's own (document) width, not
-  // the narrow card width; page styling uncaps the height so it all shows.
-  function maybePromoteToPage(id: string) {
-    let done = false;
-    const measure = () => {
-      if (done) return;
-      const cur = notesRef.current.find((n) => n.id === id);
-      if (!cur || cur.kind !== "card" || editingIdRef.current === id) return;
-      const el = canvasRef.current?.querySelector<HTMLElement>(`[data-note-id="${id}"]`);
-      if (!el) return;
-      // The card caps at max-height with overflow:hidden, so clipped content
-      // makes scrollHeight exceed clientHeight.
-      if (el.scrollHeight <= el.clientHeight + 4) return;
-      done = true;
-      setNotes((ns) => ns.map((n) => n.id === id ? { ...n, kind: "page", w: null, h: null } : n));
-      onUpdate(id, { kind: "page", w: null, h: null });
-      // A just-created note isn't synced yet, and onUpdate no-ops until its
-      // create round-trips — re-persist once it's settled (unless the kind was
-      // changed back in the meantime).
-      window.setTimeout(() => {
-        const c = notesRef.current.find((n) => n.id === id);
-        if (c?.kind === "page") onUpdate(id, { kind: "page", w: c.w, h: c.h });
-      }, 1500);
-    };
-    // Two frames to land after the card view has committed + laid out, then a
-    // later pass to catch async content (shiki code, images) that grows it.
-    requestAnimationFrame(() => requestAnimationFrame(measure));
-    window.setTimeout(measure, 300);
-  }
 
   // Toggle a task checkbox (`- [ ]` ⇄ `- [x]`) in a note and persist right
   // away — this happens outside an edit session, so it can't wait for commit.
@@ -2097,7 +2059,6 @@ function JustNotesInner(props: JustNotesProps) {
             y={contextMenu.y}
             kind={n?.kind ?? "card"}
             color={n?.color ?? null}
-            onSetKind={(k) => setNoteKind(contextMenu.id, k)}
             onSetColor={(c) => setNoteColor(contextMenu.id, c)}
             onClose={() => setContextMenu(null)}
             onRead={n && n.kind !== "frame" ? () => { const id = contextMenu.id; setContextMenu(null); openFocus(id); } : undefined}
@@ -2386,14 +2347,11 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
   );
 }
 
-const NOTE_KINDS: NoteKind[] = ["card", "page"];
-
 function NoteContextMenu({
-  x, y, kind, color, onSetKind, onSetColor, onClose, onDelete, onDeleteContents, onRead,
+  x, y, kind, color, onSetColor, onClose, onDelete, onDeleteContents, onRead,
 }: {
   x: number; y: number;
   kind: NoteKind; color: string | null;
-  onSetKind: (k: NoteKind) => void;
   onSetColor: (c: string | null) => void;
   onClose: () => void; onDelete: () => void;
   // Open in the reader (non-frames).
@@ -2428,25 +2386,6 @@ function NoteContextMenu({
       style={{ left, top }}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      {kind !== "frame" && kind !== "image" && kind !== "task" && (
-        <>
-          <div className="note-ctx-label">Type</div>
-          <div className="note-ctx-types" role="radiogroup" aria-label="note type">
-            {NOTE_KINDS.map((k) => (
-              <button
-                key={k}
-                type="button"
-                role="radio"
-                aria-checked={k === kind}
-                className={"note-ctx-type" + (k === kind ? " active" : "")}
-                onClick={() => onSetKind(k)}
-              >
-                {k}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
       <div className="note-ctx-colors" role="radiogroup" aria-label="note color">
         <button
           type="button"
@@ -2535,10 +2474,10 @@ function CanvasContextMenu({
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="note-ctx-label">New here</div>
-      <div className="note-ctx-types" role="group" aria-label="new note type">
-        {([...NOTE_KINDS, "frame"] as NoteKind[]).map((k) => (
+      <div className="note-ctx-types" role="group" aria-label="new item">
+        {(["page", "frame"] as NoteKind[]).map((k) => (
           <button key={k} type="button" className="note-ctx-type" onClick={() => onNew(k)}>
-            {k}
+            {k === "page" ? "note" : k}
           </button>
         ))}
       </div>
