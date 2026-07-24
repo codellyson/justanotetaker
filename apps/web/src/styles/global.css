@@ -284,9 +284,12 @@ body {
   cursor: auto;
   transition: none;
 }
+/* !important beats .note:hover:not(.editing):not(.dim):not(.dragging), which
+   would otherwise draw a card border over the reader when the cursor is on it. */
+.reader-body .reader-note,
 .reader-body .reader-note:hover {
-  transform: none;
-  box-shadow: none;
+  box-shadow: none !important;
+  transform: none !important;
 }
 /* The card clamps its first line to 3 lines; the reader shows all of it,
    sized up. */
