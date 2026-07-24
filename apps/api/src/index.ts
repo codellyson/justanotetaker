@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import type { ScheduledController } from "@cloudflare/workers-types";
 import { createAuth, hasGoogleProvider } from "./auth";
 import type { Env } from "./env";
 import { boardsRoutes } from "./routes/boards";

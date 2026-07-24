@@ -43,7 +43,10 @@ export const mediaRoutes = new Hono<Env>()
     }
 
     const key = `${userId}/${crypto.randomUUID()}.${ext}`;
-    await c.env.MEDIA.put(key, blob.stream(), {
+    // ArrayBuffer (not the stream) so the type checks cleanly under both the
+    // Worker and DOM lib contexts the monorepo compiles this file in; images
+    // are capped at 8 MB, so buffering is fine.
+    await c.env.MEDIA.put(key, await blob.arrayBuffer(), {
       httpMetadata: { contentType: blob.type },
     });
     await c.env.DB.prepare(
@@ -64,7 +67,9 @@ export const mediaRoutes = new Hono<Env>()
     if (!key || key.includes("..")) return c.json({ error: "not found" }, 404);
     const obj = await c.env.MEDIA.get(key);
     if (!obj) return c.json({ error: "not found" }, 404);
-    return new Response(obj.body, {
+    // Buffer to an ArrayBuffer so the body type is unambiguous across the
+    // Worker/DOM lib split (see the put note above).
+    return new Response(await obj.arrayBuffer(), {
       headers: {
         "content-type": obj.httpMetadata?.contentType ?? "application/octet-stream",
         "cache-control": "public, max-age=31536000, immutable",

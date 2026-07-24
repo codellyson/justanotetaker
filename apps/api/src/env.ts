@@ -1,3 +1,4 @@
+import type { R2Bucket } from "@cloudflare/workers-types";
 import type { Auth, AuthEnv } from "./auth";
 
 export type Bindings = AuthEnv & {
