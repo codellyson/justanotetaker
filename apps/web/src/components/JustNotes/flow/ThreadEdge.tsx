@@ -35,10 +35,11 @@ export function ThreadEdge({ source, target, data }: EdgeProps<ThreadFlowEdge>) 
   // A generous, length-scaled bow so long threads still visibly arc.
   const bow = Math.max(26, Math.min(140, len * 0.28));
   const nx = -dy / len, ny = dx / len;
-  // Two control points at 1/3 and 2/3, both pulled to the same side — a gentle,
-  // slightly asymmetric arc that flows rather than snapping to a rigid vertex.
+  // Two control points at 1/3 and 2/3, pulled to the same side by the SAME bow
+  // so the arc is symmetric — its fullest point sits in the middle rather than
+  // leaning toward either note.
   const c1x = p.x + dx / 3 + nx * bow, c1y = p.y + dy / 3 + ny * bow;
-  const c2x = p.x + (dx * 2) / 3 + nx * bow * 0.82, c2y = p.y + (dy * 2) / 3 + ny * bow * 0.82;
+  const c2x = p.x + (dx * 2) / 3 + nx * bow, c2y = p.y + (dy * 2) / 3 + ny * bow;
   const d = `M ${p.x} ${p.y} C ${c1x} ${c1y} ${c2x} ${c2y} ${q.x} ${q.y}`;
 
   const kind = data?.kind ?? "relation";
