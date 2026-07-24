@@ -2549,6 +2549,7 @@ function FocusReader({
   note: Note; index: number; total: number;
   onClose: () => void; onPrev: () => void; onNext: () => void; onEdit: () => void;
 }) {
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   const col = resolveNoteColor(note.color);
   const meta = note.meta;
   const editable = note.kind === "card" || note.kind === "page";
@@ -2559,7 +2560,18 @@ function FocusReader({
     : {};
 
   return (
-    <div className="reader-scrim" onPointerDown={onClose}>
+    <div
+      className="reader-scrim"
+      onPointerDown={onClose}
+      // The reader is a narrow panel in a wide dimmed backdrop; a wheel over
+      // the margin (or the header bar) should still scroll the content, not
+      // fall on dead space. Redirect any wheel that isn't already inside the
+      // scrollable body.
+      onWheel={(e) => {
+        const body = bodyRef.current;
+        if (body && !body.contains(e.target as Node)) body.scrollTop += e.deltaY;
+      }}
+    >
       <div
         className={"reader" + (col ? " tinted" : "") + ` reader-${note.kind}`}
         style={surface}
@@ -2574,7 +2586,7 @@ function FocusReader({
             <button type="button" className="reader-btn" onClick={onClose} aria-label="Close reader">Close <kbd>Esc</kbd></button>
           </div>
         </div>
-        <div className="reader-body">
+        <div className="reader-body" ref={bodyRef}>
           {note.kind === "image" ? (
             <>
               {(meta as ImageMeta | null)?.key && (

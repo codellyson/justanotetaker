@@ -259,16 +259,53 @@ body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Code blocks/tables scroll inside their own box (overflow-x: auto on the
+     broadened .md-code pre); the body itself never scrolls sideways. */
+  overflow-x: hidden;
   padding: 26px 40px 34px;
 }
 /* The reading surface itself: serif document type at a comfortable measure. */
 .reader-prose {
+  max-width: 100%;
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
   font-size: 16px;
   line-height: 1.62;
   color: rgb(var(--note-ink, var(--text-primary)));
   white-space: pre-wrap;
   overflow-wrap: break-word;
+}
+/* Code blocks keep their own monospace + chrome (from the broadened
+   .md-code rules); the serif prose font must not bleed into them, and a
+   long line scrolls within the block rather than widening the reader. */
+.reader-prose .md-code,
+.reader-prose .md-code pre,
+.reader-prose .md-code code {
+  font-family: var(--font-jn-mono), ui-monospace, monospace;
+}
+.reader-prose .md-code {
+  font-size: 13px;
+  max-width: 100%;
+}
+/* Slim themed vertical scrollbar on the reader body — no chunky native bar. */
+.reader-body {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--text-secondary) / 0.3) transparent;
+}
+.reader-body::-webkit-scrollbar {
+  width: 10px;
+}
+.reader-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.reader-body::-webkit-scrollbar-thumb {
+  background: rgb(var(--text-secondary) / 0.3);
+  border-radius: 5px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.reader-body:hover::-webkit-scrollbar-thumb {
+  background: rgb(var(--text-secondary) / 0.5);
+  background-clip: padding-box;
 }
 .reader-empty {
   font-style: italic;
@@ -1604,23 +1641,23 @@ body {
 }
 
 /* ── markdown-light inside notes ──────────────────────────────── */
-.note .md-blank {
+:is(.note, .reader) .md-blank {
   height: 6px;
 }
-.note .md-p {
+:is(.note, .reader) .md-p {
   display: block;
 }
-.note .md-li {
+:is(.note, .reader) .md-li {
   display: flex;
   align-items: baseline;
   gap: 4px;
   padding-left: 0;
 }
-.note .md-li > span:last-child {
+:is(.note, .reader) .md-li > span:last-child {
   flex: 1;
   min-width: 0;
 }
-.note .md-bullet {
+:is(.note, .reader) .md-bullet {
   color: currentColor;
   opacity: 0.55;
   font-weight: 700;
@@ -1640,53 +1677,53 @@ body {
 .note del {
   opacity: 0.6;
 }
-.note .md-mark {
+:is(.note, .reader) .md-mark {
   background: rgb(var(--accent) / 0.22);
   color: inherit;
   border-radius: 2px;
   padding: 0 2px;
 }
-.note .md-h {
+:is(.note, .reader) .md-h {
   font-weight: 650;
   line-height: 1.25;
   margin: 2px 0;
 }
-.note .md-h1 {
+:is(.note, .reader) .md-h1 {
   font-size: 1.25em;
 }
-.note .md-h2 {
+:is(.note, .reader) .md-h2 {
   font-size: 1.12em;
 }
-.note .md-h3 {
+:is(.note, .reader) .md-h3 {
   font-size: 1.02em;
   opacity: 0.9;
 }
-.note .md-hr {
+:is(.note, .reader) .md-hr {
   border: 0;
   height: 1px;
   background: currentColor;
   opacity: 0.18;
   margin: 7px 0;
 }
-.note .md-quote {
+:is(.note, .reader) .md-quote {
   border-left: 2px solid rgb(var(--accent) / 0.5);
   padding-left: 9px;
   margin: 3px 0;
   opacity: 0.85;
   font-style: italic;
 }
-.note .md-ol .md-num {
+:is(.note, .reader) .md-ol .md-num {
   color: currentColor;
   opacity: 0.55;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
   min-width: 14px;
 }
-.note .md-task {
+:is(.note, .reader) .md-task {
   align-items: center;
   gap: 7px;
 }
-.note .md-check {
+:is(.note, .reader) .md-check {
   appearance: none;
   -webkit-appearance: none;
   width: 14px;
@@ -1701,15 +1738,15 @@ body {
     background 120ms ease,
     opacity 120ms ease;
 }
-.note .md-check:hover {
+:is(.note, .reader) .md-check:hover {
   opacity: 0.8;
 }
-.note .md-check:checked {
+:is(.note, .reader) .md-check:checked {
   background: rgb(var(--accent));
   border-color: rgb(var(--accent));
   opacity: 1;
 }
-.note .md-check:checked::after {
+:is(.note, .reader) .md-check:checked::after {
   content: "";
   position: absolute;
   left: 4px;
@@ -1720,14 +1757,14 @@ body {
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
-.note .md-task.done > span:last-child {
+:is(.note, .reader) .md-task.done > span:last-child {
   text-decoration: line-through;
   opacity: 0.55;
 }
-.note .md-img-wrap {
+:is(.note, .reader) .md-img-wrap {
   margin: 5px 0;
 }
-.note .md-img {
+:is(.note, .reader) .md-img {
   max-width: 100%;
   max-height: 320px;
   border-radius: 6px;
@@ -1750,7 +1787,7 @@ body {
 .note a:hover {
   text-decoration-color: rgba(0, 0, 0, 0.6);
 }
-.note .md-tag {
+:is(.note, .reader) .md-tag {
   display: inline-block;
   padding: 0 6px;
   margin: 0 1px;
@@ -1763,7 +1800,7 @@ body {
   cursor: pointer;
   transition: background 120ms ease;
 }
-.note .md-tag:hover {
+:is(.note, .reader) .md-tag:hover {
   background: rgb(var(--accent) / 0.28);
 }
 /* On a tinted note, re-point the muted theme text tokens at the note's ink so
@@ -1773,17 +1810,17 @@ body {
   --text-secondary: var(--note-ink);
   --text-muted: var(--note-ink);
 }
-.note.tinted .md-tag {
+:is(.note, .reader).tinted .md-tag {
   background: rgb(0 0 0 / 0.08);
 }
 /* Code surfaces are normally translucent (they sit on the note's own dark bg);
    on a light tint that muddies to brown, so make them opaque. */
-.note.tinted .md-code,
-.note.tinted .md-code-fallback,
-.note.tinted .md-code-fallback pre {
+:is(.note, .reader).tinted .md-code,
+:is(.note, .reader).tinted .md-code-fallback,
+:is(.note, .reader).tinted .md-code-fallback pre {
   background: rgb(var(--bg));
 }
-.note .md-code {
+:is(.note, .reader) .md-code {
   margin: 6px 0;
   border-radius: 6px;
   overflow: hidden;
@@ -1792,7 +1829,7 @@ body {
   line-height: 1.5;
   background: rgb(var(--bg) / 0.55);
 }
-.note .md-code pre {
+:is(.note, .reader) .md-code pre {
   margin: 0;
   padding: 8px 10px;
   background: transparent !important;
@@ -1801,58 +1838,58 @@ body {
 }
 /* Slim, themed horizontal scrollbar on code blocks + tables instead of the
    chunky native one. */
-.note .md-code pre,
-.note .md-table-wrap {
+:is(.note, .reader) .md-code pre,
+:is(.note, .reader) .md-table-wrap {
   scrollbar-width: thin;
   scrollbar-color: rgb(var(--text-secondary) / 0.35) transparent;
 }
-.note .md-code pre::-webkit-scrollbar,
-.note .md-table-wrap::-webkit-scrollbar {
+:is(.note, .reader) .md-code pre::-webkit-scrollbar,
+:is(.note, .reader) .md-table-wrap::-webkit-scrollbar {
   height: 9px;
 }
-.note .md-code pre::-webkit-scrollbar-track,
-.note .md-table-wrap::-webkit-scrollbar-track {
+:is(.note, .reader) .md-code pre::-webkit-scrollbar-track,
+:is(.note, .reader) .md-table-wrap::-webkit-scrollbar-track {
   background: transparent;
 }
-.note .md-code pre::-webkit-scrollbar-thumb,
-.note .md-table-wrap::-webkit-scrollbar-thumb {
+:is(.note, .reader) .md-code pre::-webkit-scrollbar-thumb,
+:is(.note, .reader) .md-table-wrap::-webkit-scrollbar-thumb {
   background: rgb(var(--text-secondary) / 0.35);
   border-radius: 5px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
-.note .md-code pre:hover::-webkit-scrollbar-thumb,
-.note .md-table-wrap:hover::-webkit-scrollbar-thumb {
+:is(.note, .reader) .md-code pre:hover::-webkit-scrollbar-thumb,
+:is(.note, .reader) .md-table-wrap:hover::-webkit-scrollbar-thumb {
   background: rgb(var(--text-secondary) / 0.55);
   background-clip: padding-box;
 }
-.note .md-code code {
+:is(.note, .reader) .md-code code {
   background: transparent;
   padding: 0;
 }
-.note .md-code-fallback pre,
-.note .md-code-fallback {
+:is(.note, .reader) .md-code-fallback pre,
+:is(.note, .reader) .md-code-fallback {
   background: rgb(var(--bg) / 0.55);
   color: rgb(var(--text-primary));
 }
 /* GFM tables. Borders use text-secondary so they read on the dark theme and,
    on a tinted note (which re-points that token to its ink), on the color too. */
-.note .md-table-wrap {
+:is(.note, .reader) .md-table-wrap {
   margin: 6px 0;
   overflow-x: auto;
 }
-.note .md-table {
+:is(.note, .reader) .md-table {
   border-collapse: collapse;
   font-size: 11.5px;
   line-height: 1.45;
 }
-.note .md-table th,
-.note .md-table td {
+:is(.note, .reader) .md-table th,
+:is(.note, .reader) .md-table td {
   border: 1px solid rgb(var(--text-secondary) / 0.28);
   padding: 3px 8px;
   vertical-align: top;
 }
-.note .md-table th {
+:is(.note, .reader) .md-table th {
   font-weight: 650;
   background: rgb(var(--text-secondary) / 0.08);
 }
