@@ -17,7 +17,6 @@
 // installs — dev iteration with `tauri:dev` would otherwise need a
 // full bundle + drag-to-Applications cycle every time we change Rust.
 
-use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -188,60 +187,10 @@ fn clipboard_monitor(handle: AppHandle, capture: Arc<ClipboardCapture>) {
     }
 }
 
-// ── Agent-session watcher ───────────────────────────────────────────────────
-// A board the user marks "live" becomes a two-way agent session: this polls the
-// API for a new unanswered turn and drives the local `claude` CLI headless to
-// write a reply, posting it back as an assistant note. Fully self-contained —
-// it reuses the keychain session token the webview already stored, so there's
-// no API key to mint and no external script to bundle.
-const AGENT_REPLIED_EVENT: &str = "agent-sessions://replied";
-const AGENT_ERROR_EVENT: &str = "agent-sessions://error";
-const AGENT_POLL_MS: u64 = 2500;
-
-#[derive(Default)]
-struct AgentSessions {
-    running: AtomicBool,
-    api_url: Mutex<String>,
-    boards: Mutex<Vec<String>>,
-}
-
-#[derive(serde::Deserialize)]
-struct BoardsResp {
-    boards: Vec<BoardInfo>,
-}
-
-#[derive(serde::Deserialize)]
-struct BoardInfo {
-    id: String,
-    name: String,
-}
-
-#[derive(serde::Deserialize)]
-struct NotesResp {
-    notes: Vec<ApiNote>,
-}
-
-#[derive(serde::Deserialize)]
-struct ApiNote {
-    #[serde(default)]
-    x: f64,
-    #[serde(default)]
-    y: f64,
-    t: i64,
-    text: String,
-    #[serde(default)]
-    role: Option<String>,
-    #[serde(default)]
-    kind: Option<String>,
-}
-
-// A board holds more than conversation now (frames, images, task cards); only
-// card/page notes are turns. Without this filter, dropping a frame on a live
-// board would read as an unanswered message and trigger a spurious reply.
-fn is_conversational(n: &ApiNote) -> bool {
-    matches!(n.kind.as_deref(), None | Some("card") | Some("page"))
-}
-
+// ── Local agent CLI ─────────────────────────────────────────────────────────
+// Shared plumbing for driving the local `claude` CLI headless (used by the
+// task-card `run_task` command). Reuses the keychain session token the webview
+// already stored, so there's no API key to mint and no external script.
 fn keychain_token() -> Option<String> {
     let entry = keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT).ok()?;
     entry.get_password().ok().filter(|t| !t.is_empty())
@@ -278,24 +227,6 @@ fn resolve_claude() -> String {
     "claude".to_string()
 }
 
-fn build_prompt(board: &str, notes: &[ApiNote]) -> String {
-    let mut s = String::new();
-    s.push_str(&format!(
-        "You are replying inside \"{board}\", a spatial note board someone is using as a chat with you.\n"
-    ));
-    s.push_str("The conversation so far is below, oldest first. Write a helpful reply to their most recent message.\n");
-    s.push_str("Respond in GitHub-flavored markdown. Output only your reply — no preamble, no sign-off.\n\n");
-    for n in notes {
-        let who = if n.role.as_deref() == Some("assistant") {
-            "you"
-        } else {
-            "them"
-        };
-        s.push_str(&format!("[{who}]: {}\n\n", n.text));
-    }
-    s
-}
-
 fn run_claude(bin: &str, prompt: &str) -> Result<String, String> {
     let mut cmd = Command::new(bin);
     cmd.args(["-p", "--output-format", "text", "--strict-mcp-config"])
@@ -323,131 +254,6 @@ fn run_claude(bin: &str, prompt: &str) -> Result<String, String> {
         ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-}
-
-fn agent_tick(
-    client: &reqwest::blocking::Client,
-    api_url: &str,
-    watched: &[String],
-    claude: &str,
-    app: &AppHandle,
-    handled: &mut HashMap<String, i64>,
-) -> Result<(), String> {
-    let token = match keychain_token() {
-        Some(t) => t,
-        None => return Ok(()), // signed out — nothing to answer
-    };
-    let boards: BoardsResp = client
-        .get(format!("{api_url}/api/boards"))
-        .bearer_auth(&token)
-        .send()
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map_err(|e| e.to_string())?
-        .json()
-        .map_err(|e| e.to_string())?;
-    for b in boards.boards {
-        if !watched.iter().any(|id| id == &b.id) {
-            continue;
-        }
-        let mut resp: NotesResp = client
-            .get(format!("{api_url}/api/notes?board={}", b.id))
-            .bearer_auth(&token)
-            .send()
-            .map_err(|e| e.to_string())?
-            .error_for_status()
-            .map_err(|e| e.to_string())?
-            .json()
-            .map_err(|e| e.to_string())?;
-        resp.notes.retain(is_conversational);
-        resp.notes.sort_by_key(|n| n.t);
-        let last = match resp.notes.last() {
-            Some(n) => n,
-            None => continue,
-        };
-        if last.role.as_deref() == Some("assistant") {
-            continue; // already answered
-        }
-        if handled.get(&b.id) == Some(&last.t) {
-            continue; // claimed this turn already (reply may be in flight)
-        }
-        handled.insert(b.id.clone(), last.t);
-        let prompt = build_prompt(&b.name, &resp.notes);
-        let reply = run_claude(claude, &prompt)?;
-        if reply.is_empty() {
-            continue;
-        }
-        let body = serde_json::json!({
-            "boardId": b.id,
-            "x": last.x,
-            "y": last.y + 320.0,
-            "t": now_ms(),
-            "text": reply,
-            "role": "assistant",
-        });
-        client
-            .post(format!("{api_url}/api/notes"))
-            .bearer_auth(&token)
-            .json(&body)
-            .send()
-            .map_err(|e| e.to_string())?
-            .error_for_status()
-            .map_err(|e| e.to_string())?;
-        let _ = app.emit(AGENT_REPLIED_EVENT, b.id.clone());
-    }
-    Ok(())
-}
-
-fn agent_monitor(app: AppHandle, sessions: Arc<AgentSessions>) {
-    let client = match reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(600))
-        .build()
-    {
-        Ok(c) => c,
-        Err(_) => {
-            sessions.running.store(false, Ordering::SeqCst);
-            return;
-        }
-    };
-    let claude = resolve_claude();
-    let mut handled: HashMap<String, i64> = HashMap::new();
-    while sessions.running.load(Ordering::Relaxed) {
-        let api_url = sessions.api_url.lock().unwrap().clone();
-        let watched = sessions.boards.lock().unwrap().clone();
-        if !api_url.is_empty() && !watched.is_empty() {
-            if let Err(e) = agent_tick(&client, &api_url, &watched, &claude, &app, &mut handled) {
-                let _ = app.emit(AGENT_ERROR_EVENT, e);
-            }
-        }
-        // Sleep in slices so a stop is picked up quickly, not one poll later.
-        let mut slept = 0u64;
-        while slept < AGENT_POLL_MS && sessions.running.load(Ordering::Relaxed) {
-            thread::sleep(Duration::from_millis(200));
-            slept += 200;
-        }
-    }
-}
-
-#[tauri::command]
-fn agent_sessions_start(
-    app: AppHandle,
-    state: tauri::State<'_, Arc<AgentSessions>>,
-    url: String,
-    boards: Vec<String>,
-) {
-    *state.api_url.lock().unwrap() = url;
-    *state.boards.lock().unwrap() = boards;
-    // swap returns the prior value: only spawn a monitor if one wasn't running.
-    if !state.running.swap(true, Ordering::SeqCst) {
-        let sessions = state.inner().clone();
-        let handle = app.clone();
-        thread::spawn(move || agent_monitor(handle, sessions));
-    }
-}
-
-#[tauri::command]
-fn agent_sessions_stop(state: tauri::State<'_, Arc<AgentSessions>>) {
-    state.running.store(false, Ordering::SeqCst);
 }
 
 const TASK_UPDATED_EVENT: &str = "task://updated";
@@ -591,7 +397,6 @@ pub fn run() {
             let handle = app.handle().clone();
             thread::spawn(move || clipboard_monitor(handle, capture));
 
-            app.manage(Arc::new(AgentSessions::default()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -601,8 +406,6 @@ pub fn run() {
             start_oauth_listener,
             set_clipboard_capture,
             take_opened_files,
-            agent_sessions_start,
-            agent_sessions_stop,
             run_task,
         ])
         .build(tauri::generate_context!())

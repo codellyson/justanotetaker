@@ -708,39 +708,6 @@ body {
   opacity: 0.85;
 }
 
-/* Agent-authored notes (role=assistant) — an accent bar down the left edge and
-   a corner "agent" chip, so a session board reads as a conversation: your notes
-   vs. the agent's replies. */
-.note.role-assistant::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: rgb(var(--accent));
-  border-radius: var(--radius, 2px) 0 0 var(--radius, 2px);
-  z-index: 2;
-}
-.note-agent {
-  position: absolute;
-  top: 6px;
-  right: 7px;
-  z-index: 4;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 1.5px 6px 1.5px 5px;
-  border-radius: 100px;
-  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: rgb(var(--accent));
-  background: rgb(var(--accent) / 0.14);
-  pointer-events: none;
-}
-
 /* Relationship threads — custom RF edges between note centers. */
 .jn-flow .react-flow__edge {
   pointer-events: none;
@@ -765,13 +732,6 @@ body {
     stroke-dashoffset: 0;
     opacity: 0.5;
   }
-}
-/* The conversation spine is persistent, not a hover reveal — a calm dashed
-   tie from each answer back to its question. */
-.jn-flow .react-flow__edge .thread-reply {
-  stroke-dasharray: 3 6;
-  animation: none;
-  opacity: 0.4;
 }
 /* User-drawn relationships: persistent solid threads. Click selects (the fat
    invisible twin below is the hit area); Backspace deletes. */
@@ -2672,59 +2632,6 @@ body {
 .auth-dev-hint {
   font-size: 11px;
   color: rgb(var(--text-muted));
-}
-
-/* ── Composer ───────────────────────────────────────────────────── */
-/* Chat-style turn input, pinned bottom-center on conversation boards (any
-   board that already holds an agent reply). Sits just above the time scrub. */
-.composer {
-  bottom: 30px;
-  left: 50%;
-  transform: translateX(-50%);
-  pointer-events: auto;
-  display: flex;
-  align-items: flex-end;
-  gap: 6px;
-  width: min(620px, calc(100vw - 32px));
-  padding: 7px 7px 7px 14px;
-  border-radius: 16px;
-  background: rgb(var(--bg-secondary) / 0.92);
-  border: 1px solid rgb(var(--border));
-  backdrop-filter: blur(12px);
-  box-shadow: 0 16px 40px -14px rgb(0 0 0 / 0.45);
-}
-.composer-input {
-  flex: 1;
-  min-width: 0;
-  resize: none;
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: rgb(var(--text-primary));
-  font: inherit;
-  font-size: 14px;
-  line-height: 1.45;
-  padding: 6px 0;
-  max-height: 132px;
-}
-.composer-input::placeholder { color: rgb(var(--text-muted)); }
-.composer-send {
-  flex: none;
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 11px;
-  background: rgb(var(--accent));
-  color: rgb(var(--bg));
-  cursor: pointer;
-  transition: opacity 0.12s ease, transform 0.12s ease;
-}
-.composer-send:hover:not(:disabled) { transform: translateY(-1px); }
-.composer-send:disabled { opacity: 0.4; cursor: default; }
-@media (max-width: 640px) {
-  .composer { bottom: 14px; width: calc(100vw - 20px); }
 }
 
 /* ── Time scrub ─────────────────────────────────────────────────── */

@@ -37,7 +37,7 @@ export type NoteNodeData = {
 
 export type NoteFlowNode = Node<NoteNodeData>;
 export type ThreadEdgeData = {
-  kind: "relation" | "reply" | "link";
+  kind: "relation" | "link";
   // Set on user-drawn links: the persisted link id, and whether it's the
   // currently selected one (drawn hot, Backspace deletes it).
   linkId?: string;
@@ -166,10 +166,9 @@ export function applyNoteNodeChanges(
   }
 }
 
-// User-drawn links (always on), relation threads (tag-shared, shown for the
-// hovered / lone-selected note when relations are on), and the always-on reply
-// spine (each assistant note tied to its nearest preceding non-assistant
-// note). Geometry lives in ThreadEdge.
+// User-drawn links (always on) + relation threads (tag-shared, shown for the
+// hovered / lone-selected note when relations are on). Geometry lives in
+// ThreadEdge.
 export function buildThreadEdges(args: {
   notes: Note[];
   links: { id: string; a: string; b: string }[];
@@ -196,24 +195,6 @@ export function buildThreadEdges(args: {
     const e = mk(`link-${l.id}`, l.a, l.b, "link");
     e.data = { kind: "link", linkId: l.id, selected: l.id === selectedLinkId };
     out.push(e);
-  }
-
-  if (notes.some((n) => n.role === "assistant")) {
-    // The reply spine is a conversation view — frames/images/tasks aren't
-    // turns, so they neither anchor nor receive spine threads.
-    const ordered = notes
-      .filter((n) => n.kind === "card" || n.kind === "page")
-      .sort((a, b) => a.t - b.t);
-    for (let i = 0; i < ordered.length; i++) {
-      const ans = ordered[i];
-      if (ans.role !== "assistant") continue;
-      for (let j = i - 1; j >= 0; j--) {
-        if (ordered[j].role !== "assistant") {
-          out.push(mk(`reply-${ordered[j].id}-${ans.id}`, ordered[j].id, ans.id, "reply"));
-          break;
-        }
-      }
-    }
   }
 
   if (relationsOn) {

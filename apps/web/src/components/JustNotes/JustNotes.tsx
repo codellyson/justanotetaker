@@ -1032,30 +1032,6 @@ function JustNotesInner(props: JustNotesProps) {
   }
 
   // Mark/unmark the current board as a live agent session (desktop watcher).
-  function toggleLiveBoard() {
-    const cur = tweakRef.current.liveBoards ?? [];
-    const next = cur.includes(activeBoardId)
-      ? cur.filter((id) => id !== activeBoardId)
-      : [...cur, activeBoardId];
-    setTweak("liveBoards", next);
-  }
-
-  // Composer: drop your next turn as a user note below the thread, then fly to
-  // it. The Composer surfaces on boards that already hold an agent reply.
-  function sendComposerTurn(text: string) {
-    const t = text.trim();
-    if (!t) return;
-    markInteracted();
-    const last = notesRef.current.reduce<Note | null>((m, n) => (!m || n.t > m.t ? n : m), null);
-    const base = last
-      ? { x: last.x, y: last.y + 340 }
-      : screenToCanvas(window.innerWidth / 2, window.innerHeight / 2);
-    const id = spawnCommitted(base.x, base.y, t);
-    requestAnimationFrame(() => {
-      const n = notesRef.current.find((nn) => nn.id === id);
-      if (n) flyTo(n);
-    });
-  }
 
   // Consume a pending cross-board create once this board's canvas has mounted.
   const spawnHandledRef = useRef(false);
@@ -1845,40 +1821,6 @@ function JustNotesInner(props: JustNotesProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t.clipboardCapture]);
 
-  // Desktop agent sessions. The Rust watcher answers new turns on the boards the
-  // user marked live; keep it in sync with the persisted list. Empty → stop.
-  const liveBoards = t.liveBoards ?? [];
-  const liveKey = liveBoards.join(",");
-  useEffect(() => {
-    if (!isTauri) return;
-    void import("@tauri-apps/api/core").then(({ invoke }) => {
-      if (liveBoards.length === 0) {
-        void invoke("agent_sessions_stop");
-      } else {
-        void invoke("agent_sessions_start", { url: API_BASE_URL, boards: liveBoards });
-      }
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveKey]);
-
-  // When the watcher posts a reply, pull it onto the canvas at once (instead of
-  // waiting for the 20s background refresh) — but only if that board is on screen.
-  useEffect(() => {
-    if (!isTauri || !refresh) return;
-    let unlisten: (() => void) | null = null;
-    let cancelled = false;
-    (async () => {
-      const { listen } = await import("@tauri-apps/api/event");
-      if (cancelled) return;
-      unlisten = await listen<string>("agent-sessions://replied", async (e) => {
-        if (e.payload !== activeBoardId) return;
-        const server = await refresh();
-        if (!cancelled) mergeServer(server);
-      });
-    })();
-    return () => { cancelled = true; unlisten?.(); };
-  }, [refresh, activeBoardId, mergeServer]);
-
   // A local run_task job PATCHed a task card's status — pull the change in at
   // once (the 20s poll would eventually catch it, but the run is interactive).
   useEffect(() => {
@@ -1895,21 +1837,6 @@ function JustNotesInner(props: JustNotesProps) {
     })();
     return () => { cancelled = true; unlisten?.(); };
   }, [refresh, mergeServer]);
-
-  // Surface watcher failures (e.g. a wrong claude path, or claude erroring out).
-  useEffect(() => {
-    if (!isTauri) return;
-    let unlisten: (() => void) | null = null;
-    let cancelled = false;
-    (async () => {
-      const { listen } = await import("@tauri-apps/api/event");
-      if (cancelled) return;
-      unlisten = await listen<string>("agent-sessions://error", (e) => {
-        console.error("[agent-sessions]", e.payload);
-      });
-    })();
-    return () => { cancelled = true; unlisten?.(); };
-  }, []);
 
   // ── Render ─────────────────────────────────────────────────────────
   // Overview = zoomed way out, or entered via z (can settle at zoom≈1 for a
@@ -2068,8 +1995,6 @@ function JustNotesInner(props: JustNotesProps) {
         onOverview={() => { markInteracted(); toggleOverview(); }}
         relationsActive={relationsOn}
         onRelations={() => { markInteracted(); setRelationsOn((v) => !v); }}
-        agentSessionActive={liveBoards.includes(activeBoardId)}
-        onAgentSession={() => { markInteracted(); toggleLiveBoard(); }}
         onGraveyard={() => setGraveyardOpen(true)}
         onTweaks={() => setTweaksOpen(true)}
         onHelp={() => setHelpOpen(true)}
@@ -2111,10 +2036,6 @@ function JustNotesInner(props: JustNotesProps) {
         scrubMoment={scrubMoment}
         setScrubMoment={setScrubMoment}
       />
-
-      {notes.some((n) => n.role === "assistant") && !editingId && (
-        <Composer onSend={sendComposerTurn} />
-      )}
 
       {t.compass && <Compass notes={notes} view={view} flyHome={flyHome} />}
 
@@ -2253,7 +2174,6 @@ const TB_ICON = {
   tweaks: svg(<><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="2.2" /><circle cx="15" cy="17" r="2.2" /></>),
   help: svg(<><circle cx="12" cy="12" r="9" /><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.3c-.9.4-1.4 1-1.4 2" /><path d="M12 17h.01" /></>),
   account: svg(<><circle cx="12" cy="8.5" r="3.5" /><path d="M5.5 20a6.5 6.5 0 0 1 13 0" /></>),
-  agent: svg(<path d="M12 3l1.5 5.2L18.5 10l-5 1.8L12 17l-1.5-5.2L5.5 10l5-1.8z" />, true),
 };
 
 function TbBtn({ label, active, dot, onClick, children }: {
@@ -2281,8 +2201,6 @@ type ToolbarProps = {
   onOverview: () => void;
   relationsActive: boolean;
   onRelations: () => void;
-  agentSessionActive: boolean;
-  onAgentSession: () => void;
   onGraveyard: () => void;
   onTweaks: () => void;
   onHelp: () => void;
@@ -2301,13 +2219,6 @@ function Toolbar(p: ToolbarProps) {
       <TbBtn label="Search" onClick={p.onSearch}>{TB_ICON.search}</TbBtn>
       <TbBtn label="Overview" active={p.overviewActive} onClick={p.onOverview}>{TB_ICON.overview}</TbBtn>
       <TbBtn label="Relations" active={p.relationsActive} onClick={p.onRelations}>{TB_ICON.relations}</TbBtn>
-      <TbBtn
-        label={p.agentSessionActive ? "Live agent session · on (click to stop)" : "Make this a live agent session — the desktop app answers new turns"}
-        active={p.agentSessionActive}
-        onClick={p.onAgentSession}
-      >
-        {TB_ICON.agent}
-      </TbBtn>
       <TbBtn label="Recently deleted" onClick={p.onGraveyard}>{TB_ICON.graveyard}</TbBtn>
 
       <div className="tb-sep" aria-hidden="true" />
@@ -2333,62 +2244,6 @@ function Toolbar(p: ToolbarProps) {
 }
 
 // ── HelpOverlay ────────────────────────────────────────────────────────
-// A chat-style input pinned to the bottom of a conversation board. Enter sends
-// the turn (Shift+Enter for a newline); keys are stopped from reaching the
-// canvas shortcuts. Autogrows up to a few lines.
-function Composer({ onSend }: { onSend: (text: string) => void }) {
-  const [text, setText] = useState("");
-  const ref = useRef<HTMLTextAreaElement | null>(null);
-
-  function grow(el: HTMLTextAreaElement | null) {
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
-  }
-
-  function submit() {
-    const t = text.trim();
-    if (!t) return;
-    onSend(t);
-    setText("");
-    requestAnimationFrame(() => grow(ref.current));
-  }
-
-  return (
-    <div className="composer chrome">
-      <textarea
-        ref={ref}
-        className="composer-input"
-        value={text}
-        rows={1}
-        placeholder="message the agent…"
-        onChange={(e) => {
-          setText(e.target.value);
-          grow(e.target);
-        }}
-        onKeyDown={(e) => {
-          e.stopPropagation();
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            submit();
-          }
-        }}
-      />
-      <button
-        className="composer-send"
-        onClick={submit}
-        disabled={!text.trim()}
-        aria-label="send turn"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M7 11l5-5 5 5" />
-          <path d="M12 6v13" />
-        </svg>
-      </button>
-    </div>
-  );
-}
-
 function HelpOverlay({ onClose }: { onClose: () => void }) {
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
   const mod = isMac ? "⌘" : "Ctrl";

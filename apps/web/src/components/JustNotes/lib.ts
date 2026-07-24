@@ -176,9 +176,6 @@ export type Tweaks = {
   // Whether clipboard-captured notes sync to the cloud. When false they stay
   // on this device only (localStorage), never sent to the API.
   clipboardSyncToCloud: boolean;
-  // Board ids the user has marked as live agent sessions. Desktop only: the
-  // Tauri watcher answers new turns on these boards with the local claude CLI.
-  liveBoards: string[];
 };
 
 export const TWEAK_DEFAULTS: Tweaks = {
@@ -189,6 +186,5 @@ export const TWEAK_DEFAULTS: Tweaks = {
   compass: true,
   clipboardCapture: false,
   clipboardSyncToCloud: true,
-  liveBoards: [],
 };
 

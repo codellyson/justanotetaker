@@ -44,8 +44,8 @@ notes you type yourself, and is instantly full-text searchable.
 
 ## The tools
 
-The server exposes the full board/note lifecycle plus search and the
-conversation tools. An agent picks whichever it needs.
+The server exposes the full board/note lifecycle plus search and the agent
+task-card tools. An agent picks whichever it needs.
 
 ### `list_boards`
 Lists your canvases so the agent knows where notes can go. Returns each board's
@@ -152,49 +152,8 @@ Restart the agent, and it will discover the tools. Now just talk to it:
 |---|---|---|
 | `JUSTNOTE_TOKEN` | yes | — (your `jnt_…` token) |
 | `JUSTNOTE_API_URL` | no | `https://api.justanotetaker.kreativekorna.com` |
-| `JUSTNOTE_WATCH_INTERVAL` | no | `3000` (watch-mode poll, ms) |
-| `JUSTNOTE_WATCH_MODEL` | no | — (model for watch-mode replies) |
-| `JUSTNOTE_CLAUDE_BIN` | no | `claude` (CLI to drive in watch mode) |
 
 Point `JUSTNOTE_API_URL` at your own deployment if you self-host the API.
-
----
-
-## Live agent sessions (watch mode)
-
-The MCP tools are **pull-only** — the agent replies only when *you* prompt it,
-so a note you drop in the composer just sits there until something pokes the
-agent. Watch mode is that poke: it turns a board into a live back-and-forth.
-
-```sh
-# PowerShell (Windows: set JUSTNOTE_CLAUDE_BIN to the full claude.exe path —
-# the CLI isn't resolvable as a bare command outside PowerShell)
-$env:JUSTNOTE_TOKEN="jnt_…"; $env:JUSTNOTE_API_URL="http://localhost:8787"
-$env:JUSTNOTE_CLAUDE_BIN="$HOME\.local\bin\claude.exe"
-node packages/mcp-server/dist/index.js watch "Agent"
-```
-
-It polls the board; when your latest note is an unanswered turn, it runs your
-local `claude` CLI **headless** (`claude -p`) to write a reply and posts it back
-as an agent note. That means:
-
-- **No API key** — it uses your existing Claude Code sign-in, same as the CLI.
-- Replies land on the canvas on their own — type in the composer, the answer
-  appears below it a few seconds later.
-- `--strict-mcp-config` keeps that headless run from re-loading this MCP server,
-  so it just writes text; the watcher owns the posting.
-
-Leave it running in a terminal for as long as you want the board to be live;
-`Ctrl+C` stops it. Set `JUSTNOTE_WATCH_MODEL` to pin a specific model.
-
-### In the desktop app
-
-The desktop build manages this for you — no terminal. Open a board and hit the
-**agent-session** button in the toolbar to mark it live; the app runs the same
-watch loop in-process, reusing your signed-in session (no token to set) and your
-local `claude` install, and answers new turns on every board you've marked.
-Click again to stop. It looks for `claude` at the default install path, or set
-`JUSTNOTE_CLAUDE_BIN` if yours lives elsewhere.
 
 ---
 

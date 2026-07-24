@@ -49,7 +49,6 @@ function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
     selected ? "selected" : "",
     `kind-${note.kind}`,
     note.color ? "tinted" : "",
-    note.role === "assistant" ? "role-assistant" : "",
     isHeading && !editing ? "has-heading" : "",
   ].filter(Boolean).join(" ");
 
@@ -126,14 +125,6 @@ function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
               <rect x="8" y="2" width="8" height="4" rx="1" />
               <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
             </svg>
-          </div>
-        )}
-        {!editing && note.role === "assistant" && (
-          <div className="note-agent" title="agent reply" aria-label="agent reply">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 2l1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9z" />
-            </svg>
-            agent
           </div>
         )}
         {!editing && <div className="note-pad-cover" aria-hidden="true" />}
