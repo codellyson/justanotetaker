@@ -1556,12 +1556,13 @@ function JustNotesInner(props: JustNotesProps) {
       // shortcuts (z, /, ?, character→ambient) leak through.
       if (authPanelOpen) return;
 
-      // Focus/read mode owns the keyboard while open: step notes with
-      // j/k / arrows, edit the current one with Enter, everything else is
-      // swallowed so canvas shortcuts don't fire behind the reader.
+      // Focus/read mode owns the keyboard while open. Arrows / PageUp-Down /
+      // Space / Home / End SCROLL the note (the reader body isn't focusable, so
+      // scroll it by hand); j/k step to the prev/next note; Enter edits;
+      // everything else is swallowed so canvas shortcuts don't fire behind it.
       if (focusIdRef.current) {
-        if (e.key === "j" || e.key === "ArrowDown" || e.key === "ArrowRight") { e.preventDefault(); stepFocus(1); return; }
-        if (e.key === "k" || e.key === "ArrowUp" || e.key === "ArrowLeft") { e.preventDefault(); stepFocus(-1); return; }
+        if (e.key === "j") { e.preventDefault(); stepFocus(1); return; }
+        if (e.key === "k") { e.preventDefault(); stepFocus(-1); return; }
         if (e.key === "Enter") {
           e.preventDefault();
           const id = focusIdRef.current;
@@ -1569,6 +1570,16 @@ function JustNotesInner(props: JustNotesProps) {
           setFocusId(null);
           if (n && (n.kind === "card" || n.kind === "page")) { editClickRef.current = null; focusNoteForEdit(n); startEditingExisting(n.id); }
           return;
+        }
+        const body = document.querySelector<HTMLElement>(".reader-body");
+        if (body) {
+          const page = body.clientHeight * 0.9;
+          if (e.key === "ArrowDown") { e.preventDefault(); body.scrollTop += 60; return; }
+          if (e.key === "ArrowUp") { e.preventDefault(); body.scrollTop -= 60; return; }
+          if (e.key === "PageDown" || e.key === " ") { e.preventDefault(); body.scrollTop += page; return; }
+          if (e.key === "PageUp") { e.preventDefault(); body.scrollTop -= page; return; }
+          if (e.key === "Home") { e.preventDefault(); body.scrollTop = 0; return; }
+          if (e.key === "End") { e.preventDefault(); body.scrollTop = body.scrollHeight; return; }
         }
         return;
       }
@@ -2628,8 +2639,8 @@ function FocusReader({
             </div>
           )}
         </div>
-        <button type="button" className="reader-nav reader-prev" onClick={onPrev} aria-label="Previous note" title="Previous (↑/k)">‹</button>
-        <button type="button" className="reader-nav reader-next" onClick={onNext} aria-label="Next note" title="Next (↓/j)">›</button>
+        <button type="button" className="reader-nav reader-prev" onClick={onPrev} aria-label="Previous note" title="Previous note (k)">‹</button>
+        <button type="button" className="reader-nav reader-next" onClick={onNext} aria-label="Next note" title="Next note (j)">›</button>
         <div className="reader-hint" aria-hidden="true">{title}</div>
       </div>
     </div>
