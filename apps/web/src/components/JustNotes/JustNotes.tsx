@@ -18,6 +18,7 @@ import {
   parsePastedUrl,
   uid,
   firstNonEmpty,
+  restAfterFirst,
   resolveNoteColor,
   NOTE_COLOR_KEYS,
   NOTE_COLOR_MAP,
@@ -42,7 +43,7 @@ import {
   type NoteNodeHandlers,
 } from "./flow/useNoteGraph";
 import type { NotesByBoard } from "../../hooks/useAllNotes";
-import { renderBody, toggleTaskLine } from "./markdown";
+import { renderBody, renderHeadline, toggleTaskLine } from "./markdown";
 import { formatCapturedNote } from "./clipboard";
 import { clipboardOrigin } from "../../lib/clipboard-origin";
 import { AmbientBar, Compass, TimeScrub } from "./cherries";
@@ -2555,6 +2556,18 @@ function FocusReader({
   const editable = note.kind === "card" || note.kind === "page";
   const title = firstNonEmpty(note.text) || (note.kind === "image" ? "Image" : note.kind === "task" ? "Task" : "Untitled");
 
+  // Card/page content is rendered with the note's OWN markup + classes so the
+  // reader is pixel-identical to the canvas (same fonts, code chrome, colors),
+  // just scaled up for reading (CSS zoom on .reader-note). Mirrors NoteNode.
+  const first = firstNonEmpty(note.text);
+  const rest = restAfterFirst(note.text);
+  const headingMatch = first.trim().match(/^(#{1,6})\s+/);
+  const headingLevel = headingMatch ? Math.min(headingMatch[1].length, 3) : 0;
+  const startsWithBlock = /^\s*(`{3,}|>|[-*]\s+\[[ xX]\]|[-*]\s|\d+\.\s|!\[[^\]]*\]\(|(-{3,}|\*{3,})\s*$)/.test(first);
+  const bodyColor = col ? `rgb(${col.ink})` : "rgb(var(--text-secondary))";
+  const noteCls = `reader-note note kind-${note.kind}` + (col ? " tinted" : "");
+  const noteStyle: CSSProperties = col ? { ["--note-ink" as string]: col.ink } : {};
+
   const surface: CSSProperties = col
     ? { background: col.bg, color: `rgb(${col.ink})`, ["--note-ink" as string]: col.ink }
     : {};
@@ -2598,10 +2611,21 @@ function FocusReader({
             <>
               <div className="reader-task-status">{(meta as TaskMeta | null)?.status ?? "queued"}</div>
               {(meta as TaskMeta | null)?.prompt && <div className="reader-task-prompt">{(meta as TaskMeta).prompt}</div>}
-              {note.text && <div className="reader-prose">{renderBody(note.text)}</div>}
+              {note.text && <div className={noteCls} style={noteStyle}><div className="note-rest">{renderBody(note.text)}</div></div>}
             </>
+          ) : !note.text ? (
+            <div className="reader-empty">empty</div>
           ) : (
-            <div className="reader-prose">{note.text ? renderBody(note.text) : <span className="reader-empty">empty</span>}</div>
+            <div className={noteCls} style={noteStyle}>
+              {startsWithBlock ? (
+                <div className="note-rest" style={{ color: bodyColor }}>{renderBody(note.text)}</div>
+              ) : (
+                <>
+                  <div className={"note-first" + (headingLevel ? ` md-h md-h${headingLevel}` : "")}>{renderHeadline(first)}</div>
+                  {rest && <div className="note-rest" style={{ color: bodyColor }}>{renderBody(rest)}</div>}
+                </>
+              )}
+            </div>
           )}
         </div>
         <button type="button" className="reader-nav reader-prev" onClick={onPrev} aria-label="Previous note" title="Previous (↑/k)">‹</button>

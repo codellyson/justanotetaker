@@ -264,28 +264,57 @@ body {
   overflow-x: hidden;
   padding: 26px 40px 34px;
 }
-/* The reading surface itself: serif document type at a comfortable measure. */
-.reader-prose {
+/* The reading surface reuses the note's OWN markup + classes (.note.kind-*),
+   so fonts, colours, and code chrome match the canvas exactly — the canvas-only
+   card layout is stripped off and the text sized up for comfortable reading.
+   High-specificity (.reader-body .reader-note …) so it beats the .note and
+   .note.kind-page rules regardless of source order. */
+.reader-body .reader-note {
+  position: static;
+  width: 100%;
   max-width: 100%;
-  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
-  font-size: 16px;
+  max-height: none;
+  height: auto;
+  padding: 0;
+  margin: 0;
+  overflow: visible;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  cursor: auto;
+  transition: none;
+}
+.reader-body .reader-note:hover {
+  transform: none;
+  box-shadow: none;
+}
+/* The card clamps its first line to 3 lines; the reader shows all of it,
+   sized up. */
+.reader-body .reader-note .note-first {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+  font-size: 22px;
+  line-height: 1.3;
+  margin-bottom: 10px;
+}
+.reader-body .reader-note .note-rest {
+  margin-top: 0;
+  font-size: 15.5px;
   line-height: 1.62;
-  color: rgb(var(--note-ink, var(--text-primary)));
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
 }
-/* Code blocks keep their own monospace + chrome (from the broadened
-   .md-code rules); the serif prose font must not bleed into them, and a
-   long line scrolls within the block rather than widening the reader. */
-.reader-prose .md-code,
-.reader-prose .md-code pre,
-.reader-prose .md-code code {
-  font-family: var(--font-jn-mono), ui-monospace, monospace;
+.reader-body .reader-note .md-p,
+.reader-body .reader-note .md-li {
+  font-size: 15.5px;
+  line-height: 1.62;
 }
-.reader-prose .md-code {
-  font-size: 13px;
+.reader-body .reader-note .md-code {
   max-width: 100%;
+  font-size: 13px;
 }
+.reader-body .reader-note .md-h1 { font-size: 24px; }
+.reader-body .reader-note .md-h2 { font-size: 20px; }
+.reader-body .reader-note .md-h3 { font-size: 17px; }
 /* Slim themed vertical scrollbar on the reader body — no chunky native bar. */
 .reader-body {
   scrollbar-width: thin;
