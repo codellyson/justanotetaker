@@ -371,31 +371,6 @@ export function TweaksUI({
         onChange={(v) => setTweak("grid", v)}
       />
       <TweakToggle label="Snap to grid" value={t.snap} onChange={(v) => setTweak("snap", v)} />
-
-      <TweakSection label="Paper" />
-      {/* Tone + Body removed in the v2 design — color comes from the
-          active JustUI theme (palette swatch in the bottom-right) and
-          all body text is Geist. */}
-      <TweakSlider
-        label="Corner"
-        value={t.radius}
-        min={0}
-        max={14}
-        step={1}
-        unit="px"
-        onChange={(v) => setTweak("radius", v)}
-      />
-      <TweakSlider
-        label="Width"
-        value={t.noteWidth}
-        min={160}
-        max={320}
-        step={4}
-        unit="px"
-        onChange={(v) => setTweak("noteWidth", v)}
-      />
-
-      <TweakSection label="Feedback" />
       <TweakToggle label="Compass" value={t.compass} onChange={(v) => setTweak("compass", v)} />
 
       {isTauri && (

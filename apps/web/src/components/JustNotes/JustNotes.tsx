@@ -243,6 +243,8 @@ function JustNotesInner(props: JustNotesProps) {
   const [graveyardOpen, setGraveyardOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number; cx: number; cy: number } | null>(null);
+  // Right-click on app chrome (sidebar bg, toolbar, backdrop) — misc actions.
+  const [globalMenu, setGlobalMenu] = useState<{ x: number; y: number } | null>(null);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const selectedIdsRef = useRef<Set<string>>(new Set());
@@ -1498,6 +1500,7 @@ function JustNotesInner(props: JustNotesProps) {
         if (focusIdRef.current) setFocusId(null);
         else if (contextMenu) setContextMenu(null);
         else if (canvasMenu) setCanvasMenu(null);
+        else if (globalMenu) setGlobalMenu(null);
         else if (selectedLinkRef.current) setSelectedLinkId(null);
         else if (selectedIdsRef.current.size > 0) setSelectedIds(new Set());
         else if (graveyardOpen) setGraveyardOpen(false);
@@ -1653,7 +1656,7 @@ function JustNotesInner(props: JustNotesProps) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingId, ambientOpen, helpOpen, tweaksOpen, authPanelOpen, graveyardOpen, contextMenu, canvasMenu, recallQuery, recallIdx, matchIds]);
+  }, [editingId, ambientOpen, helpOpen, tweaksOpen, authPanelOpen, graveyardOpen, contextMenu, canvasMenu, globalMenu, recallQuery, recallIdx, matchIds]);
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -1661,6 +1664,26 @@ function JustNotesInner(props: JustNotesProps) {
     };
     window.addEventListener("mousemove", onMove, { passive: true });
     return () => window.removeEventListener("mousemove", onMove);
+  }, []);
+
+  // Right-click anywhere on the app chrome — sidebar background, toolbar,
+  // reader backdrop — opens a global misc menu (and suppresses the browser's
+  // native menu; this is a canvas surface, not a document). The canvas pane and
+  // notes stopPropagation in their own handlers, so those never reach here —
+  // they keep their spatial / note menus. Editors and tree rows opt out (native
+  // paste; the tree wires its own note menu).
+  useEffect(() => {
+    const onCtx = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest('input, textarea, [contenteditable="true"], .cm-editor')) return;
+      e.preventDefault();
+      if (t?.closest(".note-ctx, .ft-note")) return; // inside a menu, or a tree note (its own menu)
+      setContextMenu(null);
+      setCanvasMenu(null);
+      setGlobalMenu({ x: e.clientX, y: e.clientY });
+    };
+    window.addEventListener("contextmenu", onCtx);
+    return () => window.removeEventListener("contextmenu", onCtx);
   }, []);
 
   // Desktop: files opened via the OS ("Open with" / double-click a .md/.txt)
@@ -1922,6 +1945,16 @@ function JustNotesInner(props: JustNotesProps) {
         notesByBoard={notesByBoard}
         selectedIds={selectedIds}
         onSelectNote={selectTreeNote}
+        onNoteContextMenu={(boardId, noteId, mx, my) => {
+          // The note menu reads the live `notes` state, which only holds the
+          // active board. For another board, jump there first (it selects the
+          // note); the user can right-click again once it's live.
+          if (boardId !== activeBoardId) { onBoardJump(boardId, noteId); return; }
+          setGlobalMenu(null);
+          setCanvasMenu(null);
+          setSelectedIds(new Set([noteId]));
+          setContextMenu({ id: noteId, x: mx, y: my });
+        }}
         onCreateNote={createTreeNote}
         onSwitchBoard={onSwitchBoard}
         onCreateBoard={onCreateBoard}
@@ -2090,6 +2123,30 @@ function JustNotesInner(props: JustNotesProps) {
           onFit={() => { fitToScreen(); setCanvasMenu(null); }}
         />
       )}
+
+      {globalMenu && (() => {
+        const close = () => setGlobalMenu(null);
+        const run = (fn: () => void) => { close(); markInteracted(); fn(); };
+        return (
+          <GlobalContextMenu
+            x={globalMenu.x}
+            y={globalMenu.y}
+            hasNotes={notes.length > 0}
+            relationsOn={relationsOn}
+            isAnonymous={isAnonymous}
+            onClose={close}
+            onNewNote={() => run(() => spawnAtCenter(""))}
+            onSearch={() => run(() => openAmbient(""))}
+            onOverview={() => run(() => toggleOverview())}
+            onRelations={() => run(() => setRelationsOn((v) => { if (v) setHoveredId(null); return !v; }))}
+            onFit={() => run(() => fitToScreen())}
+            onGraveyard={() => run(() => setGraveyardOpen(true))}
+            onTweaks={() => run(() => setTweaksOpen(true))}
+            onHelp={() => run(() => setHelpOpen(true))}
+            onAccount={() => run(() => (isAnonymous ? setAuthPanelOpen(true) : setAuthPanelOpen(true)))}
+          />
+        );
+      })()}
 
       <Graveyard
         open={graveyardOpen}
@@ -2486,6 +2543,64 @@ function CanvasContextMenu({
       <button className="note-ctx-item" onClick={onOpenFile}>open file…</button>
       <button className="note-ctx-item" onClick={onSelectAll} disabled={!hasNotes}>select all</button>
       <button className="note-ctx-item" onClick={onFit} disabled={!hasNotes}>fit to screen</button>
+    </div>
+  );
+}
+
+// Dismiss-on-outside-click hook shared by the menus.
+function useMenuDismiss(onClose: () => void) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const onDocDown = (e: Event) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
+    };
+    const id = setTimeout(() => {
+      window.addEventListener("pointerdown", onDocDown);
+      window.addEventListener("contextmenu", onDocDown);
+    }, 0);
+    return () => {
+      clearTimeout(id);
+      window.removeEventListener("pointerdown", onDocDown);
+      window.removeEventListener("contextmenu", onDocDown);
+    };
+  }, [onClose]);
+  return menuRef;
+}
+
+// Right-click anywhere on the app chrome: app-wide misc actions (mirrors the
+// toolbar + ⌘K palette, reachable from wherever the cursor is).
+function GlobalContextMenu({
+  x, y, hasNotes, relationsOn, isAnonymous,
+  onClose, onNewNote, onSearch, onOverview, onRelations, onFit, onGraveyard, onTweaks, onHelp, onAccount,
+}: {
+  x: number; y: number; hasNotes: boolean; relationsOn: boolean; isAnonymous: boolean;
+  onClose: () => void;
+  onNewNote: () => void; onSearch: () => void; onOverview: () => void; onRelations: () => void;
+  onFit: () => void; onGraveyard: () => void; onTweaks: () => void; onHelp: () => void; onAccount: () => void;
+}) {
+  const menuRef = useMenuDismiss(onClose);
+  const W = 200, H = 344;
+  const left = Math.min(x, window.innerWidth - W - 8);
+  const top = Math.min(y, window.innerHeight - H - 8);
+  const item = (label: string, onClick: () => void, hint?: string, disabled?: boolean) => (
+    <button className="note-ctx-item" onClick={onClick} disabled={disabled}>
+      {label}{hint && <span className="note-ctx-hint">{hint}</span>}
+    </button>
+  );
+  return (
+    <div ref={menuRef} className="note-ctx" style={{ left, top }} onMouseDown={(e) => e.stopPropagation()}>
+      {item("New note", onNewNote)}
+      {item("Search", onSearch, "⌘K")}
+      <div className="note-ctx-sep" aria-hidden="true" />
+      {item("Overview", onOverview, "z", !hasNotes)}
+      {item(relationsOn ? "Hide relations" : "Show relations", onRelations, "r")}
+      {item("Fit to screen", onFit, undefined, !hasNotes)}
+      <div className="note-ctx-sep" aria-hidden="true" />
+      {item("Recently deleted", onGraveyard)}
+      {item("Settings", onTweaks, "⌘,")}
+      {item("Help", onHelp, "?")}
+      <div className="note-ctx-sep" aria-hidden="true" />
+      {item(isAnonymous ? "Sign in" : "Account", onAccount)}
     </div>
   );
 }

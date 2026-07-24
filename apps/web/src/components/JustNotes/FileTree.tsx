@@ -42,6 +42,7 @@ export function FileTree({
   notesByBoard,
   selectedIds,
   onSelectNote,
+  onNoteContextMenu,
   onCreateNote,
   onSwitchBoard,
   onCreateBoard,
@@ -54,6 +55,7 @@ export function FileTree({
   notesByBoard: NotesByBoard;
   selectedIds: Set<string>;
   onSelectNote: (boardId: string, noteId: string) => void;
+  onNoteContextMenu?: (boardId: string, noteId: string, x: number, y: number) => void;
   onCreateNote: (boardId: string) => void;
   onSwitchBoard: (id: string) => void;
   onCreateBoard: () => void;
@@ -269,6 +271,11 @@ export function FileTree({
                           type="button"
                           className={"ft-note" + (selectedIds.has(e.id) ? " selected" : "")}
                           onClick={() => onSelectNote(b.id, e.id)}
+                          onContextMenu={(ev) => {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            onNoteContextMenu?.(b.id, e.id, ev.clientX, ev.clientY);
+                          }}
                           title={e.title}
                         >
                           {e.title}
