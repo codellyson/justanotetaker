@@ -114,6 +114,36 @@ export function useBoards() {
     [boards, activeBoardId, setActiveBoard],
   );
 
+  // Copy a board and everything on it — notes (with remapped parent links) and
+  // threads — into a new "… copy", then switch to it.
+  const duplicateBoard = useCallback(
+    async (id: string) => {
+      const src = boards.find((b) => b.id === id);
+      try {
+        const board = await remoteStorage.createBoard({ name: `${src?.name ?? "Canvas"} copy` });
+        const [notes, links] = await Promise.all([remoteStorage.list(id), remoteStorage.listLinks(id)]);
+        const newId = () => Math.random().toString(36).slice(2, 10);
+        const idMap = new Map(notes.map((n) => [n.id, newId()]));
+        for (const n of notes) {
+          await remoteStorage.create({
+            id: idMap.get(n.id), boardId: board.id,
+            x: n.x, y: n.y, w: n.w, h: n.h, t: n.t, text: n.text, kind: n.kind, color: n.color,
+            parentId: n.parentId ? idMap.get(n.parentId) ?? null : null, meta: n.meta,
+          });
+        }
+        for (const l of links) {
+          const a = idMap.get(l.a), b = idMap.get(l.b);
+          if (a && b) await remoteStorage.createLink({ boardId: board.id, aId: a < b ? a : b, bId: a < b ? b : a });
+        }
+        setBoards((prev) => [...prev, board].sort(bySort));
+        setActiveBoard(board.id);
+      } catch (err) {
+        console.error("[useBoards] duplicate failed", err);
+      }
+    },
+    [boards, setActiveBoard],
+  );
+
   const activeBoard = boards.find((b) => b.id === activeBoardId) ?? null;
 
   return {
@@ -124,6 +154,7 @@ export function useBoards() {
     createBoard,
     renameBoard,
     deleteBoard,
+    duplicateBoard,
     setActiveBoard,
   };
 }

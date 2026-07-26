@@ -1116,15 +1116,18 @@ body {
   display: block;
   -webkit-line-clamp: unset;
 }
-/* Document feel: serif face + a little extra leading, at the reading size. */
-.note.kind-page .note-first,
-.note.kind-page .note-rest,
-.note.kind-page .note-cm .cm-scroller,
-.note.kind-page .md-p,
-.note.kind-page .md-li {
-  font-family:
-    "Iowan Old Style", "Palatino Linotype", Palatino, Georgia,
-    "Times New Roman", serif;
+/* Note body typeface — the app font by default; a user can swap it in Tweaks
+   (drives --note-font). Nothing is forced onto notes. */
+.note .note-first,
+.note .note-rest,
+.note .note-cm .cm-scroller,
+.note .md-p,
+.note .md-li,
+.reader-note .note-first,
+.reader-note .note-rest,
+.reader-note .md-p,
+.reader-note .md-li {
+  font-family: var(--note-font, var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif);
 }
 .note.kind-page .note-rest,
 .note.kind-page .note-cm .cm-scroller {
@@ -1667,7 +1670,10 @@ body {
    keeps its space whether the count or the icons are showing). */
 .ft-row-tail {
   flex: none;
-  width: 67px;
+  /* Sizes to its contents — a small count at rest, the full action row on hover
+     (five icons) — so nothing gets clipped. */
+  width: auto;
+  min-width: 24px;
   height: 21px;
   display: flex;
   align-items: center;

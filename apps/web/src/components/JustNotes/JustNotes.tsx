@@ -97,6 +97,7 @@ export type JustNotesProps = Persist & {
   onCreateBoard: () => void;
   onRenameBoard: (id: string, name: string) => void;
   onDeleteBoard: (id: string) => void;
+  onDuplicateBoard: (id: string) => void;
 };
 
 type View = { pan: { x: number; y: number }; zoom: number };
@@ -128,7 +129,7 @@ export default function JustNotes(props: JustNotesProps) {
 }
 
 function JustNotesInner(props: JustNotesProps) {
-  const { initialNotes, tweaks: t, setTweak, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete, refresh, boards, activeBoardId, notesByBoard, onBoardJump, focusNoteId, onFocusConsumed, onBoardCreate, spawnRequested, onSpawnConsumed, onSwitchBoard, onCreateBoard, onRenameBoard, onDeleteBoard } = props;
+  const { initialNotes, tweaks: t, setTweak, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete, refresh, boards, activeBoardId, notesByBoard, onBoardJump, focusNoteId, onFocusConsumed, onBoardCreate, spawnRequested, onSpawnConsumed, onSwitchBoard, onCreateBoard, onRenameBoard, onDeleteBoard, onDuplicateBoard } = props;
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [tokensOpen, setTokensOpen] = useState(false);
 
@@ -179,6 +180,14 @@ function JustNotesInner(props: JustNotesProps) {
       return changed ? [...merged, ...additions] : prev;
     });
   }, []);
+
+  // Refresh a board on demand from the tree. The active board re-pulls from the
+  // server (agent writes, other devices); a different board just switches to it,
+  // which reloads it fresh.
+  const refreshBoard = useCallback((id: string) => {
+    if (id !== activeBoardId) { onSwitchBoard(id); return; }
+    if (refresh) void refresh().then((server) => mergeServer(server));
+  }, [activeBoardId, onSwitchBoard, refresh, mergeServer]);
 
   // Pull in notes created out-of-band — another device, or an agent piping via
   // the MCP server. The app has no realtime channel, so we poll gently while
@@ -592,6 +601,46 @@ function JustNotesInner(props: JustNotesProps) {
     return id;
   }
 
+  // Copy/paste/duplicate whole notes. A device-local clipboard holds the copied
+  // notes (with kind/color/meta); the system clipboard gets their text too, so a
+  // copied note can also be pasted into another app.
+  const noteClipboardRef = useRef<Note[]>([]);
+
+  function copyNotes(ids: string[]) {
+    const src = notesRef.current.filter((n) => ids.includes(n.id));
+    if (!src.length) return;
+    noteClipboardRef.current = src.map((n) => ({ ...n }));
+    const text = src.map((n) => n.text).filter(Boolean).join("\n\n");
+    if (text) void navigator.clipboard?.writeText(text).catch(() => {});
+    markInteracted();
+  }
+
+  // Create copies of the given notes, offset from a base. Preserves kind, color,
+  // and meta; frame membership is dropped so copies land free (not swallowed).
+  function placeNoteCopies(src: Note[], dx: number, dy: number) {
+    if (!src.length) return;
+    const now = Date.now();
+    const copies: Note[] = src.map((n) => ({ ...n, id: uid(), x: n.x + dx, y: n.y + dy, t: now, parentId: null }));
+    setNotes((ns) => [...ns, ...copies]);
+    for (const c of copies) { pushOp({ type: "create", id: c.id }); void onCreate(c); }
+    setSelectedIds(new Set(copies.map((c) => c.id)));
+    markInteracted();
+  }
+
+  function duplicateNotes(ids: string[]) {
+    placeNoteCopies(notesRef.current.filter((n) => ids.includes(n.id)), 26, 26);
+  }
+
+  // Paste copied notes centered on a canvas point (keeps their relative layout).
+  function pasteNotesAt(cx: number, cy: number) {
+    const src = noteClipboardRef.current;
+    if (!src.length) return false;
+    let minX = Infinity, minY = Infinity;
+    for (const n of src) { minX = Math.min(minX, n.x); minY = Math.min(minY, n.y); }
+    placeNoteCopies(src, Math.round(cx - minX - 120), Math.round(cy - minY - 40));
+    return true;
+  }
+
   // Paste/drop an image file: optimistic placeholder card immediately, then
   // the upload fills in meta and the note persists. Display size caps at
   // 360px wide; natural dimensions live in meta.
@@ -639,7 +688,13 @@ function JustNotesInner(props: JustNotesProps) {
     try {
       text = (await navigator.clipboard.readText()).trim();
     } catch {
-      return; // clipboard blocked or empty — nothing to paste
+      text = ""; // clipboard blocked — may still have internally-copied notes
+    }
+    // Prefer full copies of our own notes over a plain-text re-creation.
+    const internal = noteClipboardRef.current;
+    if (internal.length && (!text || text === internal.map((n) => n.text).filter(Boolean).join("\n\n").trim())) {
+      pasteNotesAt(cx, cy);
+      return;
     }
     if (!text) return;
     markInteracted();
@@ -2039,6 +2094,19 @@ function JustNotesInner(props: JustNotesProps) {
         return;
       }
 
+      // ⌘C / ⌘D — copy / duplicate the selected notes. Gated on !editing so the
+      // editor keeps native text copy; ⌘V paste is handled by the paste listener.
+      if (!isInput && !editingId && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c" && selectedIdsRef.current.size > 0) {
+        e.preventDefault();
+        copyNotes([...selectedIdsRef.current]);
+        return;
+      }
+      if (!isInput && !editingId && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "d" && selectedIdsRef.current.size > 0) {
+        e.preventDefault();
+        duplicateNotes([...selectedIdsRef.current]);
+        return;
+      }
+
       // ⌘, — toggle tweaks panel
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault();
@@ -2227,6 +2295,14 @@ function JustNotesInner(props: JustNotesProps) {
       const sy = lastMouseRef.current?.y ?? window.innerHeight / 2;
       const c = screenToCanvas(sx, sy);
 
+      // If the clipboard text is exactly what we last copied from notes, paste
+      // the full copies (kind/color/meta), not a plain-text re-creation.
+      const internal = noteClipboardRef.current;
+      if (internal.length && text === internal.map((n) => n.text).filter(Boolean).join("\n\n").trim()) {
+        pasteNotesAt(c.x, c.y);
+        return;
+      }
+
       const url = parsePastedUrl(text);
       spawnCommitted(c.x, c.y, url ?? text);
     };
@@ -2375,9 +2451,15 @@ function JustNotesInner(props: JustNotesProps) {
     [notes, links, selectedLinkId, relationsOn, hoveredId, selectedIds],
   );
 
+  const NOTE_FONTS: Record<Tweaks["noteFont"], string> = {
+    sans: "var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif",
+    serif: '"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif',
+    mono: "var(--font-jn-mono), ui-monospace, monospace",
+  };
   const rootStyle: CSSProperties = {
     ["--radius" as string]: `${t.radius}px`,
     ["--note-w" as string]: `${t.noteWidth}px`,
+    ["--note-font" as string]: NOTE_FONTS[t.noteFont ?? "sans"],
   };
 
   return (
@@ -2406,6 +2488,8 @@ function JustNotesInner(props: JustNotesProps) {
         onCreateBoard={onCreateBoard}
         onRenameBoard={onRenameBoard}
         onDeleteBoard={onDeleteBoard}
+        onDuplicateBoard={onDuplicateBoard}
+        onRefreshBoard={refreshBoard}
       />
 
       <div
@@ -2547,6 +2631,8 @@ function JustNotesInner(props: JustNotesProps) {
               setContextMenu(null);
               setFollowUp({ ids: askIds, label });
             }}
+            onDuplicate={() => { setContextMenu(null); duplicateNotes(askIds); }}
+            onCopy={() => { setContextMenu(null); copyNotes(askIds); }}
             onSetColor={(c) => setNoteColor(contextMenu.id, c)}
             onClose={() => setContextMenu(null)}
             onToggleLayout={n?.kind === "frame" ? () => {
@@ -2596,6 +2682,8 @@ function JustNotesInner(props: JustNotesProps) {
           onOpenFile={() => { openFilesAt(canvasMenu.cx, canvasMenu.cy); setCanvasMenu(null); }}
           onSelectAll={() => { setSelectedIds(new Set(notesRef.current.map((n) => n.id))); setCanvasMenu(null); }}
           onFit={() => { fitToScreen(); setCanvasMenu(null); }}
+          onRefreshBoard={() => { refreshBoard(activeBoardId); setCanvasMenu(null); }}
+          onDuplicateBoard={() => { onDuplicateBoard(activeBoardId); setCanvasMenu(null); }}
         />
       )}
 
@@ -2840,7 +2928,7 @@ function FollowUpBar({ label, onSubmit, onCancel }: { label: string; onSubmit: (
 }
 
 function NoteContextMenu({
-  x, y, kind, color, frameLayout, askLabel, onAsk, onFollowUp, onSetColor, onClose, onDelete, onDeleteContents, onRead, onToggleLayout,
+  x, y, kind, color, frameLayout, askLabel, onAsk, onFollowUp, onDuplicate, onCopy, onSetColor, onClose, onDelete, onDeleteContents, onRead, onToggleLayout,
 }: {
   x: number; y: number;
   kind: NoteKind; color: string | null;
@@ -2851,6 +2939,8 @@ function NoteContextMenu({
   onAsk?: () => void;
   // Ask a typed question anchored here (a follow-up along the thread).
   onFollowUp?: () => void;
+  onDuplicate?: () => void;
+  onCopy?: () => void;
   onSetColor: (c: string | null) => void;
   onClose: () => void; onDelete: () => void;
   // Open in the reader (non-frames).
@@ -2917,6 +3007,18 @@ function NoteContextMenu({
           <span className="note-ctx-hint">↵</span>
         </button>
       )}
+      {onCopy && (
+        <button className="note-ctx-item" onClick={onCopy}>
+          copy
+          <span className="note-ctx-hint">⌘C</span>
+        </button>
+      )}
+      {onDuplicate && (
+        <button className="note-ctx-item" onClick={onDuplicate}>
+          duplicate
+          <span className="note-ctx-hint">⌘D</span>
+        </button>
+      )}
       {onAsk && askLabel && (
         <button className="note-ctx-item" onClick={onAsk}>
           {askLabel}
@@ -2947,7 +3049,7 @@ function NoteContextMenu({
 }
 
 function CanvasContextMenu({
-  x, y, hasNotes, onClose, onNew, onKanban, onTable, onEmbed, onPaste, onOpenFile, onSelectAll, onFit,
+  x, y, hasNotes, onClose, onNew, onKanban, onTable, onEmbed, onPaste, onOpenFile, onSelectAll, onFit, onRefreshBoard, onDuplicateBoard,
 }: {
   x: number; y: number; hasNotes: boolean;
   onClose: () => void;
@@ -2959,6 +3061,8 @@ function CanvasContextMenu({
   onOpenFile: () => void;
   onSelectAll: () => void;
   onFit: () => void;
+  onRefreshBoard: () => void;
+  onDuplicateBoard: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -2981,7 +3085,7 @@ function CanvasContextMenu({
     };
   }, [onClose]);
 
-  const W = 184, H = 256;
+  const W = 184, H = 320;
   const left = Math.min(x, window.innerWidth - W - 8);
   const top = Math.min(y, window.innerHeight - H - 8);
 
@@ -3008,6 +3112,9 @@ function CanvasContextMenu({
       <button className="note-ctx-item" onClick={onOpenFile}>open file…</button>
       <button className="note-ctx-item" onClick={onSelectAll} disabled={!hasNotes}>select all</button>
       <button className="note-ctx-item" onClick={onFit} disabled={!hasNotes}>fit to screen</button>
+      <div className="note-ctx-sep" aria-hidden="true" />
+      <button className="note-ctx-item" onClick={onRefreshBoard}>refresh board</button>
+      <button className="note-ctx-item" onClick={onDuplicateBoard}>duplicate board</button>
     </div>
   );
 }

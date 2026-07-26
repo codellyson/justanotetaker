@@ -373,6 +373,14 @@ export function TweaksUI({
       <TweakToggle label="Snap to grid" value={t.snap} onChange={(v) => setTweak("snap", v)} />
       <TweakToggle label="Compass" value={t.compass} onChange={(v) => setTweak("compass", v)} />
 
+      <TweakSection label="Notes" />
+      <TweakRadio
+        label="Font"
+        value={t.noteFont ?? "sans"}
+        options={["sans", "serif", "mono"] as const}
+        onChange={(v) => setTweak("noteFont", v)}
+      />
+
       {isTauri && (
         <>
           <TweakSection label="Clipboard" />

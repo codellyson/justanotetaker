@@ -232,6 +232,9 @@ export type Tweaks = {
   noteWidth: number;
   snap: boolean;
   compass: boolean;
+  // Note body typeface. "sans" = the app font (default); a user can pick a
+  // different one, but nothing is forced.
+  noteFont: "sans" | "serif" | "mono";
   // Desktop only: poll the OS clipboard and auto-create notes from new copies.
   clipboardCapture: boolean;
   // Whether clipboard-captured notes sync to the cloud. When false they stay
@@ -245,6 +248,7 @@ export const TWEAK_DEFAULTS: Tweaks = {
   noteWidth: 220,
   snap: true,
   compass: true,
+  noteFont: "sans",
   clipboardCapture: false,
   clipboardSyncToCloud: true,
 };

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Board, Note } from "./lib";
 import { firstNonEmpty } from "./lib";
 import type { NotesByBoard } from "../../hooks/useAllNotes";
@@ -48,6 +48,8 @@ export function FileTree({
   onCreateBoard,
   onRenameBoard,
   onDeleteBoard,
+  onDuplicateBoard,
+  onRefreshBoard,
 }: {
   boards: Board[];
   activeBoardId: string;
@@ -61,12 +63,23 @@ export function FileTree({
   onCreateBoard: () => void;
   onRenameBoard: (id: string, name: string) => void;
   onDeleteBoard: (id: string) => void;
+  onDuplicateBoard: (id: string) => void;
+  onRefreshBoard: (id: string) => void;
 }) {
   // The active board starts open; others collapsed. Toggling is per-session.
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([activeBoardId]));
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // Right-click a board → its actions as a menu (the same set as the hover icons).
+  const [boardMenu, setBoardMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!boardMenu) return;
+    const close = () => setBoardMenu(null);
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("blur", close);
+    return () => { window.removeEventListener("pointerdown", close); window.removeEventListener("blur", close); };
+  }, [boardMenu]);
 
   // Collapsed to a slim rail by default; peeks open on hover, and the toggle
   // pins it open. Pin state persists so a board switch (which remounts this
@@ -194,6 +207,10 @@ export function FileTree({
                       setExpanded((prev) => new Set(prev).add(b.id));
                       onSwitchBoard(b.id);
                     }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setBoardMenu({ id: b.id, x: e.clientX, y: e.clientY });
+                    }}
                   >
                     {b.name}
                   </button>
@@ -290,6 +307,34 @@ export function FileTree({
         })}
       </div>
       </div>
+
+      {boardMenu && (() => {
+        const b = boards.find((x) => x.id === boardMenu.id);
+        if (!b) return null;
+        const item = (label: string, fn: () => void, danger = false) => (
+          <button
+            type="button"
+            className={"note-ctx-item" + (danger ? " danger" : "")}
+            onClick={() => { setBoardMenu(null); fn(); }}
+          >
+            {label}
+          </button>
+        );
+        return (
+          <div
+            className="note-ctx"
+            style={{ left: Math.min(boardMenu.x, window.innerWidth - 192), top: Math.min(boardMenu.y, window.innerHeight - 200) }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="note-ctx-label">{b.name}</div>
+            {item("new note", () => { setExpanded((prev) => new Set(prev).add(b.id)); onCreateNote(b.id); })}
+            {item("refresh", () => onRefreshBoard(b.id))}
+            {item("duplicate", () => onDuplicateBoard(b.id))}
+            {item("rename", () => startRename(b))}
+            {boards.length > 1 && item("delete", () => { setRenameId(null); setConfirmDeleteId(b.id); }, true)}
+          </div>
+        );
+      })()}
     </nav>
   );
 }
@@ -320,6 +365,18 @@ const ICON = {
   trash: (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+    </svg>
+  ),
+  duplicate: (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="9" y="9" width="12" height="12" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  ),
+  refresh: (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <path d="M21 3v6h-6" />
     </svg>
   ),
 };

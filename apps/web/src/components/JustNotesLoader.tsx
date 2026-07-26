@@ -101,6 +101,7 @@ function Canvas({ boards, settings, allNotes }: {
       onCreateBoard={() => void boards.createBoard()}
       onRenameBoard={boards.renameBoard}
       onDeleteBoard={boards.deleteBoard}
+      onDuplicateBoard={boards.duplicateBoard}
     />
   );
 }
