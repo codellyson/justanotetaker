@@ -55,6 +55,7 @@ import { TweaksUI } from "./tweaks";
 import { remoteStorage, uploadMedia, type NoteLink } from "../../lib/storage";
 import { authClient, clearKeychainToken } from "../../lib/auth-client";
 import { API_BASE_URL, isTauri } from "../../lib/runtime";
+import { hasAiKey, runAiPrompt } from "../../lib/ai";
 import { AuthPanel } from "../AuthPanel";
 import { ApiTokensPanel } from "./api-tokens";
 import { filterCommands, type Command } from "../../lib/commands";
@@ -1167,10 +1168,44 @@ function JustNotesInner(props: JustNotesProps) {
     pushOp({ type: "create", id });
     setSelectedIds(new Set([id]));
     markInteracted();
-    // Wait for the create to persist before the desktop runner GETs the card.
+    // Wait for the create to persist, then run it: desktop drives the local
+    // claude CLI; web runs the user's own key browser-direct (BYOK).
     void Promise.resolve(onCreate(note)).then(() => {
       if (isTauri) runTaskCard(id);
+      else void runWebAsk(id);
     });
+  }
+
+  // Web runner for a task card: answer it with the user's own AI key
+  // (browser-direct), then resolve the task into a page (every note is a page).
+  // No key set → leave it queued with a hint and open the key settings.
+  async function runWebAsk(id: string) {
+    const cur = notesRef.current.find((n) => n.id === id);
+    if (!cur || cur.kind !== "task") return;
+    const prompt = (cur.meta as TaskMeta).prompt;
+    if (!hasAiKey()) {
+      const meta: TaskMeta = { ...(cur.meta as TaskMeta), status: "error", error: "Add an AI key in Settings to run on the web." };
+      setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, meta } : n)));
+      onUpdate(id, { meta });
+      setTokensOpen(true);
+      return;
+    }
+    const running: TaskMeta = { ...(cur.meta as TaskMeta), status: "running", startedAt: Date.now(), error: undefined };
+    setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, meta: running } : n)));
+    onUpdate(id, { meta: running });
+    try {
+      const answer = await runAiPrompt(
+        "You are a thoughtful assistant helping someone think on a spatial canvas. Answer in clear, concise markdown.",
+        prompt,
+      );
+      // Resolve into a page, mirroring the desktop run_task → page conversion.
+      setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, kind: "page", text: answer, meta: null, t: Date.now() } : n)));
+      onUpdate(id, { kind: "page", text: answer, meta: null, t: Date.now() });
+    } catch (err) {
+      const meta: TaskMeta = { ...(notesRef.current.find((n) => n.id === id)?.meta as TaskMeta), status: "error", error: String(err instanceof Error ? err.message : err) };
+      setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, meta } : n)));
+      onUpdate(id, { meta });
+    }
   }
 
   // ── Focus / read mode ──────────────────────────────────────────────
@@ -2255,7 +2290,7 @@ function JustNotesInner(props: JustNotesProps) {
       const f = notesRef.current.find((n) => n.id === id);
       if (f) { markInteracted(); flyToFrame(f); }
     },
-    onRunTask: (id) => runTaskCard(id),
+    onRunTask: (id) => { if (isTauri) runTaskCard(id); else void runWebAsk(id); },
     onObjectState: (id, meta) => onObjectState(id, meta),
   };
   const nodeHandlers = useMemo<NoteNodeHandlers>(() => ({

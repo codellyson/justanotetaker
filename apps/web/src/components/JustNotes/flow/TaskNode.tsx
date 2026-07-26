@@ -1,6 +1,5 @@
 import { memo, type CSSProperties } from "react";
 import { Handle, Position, useConnection, type NodeProps } from "@xyflow/react";
-import { isTauri } from "../../../lib/runtime";
 import type { TaskMeta, TaskStatus } from "../lib";
 import { renderBody } from "../markdown";
 import type { NoteFlowNode } from "./useNoteGraph";
@@ -13,9 +12,9 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
 };
 
 // An agent job on the canvas. meta.status drives a chip; meta.prompt shows the
-// work; on done the result markdown (note.text) renders below. In Tauri a Run
-// button drives the local claude CLI (run_task command) when queued or errored.
-// Tasks are created by agents (MCP create_task), not edited in place.
+// work; on done the result markdown (note.text) renders below. Run/retry drives
+// the local claude CLI on desktop, or the user's own AI key browser-direct on
+// web. Tasks are created by agents (MCP create_task), not edited in place.
 function TaskNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
   const { note, dragging, dimmed, highlit, scrubFade, handlers } = data;
   const isConnectTarget = useConnection((c) => c.inProgress && c.fromNode?.id !== id);
@@ -35,7 +34,7 @@ function TaskNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
     highlit ? "hit" : "",
   ].filter(Boolean).join(" ");
 
-  const canRun = isTauri && (status === "queued" || status === "error");
+  const canRun = status === "queued" || status === "error";
 
   return (
     <>
