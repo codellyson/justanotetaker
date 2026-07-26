@@ -1,5 +1,5 @@
-import { lazy, memo, Suspense, useState, type CSSProperties } from "react";
-import { Handle, NodeResizer, Position, useConnection, type NodeProps } from "@xyflow/react";
+import { lazy, memo, Suspense, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { Handle, NodeResizer, Position, useConnection, useStore, type NodeProps } from "@xyflow/react";
 import {
   RECENCY_ALPHA,
   PAPER_W,
@@ -16,14 +16,29 @@ import type { NoteFlowNode } from "./useNoteGraph";
 // opens so it never touches the initial bundle or the canvas cards.
 const CmEditor = lazy(() => import("../CmEditor"));
 
+// A tall note auto-collapses to a peek of its content (about a quarter) with a
+// fade + a toggle; anything shorter than this renders whole.
+const COLLAPSE_MIN = 460;
+
+// Below this zoom a card is an unreadable smudge → show only its title chip.
+// Module-scoped so the store subscription reference stays stable across renders.
+const lodSelector = (s: { transform: [number, number, number] }) => s.transform[2] < 0.5;
+
 function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
-  const { note, editing, dragging, dimmed, highlit, focused, fromClipboard, scrubFade, clickPos, handlers } = data;
+  const { note, editing, dragging, dimmed, highlit, focused, fromClipboard, scrubFade, clickPos, expanded, stackWidth, handlers } = data;
   // Bumped on every canvas pan/zoom while editing → CmEditor re-measures.
   const [measureTick, setMeasureTick] = useState(0);
+  // Full (uncapped) content height, read from scrollHeight so it's known even
+  // while the note is clamped shut — drives the collapse affordance.
+  const noteRef = useRef<HTMLDivElement>(null);
+  const [fullH, setFullH] = useState(0);
   // While a connection drag is in flight from another note, the whole card
   // becomes a drop target (the cover handle switches its pointer-events on).
   // Selector returns a primitive so the store subscription stays stable.
   const isConnectTarget = useConnection((c) => c.inProgress && c.fromNode?.id !== id);
+  // Semantic zoom: a boolean subscription (module-scoped selector) so a node
+  // only re-renders when it crosses the LOD threshold, not on every zoom frame.
+  const lod = useStore(lodSelector);
   const rec = recencyOf(note.t);
 
   const first = firstNonEmpty(note.text);
@@ -38,6 +53,17 @@ function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
   const startsWithBlock = /^\s*(`{3,}|>|[-*]\s+\[[ xX]\]|[-*]\s|\d+\.\s|!\[[^\]]*\]\(|(-{3,}|\*{3,})\s*$)/.test(first);
   const onToggle = (taskIndex: number) => handlers.onToggleTask(note.id, taskIndex);
 
+  // Read the note's full content height once it's laid out. scrollHeight ignores
+  // the collapse clamp, so a shut note still reports its true height.
+  useLayoutEffect(() => {
+    if (noteRef.current) setFullH(noteRef.current.scrollHeight);
+  }, [note.text, note.w, editing, lod]);
+
+  const isContent = note.kind === "card" || note.kind === "page";
+  const canCollapse = isContent && !editing && !lod && fullH > COLLAPSE_MIN;
+  const collapsed = canCollapse && !expanded;
+  const peekH = Math.min(Math.max(Math.round(fullH * 0.25), 180), 400);
+
   const cls = [
     "note",
     `rec-${rec}`,
@@ -50,6 +76,8 @@ function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
     `kind-${note.kind}`,
     note.color ? "tinted" : "",
     isHeading && !editing ? "has-heading" : "",
+    lod && !editing ? "lod" : "",
+    collapsed ? "note-collapsed" : "",
   ].filter(Boolean).join(" ");
 
   // A tinted note carries its own bg/ink and opts out of the recency fade so
@@ -66,7 +94,13 @@ function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
   // Exposed so a tinted note can re-point the muted theme tokens at its ink,
   // keeping list/quote/mark colors legible in both the rendered view and editor.
   if (col) (style as Record<string, string | number>)["--note-ink"] = col.ink;
-  if (note.kind === "page") {
+  // The fade at a collapsed note's foot dissolves into its own background.
+  (style as Record<string, string | number>)["--note-bg"] = col ? col.bg : "rgb(var(--bg-secondary))";
+  if (stackWidth != null) {
+    // In a kanban column: fill the lane width, height hugs the content.
+    style.width = stackWidth;
+    style.minHeight = 0;
+  } else if (note.kind === "page") {
     style.width = note.w ?? PAPER_W;
     style.minHeight = note.h ?? 200;
   } else {
@@ -76,6 +110,11 @@ function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
       style.maxHeight = "none";
       if (!editing) style.height = note.h;
     }
+  }
+  if (collapsed) {
+    style.maxHeight = peekH;
+    style.minHeight = 0;
+    style.height = peekH;
   }
 
   return (
@@ -92,7 +131,7 @@ function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
         position={Position.Left}
         className={"note-link-target" + (isConnectTarget ? " active" : "")}
       />
-      <div className={cls} data-note-id={note.id} style={style}>
+      <div ref={noteRef} className={cls} data-note-id={note.id} style={style}>
         {editing ? (
           <>
             <CmMeasureBridge onViewportChange={() => setMeasureTick((v) => v + 1)} />
@@ -107,6 +146,10 @@ function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
               />
             </Suspense>
           </>
+        ) : lod ? (
+          <div className="note-lod">
+            {first ? renderHeadline(first.replace(/^#{1,6}\s+/, "")) : <span className="note-lod-empty">empty</span>}
+          </div>
         ) : startsWithBlock ? (
           <div className="note-rest" style={{ color: bodyColor }}>
             {renderBody(note.text, { onToggle })}
@@ -127,7 +170,24 @@ function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
             </svg>
           </div>
         )}
-        {!editing && <div className="note-pad-cover" aria-hidden="true" />}
+        {!editing && !collapsed && <div className="note-pad-cover" aria-hidden="true" />}
+        {canCollapse && (
+          <button
+            type="button"
+            className="note-collapse-toggle nodrag"
+            title={collapsed ? "Expand" : "Collapse"}
+            aria-label={collapsed ? "Expand note" : "Collapse note"}
+            aria-expanded={!collapsed}
+            onClick={(e) => {
+              e.stopPropagation();
+              handlers.onToggleHeight(note.id);
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ transform: collapsed ? "none" : "rotate(180deg)" }}>
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+        )}
       </div>
       {/* Drag from this dot onto another note to link them (nodrag so the
           gesture starts a connection, not a card drag). */}

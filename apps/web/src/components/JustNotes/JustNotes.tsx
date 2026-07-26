@@ -27,6 +27,10 @@ import {
   type FrameMeta,
   type ImageMeta,
   type TaskMeta,
+  type ObjectMeta,
+  type ObjectType,
+  emptyTable,
+  emptyEmbed,
   type Note,
   type NoteKind,
   type Board,
@@ -34,7 +38,7 @@ import {
 } from "./lib";
 import { FileTree } from "./FileTree";
 import { FlowCanvas } from "./flow/FlowCanvas";
-import { FRAME_DEFAULT_W, FRAME_DEFAULT_H } from "./flow/FrameNode";
+import { FRAME_DEFAULT_W, FRAME_DEFAULT_H, FRAME_MIN_W, FRAME_MIN_H, FRAME_PAD, FRAME_LABEL_H } from "./flow/FrameNode";
 import {
   applyNoteNodeChanges,
   buildNoteNodes,
@@ -149,14 +153,26 @@ function JustNotesInner(props: JustNotesProps) {
       const busy = new Set([editingIdRef.current, draggingIdRef.current].filter(Boolean) as string[]);
       let changed = additions.length > 0;
       const merged = prev.map((n) => {
-        if (n.kind !== "task" || busy.has(n.id)) return n;
+        if (busy.has(n.id)) return n;
+        // Canvas objects (tables) are agent-writable: adopt server state unless
+        // there's a local edit still in flight (a pending debounced persist).
+        if (n.kind === "object") {
+          const srv = have.has(n.id) ? server.find((s) => s.id === n.id) : undefined;
+          if (!srv || objPersistRef.current.has(n.id)) return n;
+          if (JSON.stringify(srv.meta) === JSON.stringify(n.meta) && srv.text === n.text) return n;
+          changed = true;
+          return { ...n, text: srv.text, meta: srv.meta, t: srv.t };
+        }
+        if (n.kind !== "task") return n;
         const srv = have.has(n.id) ? server.find((s) => s.id === n.id) : undefined;
         if (!srv) return n;
         const sm = srv.meta as { status?: string } | null;
         const nm = n.meta as { status?: string } | null;
-        if (srv.text === n.text && sm?.status === nm?.status) return n;
+        // Adopt status/result changes AND the task→page transition: a done task
+        // resolves into a plain page (every note is a page), so carry srv.kind.
+        if (srv.kind === n.kind && srv.text === n.text && sm?.status === nm?.status) return n;
         changed = true;
-        return { ...n, text: srv.text, meta: srv.meta, t: srv.t };
+        return { ...n, kind: srv.kind, text: srv.text, meta: srv.meta, t: srv.t };
       });
       return changed ? [...merged, ...additions] : prev;
     });
@@ -305,6 +321,26 @@ function JustNotesInner(props: JustNotesProps) {
   // Ids of notes that came from a clipboard auto-capture, for the badge.
   // Seeded from localStorage so the marker survives reloads.
   const [clipboardIds, setClipboardIds] = useState<Set<string>>(() => clipboardOrigin.list());
+  // Which tall notes the user chose to show at full height. A view preference,
+  // kept device-local (localStorage) rather than synced — the auto-collapse
+  // default is derived from content height, so only the override needs storing.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem("jnt-expanded-notes");
+      return new Set<string>(raw ? JSON.parse(raw) : []);
+    } catch { return new Set<string>(); }
+  });
+  const toggleNoteHeight = useCallback((id: string) => {
+    markInteracted();
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      try { localStorage.setItem("jnt-expanded-notes", JSON.stringify([...next])); } catch { /* private mode */ }
+      return next;
+    });
+    const n = notesRef.current.find((x) => x.id === id);
+    if (n?.parentId) window.setTimeout(() => scheduleReflow(id), 60);
+  }, []);
   const markClipboardOrigin = useCallback((id: string) => {
     clipboardOrigin.add(id);
     setClipboardIds((s) => {
@@ -476,7 +512,7 @@ function JustNotesInner(props: JustNotesProps) {
     editSnapshotRef.current = { id, isNew: true, prevText: "", prevT: Date.now() };
     editClickRef.current = null; // new note → caret at end, not a stale click point
     setEditingId(id);
-    if (parentId) scheduleFrameFit(id);
+    if (parentId) scheduleReflow(id);
   }
 
   // Rects of every note but `excludeId`, for collision resolution on drop /
@@ -734,15 +770,19 @@ function JustNotesInner(props: JustNotesProps) {
     return !!(f.meta as FrameMeta | null)?.collapsed;
   }
 
-  // Topmost frame containing the point — last match wins, mirroring paint
-  // order among equal-z frames. Collapsed frames don't capture: their visible
-  // footprint is just the label bar.
+  // Innermost frame containing the point — the smallest-area match, so a card
+  // dropped in a lane nested inside a board lands in the lane, not the board.
+  // Collapsed frames don't capture: their visible footprint is just the label.
   function hitFrame(cx: number, cy: number): Note | null {
     let hit: Note | null = null;
+    let best = Infinity;
     for (const f of notesRef.current) {
       if (f.kind !== "frame" || isCollapsed(f)) continue;
       const r = frameRectOf(f);
-      if (cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h) hit = f;
+      if (cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h) {
+        const area = r.w * r.h;
+        if (area < best) { best = area; hit = f; }
+      }
     }
     return hit;
   }
@@ -778,8 +818,6 @@ function JustNotesInner(props: JustNotesProps) {
     }
   }
 
-  const FRAME_PAD = 26;
-  const FRAME_LABEL_H = 34;
   // Grow a frame so it wraps every member (plus padding + room for the label
   // bar). Grow-only: a note that pokes out expands the frame; the frame never
   // auto-shrinks, so intentional empty space is preserved. Members keep their
@@ -808,13 +846,227 @@ function JustNotesInner(props: JustNotesProps) {
     onUpdate(frameId, next);
   }
 
-  // Grow a note's parent frame after its position/size/membership has settled.
-  // Deferred a frame so notesRef reflects the committed parentId + geometry.
-  function scheduleFrameFit(noteId: string) {
+  function frameLayoutOf(f: Note): "free" | "stack" {
+    return (f.meta as FrameMeta | null)?.layout === "stack" ? "stack" : "free";
+  }
+
+  // Kanban column layout: lay a frame's members out as a single top-aligned
+  // vertical stack in their current top-to-bottom order. A column is a
+  // fixed-width lane: the frame's width is set by the user (or the kanban
+  // preset), members render at that lane width (see stackWidth in the node
+  // build), and the lane's height fits their content. Order is re-derived from
+  // drop-Y on every drop/reorder.
+  const STACK_GAP = 12;
+  const stackInnerW = (frame: Note) => Math.max(80, (frame.w ?? FRAME_DEFAULT_W) - FRAME_PAD * 2);
+  function restackFrame(frameId: string) {
+    const frame = notesRef.current.find((n) => n.id === frameId);
+    if (!frame || frame.kind !== "frame" || isCollapsed(frame)) return;
+    if (frameLayoutOf(frame) !== "stack") return;
+    const members = notesRef.current.filter((n) => n.parentId === frameId);
+    if (!members.length) return;
+    const innerX = frame.x + FRAME_PAD;
+    let cursorY = frame.y + FRAME_LABEL_H + FRAME_PAD;
+    const moves: { id: string; x: number; y: number }[] = [];
+    for (const m of [...members].sort((a, b) => a.y - b.y)) {
+      // Height measured at the lane width — members render narrow (stackWidth),
+      // so measuredDims already reflects the wrapped height.
+      const h = measuredDimsRef.current.get(m.id)?.height ?? m.h ?? 96;
+      if (m.x !== innerX || m.y !== cursorY) moves.push({ id: m.id, x: innerX, y: cursorY });
+      cursorY += h + STACK_GAP;
+    }
+    // Lane keeps its (user-set) width; only its height tracks the content.
+    const newH = Math.max(FRAME_MIN_H, cursorY - STACK_GAP + FRAME_PAD - frame.y);
+    const frameChanged = newH !== frame.h;
+    if (!moves.length && !frameChanged) return;
+    setNotes((ns) => ns.map((n) => {
+      if (n.id === frameId) return frameChanged ? { ...n, h: newH } : n;
+      const mv = moves.find((x) => x.id === n.id);
+      return mv ? { ...n, x: mv.x, y: mv.y } : n;
+    }));
+    for (const mv of moves) onUpdate(mv.id, { x: mv.x, y: mv.y });
+    if (frameChanged) onUpdate(frameId, { h: newH });
+    // A lane inside a board grew/shrank — grow the board to keep wrapping it.
+    if (frameChanged && frame.parentId) requestAnimationFrame(() => reflowFrame(frame.parentId as string));
+  }
+
+  // A frame's members settled — reflow by its layout: stack columns re-pack,
+  // free frames grow to wrap.
+  function reflowFrame(frameId: string) {
+    const f = notesRef.current.find((n) => n.id === frameId);
+    if (!f || f.kind !== "frame") return;
+    if (frameLayoutOf(f) === "stack") restackFrame(frameId);
+    else fitFrameToMembers(frameId);
+  }
+
+  function restackAllStacks() {
+    for (const f of notesRef.current) {
+      if (f.kind === "frame" && frameLayoutOf(f) === "stack") restackFrame(f.id);
+    }
+  }
+
+  // Re-pack columns after a member's measured height settles (a card narrows to
+  // the lane width and re-wraps, or grows while editing). Coalesced to one pass
+  // per frame; skipped mid-drag, where the gap preview owns member positions.
+  const stackSettleRef = useRef(false);
+  function scheduleStackSettle() {
+    if (stackSettleRef.current) return;
+    stackSettleRef.current = true;
+    requestAnimationFrame(() => {
+      stackSettleRef.current = false;
+      if (draggingIdRef.current) return;
+      restackAllStacks();
+    });
+  }
+
+  // Reflow a note's parent frame after its position/size/membership has
+  // settled. Deferred a frame so notesRef reflects the committed geometry.
+  function scheduleReflow(noteId: string) {
     requestAnimationFrame(() => {
       const n = notesRef.current.find((x) => x.id === noteId);
-      if (n?.parentId) fitFrameToMembers(n.parentId);
+      if (n?.parentId) reflowFrame(n.parentId);
     });
+  }
+
+  function setFrameLayout(id: string, layout: "free" | "stack") {
+    const f = notesRef.current.find((n) => n.id === id);
+    if (!f || f.kind !== "frame") return;
+    const meta: FrameMeta = { ...((f.meta as FrameMeta | null) ?? {}), layout };
+    setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, meta } : n)));
+    onUpdate(id, { meta });
+    markInteracted();
+    if (layout === "stack") requestAnimationFrame(() => restackFrame(id));
+  }
+
+  const memberH = (n: Note) =>
+    n.h ?? measuredDimsRef.current.get(n.id)?.height ?? 96;
+
+  // Live drag preview inside a kanban column: lay the OTHER members out with a
+  // gap opened at the slot the dragged card currently hovers, so cards part to
+  // reveal where it will land. Local-only (no persist) — the drop's restack
+  // writes the final layout. With the stack-member CSS transition, the cards
+  // glide as the gap moves.
+  function layoutStackWithGap(frameId: string, draggedId: string, dragCenterY: number, dragH: number) {
+    const frame = notesRef.current.find((n) => n.id === frameId);
+    if (!frame) return;
+    const members = notesRef.current
+      .filter((n) => n.parentId === frameId && n.id !== draggedId)
+      .sort((a, b) => a.y - b.y);
+    const innerX = frame.x + FRAME_PAD;
+    const top = frame.y + FRAME_LABEL_H + FRAME_PAD;
+    // Insertion index: the first member whose vertical center sits below the
+    // dragged card's center.
+    let idx = members.length;
+    let scan = top;
+    for (let i = 0; i < members.length; i++) {
+      const mh = memberH(members[i]);
+      if (dragCenterY < scan + mh / 2) { idx = i; break; }
+      scan += mh + STACK_GAP;
+    }
+    let cursorY = top;
+    const moves: { id: string; x: number; y: number }[] = [];
+    members.forEach((m, i) => {
+      if (i === idx) cursorY += dragH + STACK_GAP;
+      if (m.x !== innerX || m.y !== cursorY) moves.push({ id: m.id, x: innerX, y: cursorY });
+      cursorY += memberH(m) + STACK_GAP;
+    });
+    if (!moves.length) return;
+    setNotes((ns) => ns.map((n) => {
+      const mv = moves.find((x) => x.id === n.id);
+      return mv ? { ...n, x: mv.x, y: mv.y } : n;
+    }));
+  }
+
+  // A ready-made kanban: a titled board frame wrapping three stacked columns.
+  function spawnKanban(cx: number, cy: number) {
+    markInteracted();
+    const COL_W = 300, COL_H = 440, GAP = 32;
+    const labels = ["To do", "Doing", "Done"];
+    const innerW = labels.length * COL_W + (labels.length - 1) * GAP;
+    const boardW = innerW + FRAME_PAD * 2;
+    const boardH = COL_H + FRAME_PAD * 2 + FRAME_LABEL_H;
+    const boardX = Math.round(cx - boardW / 2);
+    const boardY = Math.round(cy - boardH / 2);
+    const now = Date.now();
+    const board: Note = {
+      id: uid(), x: boardX, y: boardY, w: boardW, h: boardH, t: now,
+      text: "Board", kind: "frame", color: null,
+    };
+    const colY = boardY + FRAME_LABEL_H + FRAME_PAD;
+    const colX0 = boardX + FRAME_PAD;
+    const cols: Note[] = labels.map((label, i) => ({
+      id: uid(),
+      x: colX0 + i * (COL_W + GAP),
+      y: colY,
+      w: COL_W,
+      h: COL_H,
+      t: now,
+      text: label,
+      kind: "frame",
+      color: null,
+      parentId: board.id,
+      meta: { layout: "stack" } as FrameMeta,
+    }));
+    const created = [board, ...cols];
+    setNotes((ns) => [...ns, ...created]);
+    for (const n of created) { pushOp({ type: "create", id: n.id }); void onCreate(n); }
+    setSelectedIds(new Set([board.id]));
+  }
+
+  // Every note nested (at any depth) under a frame — its columns, their cards,
+  // and so on. Used for group-drag and subtree collapse.
+  function descendantsOf(frameId: string): Set<string> {
+    const out = new Set<string>();
+    const stack = [frameId];
+    while (stack.length) {
+      const pid = stack.pop() as string;
+      for (const n of notesRef.current) {
+        if (n.parentId === pid && !out.has(n.id)) {
+          out.add(n.id);
+          if (n.kind === "frame") stack.push(n.id);
+        }
+      }
+    }
+    return out;
+  }
+
+  // ── Canvas objects (tables, …) ─────────────────────────────────────
+  // A committed object edit updates state at once (so the render stays live)
+  // and persists after a short idle — cell typing shouldn't PATCH per keystroke.
+  // A pending timer also marks the note "locally dirty" so an incoming poll
+  // doesn't clobber an edit in flight.
+  const objPersistRef = useRef(new Map<string, number>());
+  function onObjectState(id: string, meta: ObjectMeta) {
+    const cur = notesRef.current.find((n) => n.id === id);
+    if (!cur) return;
+    setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, meta } : n)));
+    markInteracted();
+    const timers = objPersistRef.current;
+    const prev = timers.get(id);
+    if (prev) window.clearTimeout(prev);
+    timers.set(id, window.setTimeout(() => {
+      timers.delete(id);
+      onUpdate(id, { meta });
+    }, 500));
+  }
+
+  function spawnObject(cx: number, cy: number, objectType: ObjectType = "table") {
+    markInteracted();
+    const id = uid();
+    const w = objectType === "embed" ? 480 : 440;
+    const parentId = hitFrame(cx, cy)?.id ?? null;
+    const meta: ObjectMeta = objectType === "embed"
+      ? { objectType: "embed", state: emptyEmbed() }
+      : { objectType: "table", state: emptyTable() };
+    const note: Note = {
+      id, x: Math.round(cx - w / 2), y: Math.round(cy - 60), w, h: null, t: Date.now(),
+      text: "", kind: "object", color: null, parentId,
+      meta,
+    };
+    setNotes((ns) => [...ns, note]);
+    pushOp({ type: "create", id });
+    void onCreate(note);
+    setSelectedIds(new Set([id]));
+    if (parentId) scheduleReflow(id);
   }
 
   // Fold/unfold a frame. Collapsed members vanish from the canvas (state and
@@ -827,7 +1079,9 @@ function JustNotesInner(props: JustNotesProps) {
     setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, meta } : n)));
     onUpdate(id, { meta });
     if (collapsed) {
-      const memberIds = new Set(notesRef.current.filter((n) => n.parentId === id).map((n) => n.id));
+      // The whole subtree vanishes — a nested lane, its cards, everything — so
+      // nothing folded away can stay selected or mid-edit.
+      const memberIds = descendantsOf(id);
       if (editingIdRef.current && memberIds.has(editingIdRef.current)) commitEditing();
       setSelectedIds((prev) => {
         if (![...prev].some((x) => memberIds.has(x))) return prev;
@@ -856,6 +1110,69 @@ function JustNotesInner(props: JustNotesProps) {
     );
   }
 
+  // Ask an agent about a cluster of notes. Assemble the selected notes (a
+  // selected frame contributes its members) into a prompt, drop a task card
+  // beside the cluster, and — on desktop — run it at once so the answer resolves
+  // in place. On the web it stays queued for an MCP agent to answer via
+  // update_task; either way the poll/merge pulls the result onto the canvas.
+  function askCluster(noteIds: string[]) {
+    const wanted = new Set<string>();
+    let topic = "";
+    for (const nid of noteIds) {
+      const n = notesRef.current.find((x) => x.id === nid);
+      if (!n) continue;
+      if (n.kind === "frame") {
+        if (!topic) topic = firstNonEmpty(n.text);
+        for (const m of notesRef.current) if (m.parentId === n.id) wanted.add(m.id);
+      } else {
+        wanted.add(nid);
+      }
+    }
+    const members = notesRef.current.filter(
+      (n) => wanted.has(n.id) && n.kind !== "task" && n.kind !== "image",
+    );
+    if (!members.length) return;
+
+    const ordered = [...members].sort((a, b) => (Math.abs(a.y - b.y) > 40 ? a.y - b.y : a.x - b.x));
+    const context = ordered.map((n) => n.text.trim()).filter(Boolean).join("\n\n---\n\n");
+    const prompt =
+      `These notes come from a spatial thinking canvas` +
+      (topic ? `, grouped under "${topic}"` : "") +
+      `, listed in reading order:\n\n${context}\n\n---\n\n` +
+      `Using them as context, give a useful response: if they pose a question, answer it; ` +
+      `if they are ideas or fragments, synthesize, extend, or reconcile them. Be concise.`;
+
+    let maxX = -Infinity, minY = Infinity;
+    for (const n of members) {
+      const m = measuredDimsRef.current.get(n.id);
+      const w = n.w ?? m?.width ?? tweakRef.current.noteWidth;
+      maxX = Math.max(maxX, n.x + w);
+      minY = Math.min(minY, n.y);
+    }
+    const id = uid();
+    const meta: TaskMeta = { status: "queued", prompt };
+    const note: Note = {
+      id,
+      x: maxX + 48,
+      y: minY,
+      w: 320,
+      h: null,
+      t: Date.now(),
+      text: topic ? `Ask: ${topic}` : `Ask: ${members.length} note${members.length === 1 ? "" : "s"}`,
+      kind: "task",
+      color: null,
+      meta,
+    };
+    setNotes((ns) => [...ns, note]);
+    pushOp({ type: "create", id });
+    setSelectedIds(new Set([id]));
+    markInteracted();
+    // Wait for the create to persist before the desktop runner GETs the card.
+    void Promise.resolve(onCreate(note)).then(() => {
+      if (isTauri) runTaskCard(id);
+    });
+  }
+
   // ── Focus / read mode ──────────────────────────────────────────────
   // Readable notes in reading order (top-to-bottom, then left-to-right),
   // excluding frames (structure, not content) and members hidden inside a
@@ -865,7 +1182,7 @@ function JustNotesInner(props: JustNotesProps) {
       notesRef.current.filter((n) => n.kind === "frame" && isCollapsed(n)).map((n) => n.id),
     );
     return notesRef.current
-      .filter((n) => n.kind !== "frame" && !(n.parentId && collapsed.has(n.parentId)))
+      .filter((n) => n.kind !== "frame" && n.kind !== "object" && !(n.parentId && collapsed.has(n.parentId)))
       .sort((a, b) => (Math.abs(a.y - b.y) > 40 ? a.y - b.y : a.x - b.x));
   }
 
@@ -924,6 +1241,8 @@ function JustNotesInner(props: JustNotesProps) {
       editSnapshotRef.current = null;
     }
     onDelete(id);
+    // Close the gap left in a kanban column.
+    if (cur.parentId) requestAnimationFrame(() => reflowFrame(cur.parentId!));
   }
 
   function reinsertRestoredNote(note: { id: string; x: number; y: number; w?: number | null; h?: number | null; t: number; text: string; kind?: NoteKind; color?: string | null; parentId?: string | null; meta?: Note["meta"] }) {
@@ -1117,7 +1436,7 @@ function JustNotesInner(props: JustNotesProps) {
       setNotes,
       setSelectedIds,
       measuredDims: measuredDimsRef.current,
-      onDimensions: () => setDimsTick((v) => v + 1),
+      onDimensions: () => { setDimsTick((v) => v + 1); scheduleStackSettle(); },
     });
   };
 
@@ -1134,6 +1453,10 @@ function JustNotesInner(props: JustNotesProps) {
   // positions keyed to their frame, skipping any the marquee already put in
   // RF's own drag set (those would double-move).
   const frameMembersRef = useRef<Map<string, { sx: number; sy: number; frameId: string }> | null>(null);
+  // The stack column currently showing a live insertion gap during a card drag.
+  const stackPreviewRef = useRef<string | null>(null);
+  // The column highlighted as the drop target (drives the frame's lane glow).
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
 
   function handleNodeDragStart(_: unknown, node: NoteFlowNode, dragged: NoteFlowNode[]) {
     markInteracted();
@@ -1146,30 +1469,58 @@ function JustNotesInner(props: JustNotesProps) {
     for (const d of dragged) {
       const n = notesRef.current.find((x) => x.id === d.id);
       if (n?.kind !== "frame") continue;
-      for (const m of notesRef.current) {
-        if (m.parentId === n.id && !map.has(m.id) && !members.has(m.id)) {
-          members.set(m.id, { sx: m.x, sy: m.y, frameId: n.id });
-        }
+      // The whole subtree rides — nested lanes AND their cards — all moving by
+      // this frame's delta so a board and everything in it travels as one piece.
+      for (const id of descendantsOf(n.id)) {
+        if (map.has(id) || members.has(id)) continue;
+        const m = notesRef.current.find((x) => x.id === id);
+        if (m) members.set(id, { sx: m.x, sy: m.y, frameId: n.id });
       }
     }
     frameMembersRef.current = members.size ? members : null;
   }
 
-  // Live tick: move each riding member by its frame's delta so the group
-  // travels as one piece rather than snapping at drop.
-  function handleNodeDrag(_: unknown, _node: NoteFlowNode, dragged: NoteFlowNode[]) {
-    const members = frameMembersRef.current;
+  // Live tick during a drag.
+  function handleNodeDrag(_: unknown, node: NoteFlowNode, dragged: NoteFlowNode[]) {
     const starts = dragStartRef.current;
-    if (!members || !starts) return;
-    const framePos = new Map(dragged.map((d) => [d.id, d.position]));
-    setNotes((ns) => ns.map((n) => {
-      const m = members.get(n.id);
-      if (!m) return n;
-      const fp = framePos.get(m.frameId);
-      const fs = starts.get(m.frameId);
-      if (!fp || !fs) return n;
-      return { ...n, x: m.sx + (fp.x - fs.x), y: m.sy + (fp.y - fs.y) };
-    }));
+    if (!starts) return;
+    const members = frameMembersRef.current;
+    if (members) {
+      // A frame is dragging — carry its riding members so the group moves as one.
+      const framePos = new Map(dragged.map((d) => [d.id, d.position]));
+      setNotes((ns) => ns.map((n) => {
+        const m = members.get(n.id);
+        if (!m) return n;
+        const fp = framePos.get(m.frameId);
+        const fs = starts.get(m.frameId);
+        if (!fp || !fs) return n;
+        return { ...n, x: m.sx + (fp.x - fs.x), y: m.sy + (fp.y - fs.y) };
+      }));
+      return;
+    }
+    // A single card is dragging — if it's over a kanban column, part the cards
+    // to reveal the slot it will drop into.
+    if (dragged.length !== 1) return;
+    const card = notesRef.current.find((n) => n.id === node.id);
+    if (!card || card.kind === "frame") return;
+    const dim = measuredDimsRef.current.get(card.id);
+    const w = card.w ?? dim?.width ?? tweakRef.current.noteWidth;
+    const h = card.h ?? dim?.height ?? 96;
+    const cx = node.position.x + w / 2;
+    const cy = node.position.y + h / 2;
+    const target = hitFrame(cx, cy);
+    if (target && frameLayoutOf(target) === "stack") {
+      if (stackPreviewRef.current && stackPreviewRef.current !== target.id) {
+        restackFrame(stackPreviewRef.current); // repack the column we just left
+      }
+      stackPreviewRef.current = target.id;
+      layoutStackWithGap(target.id, card.id, cy, h);
+      setDropTargetId(target.id);
+    } else if (stackPreviewRef.current) {
+      restackFrame(stackPreviewRef.current);
+      stackPreviewRef.current = null;
+      setDropTargetId(null);
+    }
   }
 
   function handleNodeDragStop(_: unknown, node: NoteFlowNode, dragged: NoteFlowNode[]) {
@@ -1178,6 +1529,8 @@ function JustNotesInner(props: JustNotesProps) {
     justDraggedRef.current = true;
     window.setTimeout(() => { justDraggedRef.current = false; }, 0);
     setDraggingId(null);
+    stackPreviewRef.current = null;
+    setDropTargetId(null);
     const starts = dragStartRef.current;
     dragStartRef.current = null;
     const members = frameMembersRef.current;
@@ -1186,23 +1539,46 @@ function JustNotesInner(props: JustNotesProps) {
 
     const draggedAFrame = dragged.some((d) => notesRef.current.find((n) => n.id === d.id)?.kind === "frame");
     if (dragged.length === 1 && !draggedAFrame) {
-      // Single-card drops snap to the nearest free spot so cards never stack.
       const sp = starts.get(node.id);
       const cur = notesRef.current.find((n) => n.id === node.id);
-      if (!sp || !cur || (sp.x === cur.x && sp.y === cur.y)) return;
-      const el = canvasRef.current?.querySelector<HTMLElement>(`[data-note-id="${node.id}"]`);
-      const selfW = el?.offsetWidth ?? cur.w ?? tweakRef.current.noteWidth;
-      const selfH = el?.offsetHeight ?? cur.h ?? 96;
-      const spot = resolveFreePosition(cur.x, cur.y, selfW, selfH, measureRects(node.id));
+      if (!sp || !cur) return;
+      // Trust RF's node.position for the drop location — notesRef lags a render
+      // behind the drag, so a fast drop can otherwise read the stale start point.
+      const fx = node.position.x, fy = node.position.y;
+      if (sp.x === fx && sp.y === fy) return;
       pushOp({ type: "move", id: node.id, prevX: sp.x, prevY: sp.y });
-      if (spot.x !== cur.x || spot.y !== cur.y) {
-        setNotes((ns) => ns.map((n) => (n.id === node.id ? { ...n, x: spot.x, y: spot.y } : n)));
+
+      const dim = measuredDimsRef.current.get(node.id);
+      const selfW = cur.w ?? dim?.width ?? tweakRef.current.noteWidth;
+      const selfH = cur.h ?? dim?.height ?? 96;
+      const target = hitFrame(fx + selfW / 2, fy + selfH / 2);
+      const prevParent = cur.parentId ?? null;
+
+      // Dropped into (or reordered within) a kanban column: commit the landing
+      // position + membership, then reflow the stack by drop-Y.
+      if (target && frameLayoutOf(target) === "stack") {
+        setNotes((ns) => ns.map((n) => (n.id === node.id ? { ...n, x: fx, y: fy, parentId: target.id } : n)));
+        if (prevParent !== target.id) onUpdate(node.id, { parentId: target.id });
+        scheduleReflow(node.id);
+        if (prevParent && prevParent !== target.id) requestAnimationFrame(() => reflowFrame(prevParent));
+        return;
+      }
+
+      // Free drop: snap to the nearest free spot so cards never stack, then
+      // re-derive membership from the landing spot (fresh position, not notesRef).
+      const spot = resolveFreePosition(fx, fy, selfW, selfH, measureRects(node.id));
+      const landedIn = hitFrame(spot.x + selfW / 2, spot.y + selfH / 2);
+      const nextParent = landedIn ? landedIn.id : null;
+      setNotes((ns) => ns.map((n) => (n.id === node.id ? { ...n, x: spot.x, y: spot.y, parentId: nextParent } : n)));
+      if (spot.x !== fx || spot.y !== fy) {
         setSnappingId(node.id);
         window.setTimeout(() => setSnappingId((s) => (s === node.id ? null : s)), 340);
       }
       onUpdate(node.id, { x: spot.x, y: spot.y });
-      applyContainment(node.id);
-      scheduleFrameFit(node.id);
+      if (prevParent !== nextParent) onUpdate(node.id, { parentId: nextParent });
+      scheduleReflow(node.id);
+      // Pulled out of a stack column? close its gap.
+      if (prevParent && prevParent !== nextParent) requestAnimationFrame(() => reflowFrame(prevParent));
       return;
     }
 
@@ -1229,8 +1605,8 @@ function JustNotesInner(props: JustNotesProps) {
     // Membership: dragged frames may have crossed notes; dragged notes may
     // have entered/left frames. Members that rode along kept their relative
     // position, so their membership is unchanged by construction.
-    if (draggedAFrame) recheckAllContainment();
-    else for (const d of dragged) { applyContainment(d.id); scheduleFrameFit(d.id); }
+    if (draggedAFrame) { recheckAllContainment(); requestAnimationFrame(restackAllStacks); }
+    else { for (const d of dragged) { applyContainment(d.id); scheduleReflow(d.id); } requestAnimationFrame(restackAllStacks); }
   }
 
   function handleNodeClick(e: React.MouseEvent, node: NoteFlowNode) {
@@ -1582,6 +1958,7 @@ function JustNotesInner(props: JustNotesProps) {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         if (editingId) { e.preventDefault(); commitEditing(); return; }
         if (ambientOpen) { e.preventDefault(); commitAmbient(true); return; }
+        if (selectedIdsRef.current.size > 0) { e.preventDefault(); askCluster([...selectedIdsRef.current]); return; }
       }
 
       if (!isInput && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
@@ -1863,15 +2240,23 @@ function JustNotesInner(props: JustNotesProps) {
       const n = notesRef.current.find((x) => x.id === id);
       // A resized frame border may have swallowed or released notes; a resized
       // member may now poke out of its frame — grow the frame to fit.
-      if (n?.kind === "frame") recheckAllContainment();
-      else if (n?.parentId) fitFrameToMembers(n.parentId);
+      if (n?.kind === "frame") {
+        recheckAllContainment();
+        if (frameLayoutOf(n) === "stack") requestAnimationFrame(() => restackFrame(n.id));
+      } else if (n?.parentId) reflowFrame(n.parentId);
     },
     onToggleCollapse: (id) => toggleFrameCollapsed(id),
+    onToggleHeight: (id) => toggleNoteHeight(id),
+    onToggleLayout: (id) => {
+      const f = notesRef.current.find((n) => n.id === id);
+      if (f) setFrameLayout(id, frameLayoutOf(f) === "stack" ? "free" : "stack");
+    },
     onFrameLabelClick: (id) => {
       const f = notesRef.current.find((n) => n.id === id);
       if (f) { markInteracted(); flyToFrame(f); }
     },
     onRunTask: (id) => runTaskCard(id),
+    onObjectState: (id, meta) => onObjectState(id, meta),
   };
   const nodeHandlers = useMemo<NoteNodeHandlers>(() => ({
     onTextChange: (id, v) => nodeHandlersRef.current.onTextChange(id, v),
@@ -1881,8 +2266,11 @@ function JustNotesInner(props: JustNotesProps) {
     onResize: (id, p) => nodeHandlersRef.current.onResize(id, p),
     onResizeEnd: (id, p) => nodeHandlersRef.current.onResizeEnd(id, p),
     onToggleCollapse: (id) => nodeHandlersRef.current.onToggleCollapse(id),
+    onToggleHeight: (id) => nodeHandlersRef.current.onToggleHeight(id),
+    onToggleLayout: (id) => nodeHandlersRef.current.onToggleLayout(id),
     onFrameLabelClick: (id) => nodeHandlersRef.current.onFrameLabelClick(id),
     onRunTask: (id) => nodeHandlersRef.current.onRunTask?.(id),
+    onObjectState: (id, meta) => nodeHandlersRef.current.onObjectState(id, meta),
   }), []);
 
   // Controlled React Flow graph derived from app state. Deliberately does NOT
@@ -1900,12 +2288,14 @@ function JustNotesInner(props: JustNotesProps) {
         focusId: matchIds ? matchIds[recallIdx] ?? null : null,
         scrubMoment,
         clipboardIds,
+        expandedIds,
         editClickPos: editClickRef.current,
         measuredDims: measuredDimsRef.current,
+        dropTargetId,
         handlers: nodeHandlers,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [notes, selectedIds, editingId, draggingId, snappingId, matchSet, matchIds, recallIdx, scrubMoment, clipboardIds, nodeHandlers, dimsTick],
+    [notes, selectedIds, editingId, draggingId, snappingId, matchSet, matchIds, recallIdx, scrubMoment, clipboardIds, expandedIds, dropTargetId, nodeHandlers, dimsTick],
   );
 
   const edges = useMemo(
@@ -2064,14 +2454,29 @@ function JustNotesInner(props: JustNotesProps) {
 
       {contextMenu && (() => {
         const n = notes.find((x) => x.id === contextMenu.id);
+        // Ask the whole selection when the right-clicked note is part of a
+        // multi-select; otherwise ask this frame / this note.
+        const inMultiSel = selectedIds.has(contextMenu.id) && selectedIds.size > 1;
+        const askIds = inMultiSel ? [...selectedIds] : [contextMenu.id];
+        const askLabel = inMultiSel
+          ? `ask these ${selectedIds.size} notes`
+          : n?.kind === "frame" ? "ask this frame" : "ask this note";
         return (
           <NoteContextMenu
             x={contextMenu.x}
             y={contextMenu.y}
             kind={n?.kind ?? "card"}
             color={n?.color ?? null}
+            frameLayout={n?.kind === "frame" ? frameLayoutOf(n) : undefined}
+            askLabel={askLabel}
+            onAsk={() => { setContextMenu(null); askCluster(askIds); }}
             onSetColor={(c) => setNoteColor(contextMenu.id, c)}
             onClose={() => setContextMenu(null)}
+            onToggleLayout={n?.kind === "frame" ? () => {
+              const id = contextMenu.id;
+              setContextMenu(null);
+              setFrameLayout(id, frameLayoutOf(n) === "stack" ? "free" : "stack");
+            } : undefined}
             onRead={n && n.kind !== "frame" ? () => { const id = contextMenu.id; setContextMenu(null); openFocus(id); } : undefined}
             onDelete={() => {
               const id = contextMenu.id;
@@ -2095,6 +2500,9 @@ function JustNotesInner(props: JustNotesProps) {
           hasNotes={notes.length > 0}
           onClose={() => setCanvasMenu(null)}
           onNew={(k) => { markInteracted(); spawnAt(canvasMenu.cx, canvasMenu.cy, "", k); setCanvasMenu(null); }}
+          onTable={() => { spawnObject(canvasMenu.cx, canvasMenu.cy, "table"); setCanvasMenu(null); }}
+          onEmbed={() => { spawnObject(canvasMenu.cx, canvasMenu.cy, "embed"); setCanvasMenu(null); }}
+          onKanban={() => { spawnKanban(canvasMenu.cx, canvasMenu.cy); setCanvasMenu(null); }}
           onPaste={() => { void pasteAtCanvas(canvasMenu.cx, canvasMenu.cy); setCanvasMenu(null); }}
           onOpenFile={() => { openFilesAt(canvasMenu.cx, canvasMenu.cy); setCanvasMenu(null); }}
           onSelectAll={() => { setSelectedIds(new Set(notesRef.current.map((n) => n.id))); setCanvasMenu(null); }}
@@ -2317,14 +2725,20 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
 }
 
 function NoteContextMenu({
-  x, y, kind, color, onSetColor, onClose, onDelete, onDeleteContents, onRead,
+  x, y, kind, color, frameLayout, askLabel, onAsk, onSetColor, onClose, onDelete, onDeleteContents, onRead, onToggleLayout,
 }: {
   x: number; y: number;
   kind: NoteKind; color: string | null;
+  // Frames only: current member layout, and a toggle between free/stack.
+  frameLayout?: "free" | "stack";
+  // Hand this note / frame / selection to an agent as context.
+  askLabel?: string;
+  onAsk?: () => void;
   onSetColor: (c: string | null) => void;
   onClose: () => void; onDelete: () => void;
   // Open in the reader (non-frames).
   onRead?: () => void;
+  onToggleLayout?: () => void;
   // Frames only: delete the frame together with its member notes.
   onDeleteContents?: () => void;
 }) {
@@ -2386,6 +2800,17 @@ function NoteContextMenu({
           <span className="note-ctx-hint">↵</span>
         </button>
       )}
+      {onAsk && askLabel && (
+        <button className="note-ctx-item" onClick={onAsk}>
+          {askLabel}
+          <span className="note-ctx-hint">⌘↵</span>
+        </button>
+      )}
+      {kind === "frame" && onToggleLayout && (
+        <button className="note-ctx-item" onClick={onToggleLayout}>
+          {frameLayout === "stack" ? "free layout" : "stack items"}
+        </button>
+      )}
       <button className="note-ctx-item danger" onClick={onDelete}>
         {kind === "frame" ? "delete frame" : "delete"}
         <span className="note-ctx-hint">⌘Z to undo</span>
@@ -2400,11 +2825,14 @@ function NoteContextMenu({
 }
 
 function CanvasContextMenu({
-  x, y, hasNotes, onClose, onNew, onPaste, onOpenFile, onSelectAll, onFit,
+  x, y, hasNotes, onClose, onNew, onKanban, onTable, onEmbed, onPaste, onOpenFile, onSelectAll, onFit,
 }: {
   x: number; y: number; hasNotes: boolean;
   onClose: () => void;
   onNew: (k: NoteKind) => void;
+  onKanban: () => void;
+  onTable: () => void;
+  onEmbed: () => void;
   onPaste: () => void;
   onOpenFile: () => void;
   onSelectAll: () => void;
@@ -2431,7 +2859,7 @@ function CanvasContextMenu({
     };
   }, [onClose]);
 
-  const W = 184, H = 224;
+  const W = 184, H = 256;
   const left = Math.min(x, window.innerWidth - W - 8);
   const top = Math.min(y, window.innerHeight - H - 8);
 
@@ -2450,6 +2878,9 @@ function CanvasContextMenu({
           </button>
         ))}
       </div>
+      <button className="note-ctx-item" onClick={onKanban}>kanban board</button>
+      <button className="note-ctx-item" onClick={onTable}>table</button>
+      <button className="note-ctx-item" onClick={onEmbed}>embed</button>
       <div className="note-ctx-sep" aria-hidden="true" />
       <button className="note-ctx-item" onClick={onPaste}>paste here</button>
       <button className="note-ctx-item" onClick={onOpenFile}>open file…</button>
@@ -2531,7 +2962,7 @@ function FocusReader({
   const col = resolveNoteColor(note.color);
   const meta = note.meta;
   const editable = note.kind === "card" || note.kind === "page";
-  const title = firstNonEmpty(note.text) || (note.kind === "image" ? "Image" : note.kind === "task" ? "Task" : "Untitled");
+  const title = firstNonEmpty(note.text) || (note.kind === "image" ? "Image" : note.kind === "task" ? "Task" : note.kind === "object" ? "Table" : "Untitled");
 
   // Card/page content is rendered with the note's OWN markup + classes so the
   // reader is pixel-identical to the canvas (same fonts, code chrome, colors),

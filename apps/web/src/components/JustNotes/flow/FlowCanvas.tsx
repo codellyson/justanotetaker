@@ -25,10 +25,11 @@ import NoteNode from "./NoteNode";
 import FrameNode from "./FrameNode";
 import ImageNode from "./ImageNode";
 import TaskNode from "./TaskNode";
+import ObjectNode from "./ObjectNode";
 import { ThreadEdge } from "./ThreadEdge";
 import type { NoteFlowNode, ThreadFlowEdge } from "./useNoteGraph";
 
-const nodeTypes: NodeTypes = { note: NoteNode, frame: FrameNode, image: ImageNode, task: TaskNode };
+const nodeTypes: NodeTypes = { note: NoteNode, frame: FrameNode, image: ImageNode, task: TaskNode, object: ObjectNode };
 const edgeTypes: EdgeTypes = { thread: ThreadEdge };
 // ⌘ on mac, Ctrl elsewhere — matching the old handlers, which accepted either.
 const MOD_KEYS = ["Meta", "Control"];

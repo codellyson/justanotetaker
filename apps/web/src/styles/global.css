@@ -89,6 +89,18 @@ body {
 .jn-flow .react-flow__node.snapping {
   transition: transform 300ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
+/* Kanban cards glide as their column re-packs (reorder, drop, gap-open); the
+   card being dragged tracks the cursor 1:1, so it opts out. */
+.jn-flow .react-flow__node.stack-member {
+  transition: transform 190ms cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+.jn-flow .react-flow__node.stack-member.dragging {
+  transition: none;
+}
+/* Picked-up card: lifts off the canvas so a drag reads as "held". */
+.jn-flow .react-flow__node.dragging .note {
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.28), 0 0 0 1px rgb(var(--accent) / 0.5);
+}
 /* Marquee (⌘/Ctrl-drag) */
 .jn-flow .react-flow__selection {
   border: 1px solid rgb(var(--accent) / 0.85);
@@ -176,6 +188,63 @@ body {
 }
 .note-frame.dragging {
   border-color: rgb(var(--accent) / 0.6);
+}
+/* Kanban column: a solid-edged, faintly-filled lane its cards stack down. */
+.note-frame.stack {
+  border-style: solid;
+  border-color: rgb(var(--frame-tint, var(--text-muted)) / 0.35);
+  background: rgb(var(--frame-tint, var(--text-secondary)) / 0.07);
+}
+.note-frame.stack.selected {
+  border-color: rgb(var(--accent) / 0.8);
+}
+/* The column a card is about to drop into lights up as an active lane. */
+.note-frame.drop-target {
+  border-style: solid;
+  border-color: rgb(var(--accent) / 0.85);
+  background: rgb(var(--accent) / 0.1);
+  box-shadow: 0 0 0 1px rgb(var(--accent) / 0.4) inset;
+}
+/* Column-layout toggle in the frame bar — a small list glyph, on-state accented. */
+.frame-layout-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+.frame-layout-toggle:hover {
+  background: rgb(var(--accent) / 0.16);
+  color: rgb(var(--accent));
+  opacity: 1;
+}
+.frame-layout-toggle.on {
+  color: rgb(var(--accent));
+  opacity: 0.95;
+}
+/* Task-tally progress under a frame's label — a light "burndown" read. */
+.frame-burndown {
+  height: 2px;
+  margin: 0 10px 5px;
+  border-radius: 2px;
+  background: rgb(var(--frame-tint, var(--text-muted)) / 0.18);
+  overflow: hidden;
+}
+.frame-burndown > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: rgb(var(--accent) / 0.8);
+  transition: width 260ms ease;
 }
 /* Focus / read mode — a note read at full legibility over the canvas,
    decoupled from zoom. Fixed centered panel; ↑↓/j k step, Enter edits. */
@@ -420,6 +489,209 @@ body {
 }
 
 /* Task cards — an agent job with a status lifecycle. */
+/* Canvas object — a live widget (a table for now) you and an agent both edit. */
+.canvas-object {
+  position: relative;
+  border-radius: 8px;
+  background: rgb(var(--bg-secondary));
+  box-shadow: 0 0 0 1px rgb(var(--border) / 0.7);
+  overflow: hidden;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  transition: opacity 220ms ease, box-shadow 180ms ease;
+}
+.canvas-object.selected { box-shadow: 0 0 0 1.5px rgb(var(--accent)); }
+.canvas-object.dim { opacity: 0.12; filter: saturate(0.4); }
+.canvas-object.hit { box-shadow: 0 0 0 1.5px rgb(var(--accent) / 0.8); }
+.obj-grid {
+  display: grid;
+  gap: 1px;
+  padding: 1px;
+  background: rgb(var(--border) / 0.6);
+}
+.obj-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  background: rgb(var(--bg-secondary));
+}
+.obj-th { background: rgb(var(--bg)); }
+.obj-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12.5px;
+  color: rgb(var(--text-primary));
+  outline: none;
+}
+.obj-th .obj-input { font-weight: 600; }
+.obj-input:focus { background: rgb(var(--accent) / 0.08); }
+.obj-del, .obj-add {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: rgb(var(--text-muted));
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+.obj-th:hover .obj-del, .obj-td:hover .obj-del, .obj-add { opacity: 0.7; }
+.obj-del:hover { background: rgb(220 60 60 / 0.18); color: rgb(240 120 120); opacity: 1; }
+.obj-add:hover { background: rgb(var(--accent) / 0.16); color: rgb(var(--accent)); opacity: 1; }
+.obj-corner, .obj-rowend { justify-content: center; }
+.obj-add-row {
+  width: 100%;
+  padding: 5px;
+  border: 0;
+  border-top: 1px solid rgb(var(--border) / 0.5);
+  background: transparent;
+  color: rgb(var(--text-muted));
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.obj-add-row:hover { background: rgb(var(--accent) / 0.1); color: rgb(var(--accent)); }
+/* Embed object — a live iframe for embeddable providers, a paste-a-link prompt
+   before a URL is set, or a link card when the site refuses framing. The bar is
+   a drag handle: a cross-origin iframe eats pointer events, so the node needs a
+   non-iframe strip to grab. */
+.canvas-object.obj-embed { display: flex; flex-direction: column; }
+.obj-embed-body { flex: 1; min-height: 0; display: flex; }
+.obj-embed-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 10px;
+  cursor: grab;
+  border-bottom: 1px solid rgb(var(--border) / 0.5);
+  background: rgb(var(--bg));
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+}
+.obj-embed-bar-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: rgb(var(--text-secondary));
+}
+.obj-embed-bar-open {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: rgb(var(--text-muted));
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.obj-embed-bar-open:hover { background: rgb(var(--accent) / 0.16); color: rgb(var(--accent)); }
+.obj-embed-frame {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  background: #000;
+}
+.obj-embed-frame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+/* Same-origin overlay: keeps drag/resize pointer-capture off the iframe until
+   you double-click to interact. */
+.obj-embed-shield {
+  position: absolute;
+  inset: 0;
+  cursor: grab;
+  background: transparent;
+}
+.canvas-object.obj-embed.selected .obj-embed-shield::after {
+  content: "double-click to use";
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  color: rgb(255 255 255 / 0.9);
+  background: rgb(0 0 0 / 0.55);
+  pointer-events: none;
+}
+.obj-embed-empty {
+  flex: 1;
+  padding: 14px;
+}
+.obj-embed-input {
+  width: 100%;
+  border: 0;
+  background: rgb(var(--bg) / 0.6);
+  border-radius: 6px;
+  padding: 9px 11px;
+  font: inherit;
+  font-size: 12.5px;
+  color: rgb(var(--text-primary));
+  outline: none;
+  box-shadow: 0 0 0 1px rgb(var(--border) / 0.7);
+}
+.obj-embed-input:focus { box-shadow: 0 0 0 1.5px rgb(var(--accent) / 0.7); }
+.obj-embed-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+}
+.obj-embed-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgb(var(--text-primary));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.obj-embed-url {
+  font-size: 11.5px;
+  color: rgb(var(--text-muted));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.obj-embed-open {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 6px;
+  background: rgb(var(--accent) / 0.14);
+  color: rgb(var(--accent));
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.obj-embed-open:hover { background: rgb(var(--accent) / 0.24); }
 .task-card {
   position: relative;
   border-radius: var(--radius, 2px);
@@ -836,6 +1108,77 @@ body {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
+}
+/* Semantic-zoom chip: at low zoom a card shows only a large, legible title so
+   the board reads as a labeled map instead of a field of smudges. The tile
+   collapses to hug its title (overriding the page's min-height and any fixed
+   card height) so a long page becomes a compact label, not a mostly-empty box. */
+.note.lod {
+  overflow: hidden;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none;
+}
+.note.lod .note-pad-cover {
+  display: none;
+}
+.note-lod {
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 30px;
+  line-height: 1.16;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: rgb(var(--text-primary));
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.note-lod-empty {
+  opacity: 0.3;
+  font-style: italic;
+}
+/* Collapsed tall note: clipped to a peek with a fade into its own background
+   and a chevron toggle. The fade uses --note-bg (set per-note so tints match). */
+.note-collapsed::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 76px;
+  pointer-events: none;
+  z-index: 2;
+  background: linear-gradient(to bottom, transparent, var(--note-bg, rgb(var(--bg-secondary))));
+}
+.note-collapse-toggle {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgb(var(--bg) / 0.72);
+  color: rgb(var(--text-secondary));
+  box-shadow: 0 0 0 1px rgb(var(--border) / 0.7);
+  cursor: pointer;
+  opacity: 0.85;
+  transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+.note-collapse-toggle svg {
+  transition: transform 160ms ease;
+}
+.note-collapse-toggle:hover {
+  background: rgb(var(--accent) / 0.16);
+  color: rgb(var(--accent));
+  opacity: 1;
 }
 .note-rest {
   position: relative;

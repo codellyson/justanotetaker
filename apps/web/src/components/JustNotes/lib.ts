@@ -1,8 +1,9 @@
 // How a single note presents itself. `card` is the everyday note (optionally
 // tinted with a color); `page` a document surface a long note auto-promotes to;
 // `frame` a containment region other notes belong to; `image` an uploaded
-// picture; `task` a live agent job with a status lifecycle.
-export type NoteKind = "card" | "page" | "frame" | "image" | "task";
+// picture; `task` a live agent job with a status lifecycle; `object` a live
+// canvas object (a table for now) whose state you and an agent both operate.
+export type NoteKind = "card" | "page" | "frame" | "image" | "task" | "object";
 
 // Kind-specific payloads carried in `meta`.
 export type ImageMeta = {
@@ -22,8 +23,62 @@ export type TaskMeta = {
 };
 export type FrameMeta = {
   collapsed?: boolean;
+  // "stack" turns a frame into a kanban column: members auto-arrange as a
+  // top-aligned vertical list and the frame sizes its height to wrap them.
+  layout?: "free" | "stack";
 };
-export type NoteMeta = ImageMeta | TaskMeta | FrameMeta;
+
+// A live canvas object. The contract is deliberately small: an `objectType` tag
+// and a serializable `state` blob. New object kinds are new state shapes here —
+// and the MCP layer reads/writes that same blob, so an agent can operate any
+// object without a per-widget tool. Widgets that need more than the web can give
+// (a live browser for any site) degrade per surface; an embed does its best on
+// both (iframe for embeddable providers, a link card otherwise).
+export type TableState = { columns: string[]; rows: string[][] };
+export type EmbedState = { url: string; title?: string };
+export type ObjectType = "table" | "embed";
+export type ObjectMeta =
+  | { objectType: "table"; state: TableState }
+  | { objectType: "embed"; state: EmbedState };
+
+export type NoteMeta = ImageMeta | TaskMeta | FrameMeta | ObjectMeta;
+
+export const emptyTable = (): TableState => ({
+  columns: ["", ""],
+  rows: [["", ""], ["", ""]],
+});
+export const emptyEmbed = (): EmbedState => ({ url: "" });
+
+// Turn a page URL into an embeddable iframe src for the providers that allow
+// framing; null means "not embeddable — show a link card instead". This is the
+// honest web story: known providers go live, everything else is a link (a real
+// browser for arbitrary sites is the desktop-only webview object).
+export function embedSrc(raw: string): string | null {
+  const url = raw.trim();
+  if (!url) return null;
+  let u: URL;
+  try { u = new URL(url); } catch { return null; }
+  const host = u.hostname.replace(/^www\./, "");
+  const yt = () => {
+    if (host === "youtu.be") return u.pathname.slice(1);
+    if (host.endsWith("youtube.com")) return u.searchParams.get("v") || (u.pathname.startsWith("/embed/") ? u.pathname.slice(7) : "");
+    return "";
+  };
+  if (host.endsWith("youtube.com") || host === "youtu.be") {
+    const id = yt();
+    return id ? `https://www.youtube.com/embed/${id}` : null;
+  }
+  if (host.endsWith("vimeo.com")) {
+    const id = u.pathname.split("/").filter(Boolean).pop();
+    return id && /^\d+$/.test(id) ? `https://player.vimeo.com/video/${id}` : null;
+  }
+  if (host === "open.spotify.com") return `https://open.spotify.com/embed${u.pathname}`;
+  if (host.endsWith("soundcloud.com")) return `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}`;
+  if (host.endsWith("loom.com") && u.pathname.startsWith("/share/")) return `https://www.loom.com/embed/${u.pathname.slice(7)}`;
+  if (host.endsWith("figma.com")) return `https://www.figma.com/embed?embed_host=share&url=${encodeURIComponent(url)}`;
+  if (host.endsWith("codesandbox.io")) return url.replace("/s/", "/embed/");
+  return null;
+}
 
 // Markdown task tally across a text: `- [ ]` and `- [x]` items.
 export function countTasks(text: string): { done: number; total: number } {

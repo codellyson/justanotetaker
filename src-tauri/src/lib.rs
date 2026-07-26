@@ -338,13 +338,17 @@ fn run_task_inner(app: &AppHandle, url: &str, note_id: &str) -> Result<(), Strin
 
     let claude = resolve_claude();
     match run_claude(&claude, &prompt) {
+        // The answer is content, not a job — resolve the task into a plain page
+        // (every note is a page). The task/status chrome was only the transient
+        // working state. Errors stay a task so the failure + Retry survive.
         Ok(result) => patch_task(
             &client,
             url,
             &token,
             note_id,
             &serde_json::json!({
-                "meta": { "status": "done", "prompt": prompt, "finishedAt": now_ms() },
+                "kind": "page",
+                "meta": null,
                 "text": result,
                 "t": now_ms(),
             }),

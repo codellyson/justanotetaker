@@ -3,7 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import type { Env } from "../env";
 
-const kindSchema = z.enum(["card", "page", "frame", "image", "task"]);
+const kindSchema = z.enum(["card", "page", "frame", "image", "task", "object"]);
 
 // Kind-specific payloads carried in the `meta` JSON column. The shapes are
 // disjoint (key vs status), so a plain union stays unambiguous even on
@@ -22,12 +22,31 @@ const taskMetaSchema = z.object({
   finishedAt: z.number().optional(),
   error: z.string().max(4000).optional(),
 });
+// A live canvas object: a type tag + a serializable state blob. Requires both
+// keys, so it stays disjoint from the frame catch-all. Sizes are bounded to keep
+// a runaway agent from writing a giant blob.
+const tableObjectSchema = z.object({
+  objectType: z.literal("table"),
+  state: z.object({
+    columns: z.array(z.string().max(2000)).max(40),
+    rows: z.array(z.array(z.string().max(4000)).max(40)).max(500),
+  }),
+});
+const embedObjectSchema = z.object({
+  objectType: z.literal("embed"),
+  state: z.object({
+    url: z.string().max(2000),
+    title: z.string().max(300).optional(),
+  }),
+});
+const objectMetaSchema = z.union([tableObjectSchema, embedObjectSchema]);
 // Frame view state (collapsed folds the region to its label bar). Last in the
 // union — its fields are all optional, so it must not shadow the others.
 const frameMetaSchema = z.object({
   collapsed: z.boolean().optional(),
+  layout: z.enum(["free", "stack"]).optional(),
 });
-const metaSchema = z.union([imageMetaSchema, taskMetaSchema, frameMetaSchema]).nullable().optional();
+const metaSchema = z.union([imageMetaSchema, taskMetaSchema, objectMetaSchema, frameMetaSchema]).nullable().optional();
 
 const createSchema = z.object({
   id: z.string().optional(),

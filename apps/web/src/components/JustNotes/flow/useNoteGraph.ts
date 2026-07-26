@@ -1,6 +1,7 @@
 import type { Edge, Node, NodeChange } from "@xyflow/react";
 import type { Dispatch, SetStateAction } from "react";
-import { countTasks, tagsOf, type FrameMeta, type Note } from "../lib";
+import { countTasks, tagsOf, type FrameMeta, type Note, type ObjectMeta } from "../lib";
+import { FRAME_DEFAULT_W, FRAME_PAD } from "./FrameNode";
 
 export type NoteNodeHandlers = {
   onTextChange: (id: string, v: string) => void;
@@ -9,11 +10,18 @@ export type NoteNodeHandlers = {
   onToggleTask: (id: string, taskIndex: number) => void;
   onResize: (id: string, p: { x: number; y: number; width: number; height: number }) => void;
   onResizeEnd: (id: string, p: { x: number; y: number; width: number; height: number }) => void;
-  // Frames: fold/unfold the region; fly the camera to it.
+  // Frames: fold/unfold the region; fly the camera to it; toggle column layout.
   onToggleCollapse: (id: string) => void;
+  onToggleLayout: (id: string) => void;
   onFrameLabelClick: (id: string) => void;
+  // Content notes: expand/collapse a tall note's height (peek ⇄ full).
+  onToggleHeight: (id: string) => void;
+  // Canvas objects: commit an object's edited state (table, embed, …).
+  onObjectState: (id: string, meta: ObjectMeta) => void;
   // Task cards (Tauri): run/retry the local claude job.
   onRunTask?: (id: string) => void;
+  // Canvas objects: commit a new state blob (e.g. a table edit).
+  onTableState: (id: string, state: TableState) => void;
 };
 
 // What a frame's label bar reports about its members.
@@ -29,9 +37,18 @@ export type NoteNodeData = {
   fromClipboard: boolean;
   scrubFade: number;
   clickPos: { x: number; y: number } | null;
+  // Content notes: user chose to show a tall note at full height (overrides the
+  // auto-collapse-to-a-peek default).
+  expanded?: boolean;
+  // Set on a note that lives in a kanban column: the lane's inner width, which
+  // overrides the note's own width so it fills the column.
+  stackWidth?: number;
   // Frames only.
   collapsed?: boolean;
+  frameLayout?: "free" | "stack";
   frameStats?: FrameStats;
+  // Frames only: this column is the live drop target of a card drag.
+  isDropTarget?: boolean;
   handlers: NoteNodeHandlers;
 };
 
@@ -55,20 +72,42 @@ export function buildNoteNodes(args: {
   focusId: string | null;
   scrubMoment: number | null;
   clipboardIds: Set<string>;
+  expandedIds: Set<string>;
   editClickPos: { x: number; y: number } | null;
   // RF-measured node sizes, fed back from "dimensions" changes. Nodes derived
   // without `measured` count as uninitialized and RF refuses to drag/resize
   // them (error #015), so the cache must round-trip through here.
   measuredDims: Map<string, { width: number; height: number }>;
+  // The kanban column currently highlighted as a card's drop target.
+  dropTargetId: string | null;
   handlers: NoteNodeHandlers;
 }): NoteFlowNode[] {
-  // A collapsed frame folds to its label bar and its members disappear from
-  // the canvas (they stay in state and keep syncing — just not rendered).
+  // A collapsed frame folds to its label bar and its whole subtree disappears
+  // from the canvas (state + sync untouched — just not rendered). Nesting-aware:
+  // collapsing a board hides its lanes and their cards, not just direct members.
   const collapsedFrames = new Set(
     args.notes
       .filter((n) => n.kind === "frame" && (n.meta as FrameMeta | null)?.collapsed)
       .map((n) => n.id),
   );
+  const parentOf = new Map(args.notes.map((n) => [n.id, n.parentId ?? null]));
+  const hasCollapsedAncestor = (id: string) => {
+    let p = parentOf.get(id) ?? null;
+    while (p) {
+      if (collapsedFrames.has(p)) return true;
+      p = parentOf.get(p) ?? null;
+    }
+    return false;
+  };
+  // Stack columns: members get a CSS transition (glide on re-pack) AND render at
+  // the lane's inner width so a wide page fits the column instead of overflowing.
+  const stackInnerW = new Map<string, number>();
+  for (const n of args.notes) {
+    if (n.kind === "frame" && (n.meta as FrameMeta | null)?.layout === "stack") {
+      stackInnerW.set(n.id, Math.max(80, (n.w ?? FRAME_DEFAULT_W) - FRAME_PAD * 2));
+    }
+  }
+  const stackFrameIds = new Set(stackInnerW.keys());
   const statsByFrame = new Map<string, FrameStats>();
   for (const n of args.notes) {
     if (!n.parentId || n.kind === "frame") continue;
@@ -80,7 +119,7 @@ export function buildNoteNodes(args: {
     statsByFrame.set(n.parentId, s);
   }
 
-  return args.notes.filter((n) => !(n.parentId && collapsedFrames.has(n.parentId))).map((n) => {
+  return args.notes.filter((n) => !hasCollapsedAncestor(n.id)).map((n) => {
     const editing = args.editingId === n.id;
     const dragging = args.draggingId === n.id;
     const highlit = !!args.matchSet && args.matchSet.has(n.id);
@@ -91,16 +130,21 @@ export function buildNoteNodes(args: {
     // because RF's elevateNodesOnSelect is disabled (it would lift a selected
     // frame +1000 above its members).
     const zIndex =
-      n.kind === "frame" ? -10 :
+      // A wrapping board frame sits below its nested lanes (which sit below all
+      // content), so the board's fill never paints over the lanes.
+      n.kind === "frame" ? (n.parentId ? -10 : -11) :
       editing ? 60 : dragging ? 50 : highlit ? 40 : selected ? 30 : 0;
     return {
       id: n.id,
-      type: n.kind === "frame" ? "frame" : n.kind === "image" ? "image" : n.kind === "task" ? "task" : "note",
+      type: n.kind === "frame" ? "frame" : n.kind === "image" ? "image" : n.kind === "task" ? "task" : n.kind === "object" ? "object" : "note",
       position: { x: n.x, y: n.y },
       measured: args.measuredDims.get(n.id),
       selected,
       draggable: !editing,
-      className: args.snappingId === n.id ? "snapping" : undefined,
+      className: [
+        args.snappingId === n.id ? "snapping" : "",
+        n.parentId && stackFrameIds.has(n.parentId) ? "stack-member" : "",
+      ].filter(Boolean).join(" ") || undefined,
       zIndex,
       data: {
         note: n,
@@ -112,8 +156,12 @@ export function buildNoteNodes(args: {
         fromClipboard: args.clipboardIds.has(n.id),
         scrubFade: args.scrubMoment == null ? 1 : n.t <= args.scrubMoment ? 1 : 0,
         clickPos: editing ? args.editClickPos : null,
+        expanded: args.expandedIds.has(n.id),
+        stackWidth: n.parentId ? stackInnerW.get(n.parentId) : undefined,
         collapsed: n.kind === "frame" ? collapsedFrames.has(n.id) : undefined,
+        frameLayout: n.kind === "frame" ? ((n.meta as FrameMeta | null)?.layout ?? "free") : undefined,
         frameStats: n.kind === "frame" ? statsByFrame.get(n.id) ?? { count: 0, done: 0, total: 0 } : undefined,
+        isDropTarget: n.kind === "frame" ? n.id === args.dropTargetId : undefined,
         handlers: args.handlers,
       },
     };

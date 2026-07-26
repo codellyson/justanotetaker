@@ -168,7 +168,7 @@ server.registerTool(
   async ({ board }) => {
     const b = await resolveBoard(board);
     const notes = await boardNotes(b.id);
-    const out = notes.map((n) => ({ id: n.id, x: n.x, y: n.y, t: n.t, kind: n.kind, text: n.text, parentId: n.parentId ?? null }));
+    const out = notes.map((n) => ({ id: n.id, x: n.x, y: n.y, t: n.t, kind: n.kind, text: n.text, parentId: n.parentId ?? null, ...(n.kind === "object" ? { meta: n.meta } : {}) }));
     return text(JSON.stringify({ board: b.name, notes: out }, null, 2));
   },
 );
@@ -276,12 +276,18 @@ server.registerTool(
     const { note } = await api<{ note: ApiNote }>(`/api/notes/by-id/${encodeURIComponent(id)}`);
     const prev = (note.meta ?? {}) as Record<string, unknown>;
     const now = Date.now();
-    const meta: Record<string, unknown> = { ...prev, status };
-    if (status === "running") meta.startedAt = now;
-    if (status === "done" || status === "error") meta.finishedAt = now;
-    if (error !== undefined) meta.error = error;
-    const patch: Record<string, unknown> = { meta };
-    if (status === "done" && result !== undefined) { patch.text = result; patch.t = now; }
+    let patch: Record<string, unknown>;
+    if (status === "done") {
+      // The answer is content, not a job — resolve the task into a plain page
+      // (every note is a page). The status chrome was only transient scaffolding.
+      patch = { kind: "page", meta: null, t: now };
+      if (result !== undefined) patch.text = result;
+    } else {
+      const meta: Record<string, unknown> = { ...prev, status };
+      if (status === "running") meta.startedAt = now;
+      if (status === "error") { meta.finishedAt = now; if (error !== undefined) meta.error = error; }
+      patch = { meta };
+    }
     await api(`/api/notes/${encodeURIComponent(id)}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
@@ -299,6 +305,78 @@ server.registerTool(
   async ({ query }) => {
     const res = await api<{ matches: unknown[] }>(`/api/notes/search?q=${encodeURIComponent(query)}`);
     return { content: [{ type: "text", text: JSON.stringify(res.matches ?? res, null, 2) }] };
+  },
+);
+
+// Canvas objects — live widgets you and the user share on the board. The
+// contract is one state blob per object, so these two tools cover every object
+// type (a table today; more later) instead of a tool per widget.
+const tableState = z.object({
+  columns: z.array(z.string()).describe("Column headers"),
+  rows: z.array(z.array(z.string())).describe("Rows of cells, aligned to columns"),
+});
+const embedState = z.object({
+  url: z.string().describe("The page/media URL to embed"),
+  title: z.string().optional().describe("Optional label"),
+});
+const objectState = z.union([tableState, embedState])
+  .describe("Table: { columns, rows }. Embed: { url, title? }.");
+
+server.registerTool(
+  "create_object",
+  {
+    description:
+      "Create a live canvas object. Today the only type is 'table' — a grid the " +
+      "user can also edit by hand. Use this to hand structured results back onto " +
+      "the canvas (a comparison, a checklist matrix, extracted data). Update it " +
+      "later with set_object_state.",
+    inputSchema: {
+      board: z.string().describe("Board name or id (see list_boards)"),
+      objectType: z.enum(["table", "embed"]).default("table"),
+      state: objectState,
+      x: z.number().optional(),
+      y: z.number().optional(),
+    },
+  },
+  async ({ board, objectType, state, x, y }) => {
+    const b = await resolveBoard(board);
+    const { note } = await api<{ note?: { id?: string } }>("/api/notes", {
+      method: "POST",
+      body: JSON.stringify({
+        boardId: b.id,
+        x: x ?? Math.round(Math.random() * 1000 - 100),
+        y: y ?? Math.round(Math.random() * 600 - 50),
+        t: Date.now(),
+        kind: "object",
+        text: "",
+        meta: { objectType, state },
+      }),
+    });
+    return text(`Created ${objectType} ${note?.id ?? ""} on "${b.name}".`);
+  },
+);
+
+server.registerTool(
+  "set_object_state",
+  {
+    description:
+      "Replace a canvas object's state by id (from list_notes). For a table pass " +
+      "the full { columns, rows }; for an embed pass { url, title? }. The change " +
+      "appears on the user's canvas within seconds — this is how an agent fills " +
+      "or updates an object.",
+    inputSchema: {
+      id: z.string().describe("Object note id"),
+      state: objectState,
+    },
+  },
+  async ({ id, state }) => {
+    const { note } = await api<{ note: ApiNote }>(`/api/notes/by-id/${encodeURIComponent(id)}`);
+    const objectType = (note.meta as { objectType?: string } | null)?.objectType ?? "table";
+    await api(`/api/notes/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ meta: { objectType, state }, t: Date.now() }),
+    });
+    return text(`Updated ${objectType} ${id}.`);
   },
 );
 
