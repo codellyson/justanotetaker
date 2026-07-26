@@ -763,6 +763,47 @@ body {
   font-size: 12.5px;
   line-height: 1.45;
 }
+/* Slim floating input for a typed follow-up question. */
+.followup-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  z-index: 220;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(560px, 90vw);
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgb(var(--bg-secondary));
+  box-shadow: 0 8px 30px rgb(0 0 0 / 0.35), 0 0 0 1px rgb(var(--border) / 0.7);
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  animation: reader-fade 140ms ease;
+}
+.followup-label { flex: none; font-size: 12px; color: rgb(var(--text-secondary)); }
+.followup-label b { color: rgb(var(--text-primary)); font-weight: 600; }
+.followup-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  color: rgb(var(--text-primary));
+  outline: none;
+}
+/* Blinking caret while the answer is still streaming in. */
+.task-caret {
+  display: inline-block;
+  width: 6px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: rgb(var(--accent));
+  animation: task-caret-blink 1s steps(1) infinite;
+}
+@keyframes task-caret-blink { 50% { opacity: 0; } }
 .task-error {
   margin-top: 6px;
   padding: 5px 8px;

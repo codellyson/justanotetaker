@@ -113,6 +113,12 @@ export type Recency = "fresh" | "recent" | "older" | "ancient";
 
 export const GRID = 28;
 
+// A fresh note is a compact column that grows down as you type — a note, not a
+// blank page. It auto-widens to the full document (PAPER_W) once it's long
+// enough to read better as one; a manual resize overrides both.
+export const NOTE_DEFAULT_W = 360;
+export const NOTE_PROMOTE_CHARS = 700;
+
 // Paper is true A4 portrait at 96 CSS px/in (210×297mm ⇒ 794×1123px, 1:√2).
 export const PAPER_W = 794;
 export const PAPER_H = Math.round(PAPER_W * Math.SQRT2); // 1123

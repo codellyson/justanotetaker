@@ -79,6 +79,82 @@ function providerError(body: string, status: number): string {
   return `${status}`;
 }
 
+// Stream a prompt against the configured provider, browser-direct. Calls
+// onToken with each text delta as it arrives and returns the full answer. All
+// three providers stream over SSE (`data: {json}` lines); we dispatch on the
+// payload shape. This is the feedback loop — the answer types itself in live.
+export async function runAiStream(
+  system: string,
+  user: string,
+  onToken: (delta: string) => void,
+): Promise<string> {
+  const cfg = getAiConfig();
+  if (!cfg) throw new Error("No AI key set — add one in Settings.");
+  const model = cfg.model?.trim() || metaFor(cfg.provider).defaultModel;
+
+  let url: string;
+  let headers: Record<string, string>;
+  let body: unknown;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let extract: (d: any) => string | undefined;
+
+  if (cfg.provider === "anthropic") {
+    url = "https://api.anthropic.com/v1/messages";
+    headers = {
+      "x-api-key": cfg.apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+      "content-type": "application/json",
+    };
+    body = { model, max_tokens: MAX_TOKENS, stream: true, system, messages: [{ role: "user", content: user }] };
+    extract = (d) => (d?.type === "content_block_delta" && d.delta?.type === "text_delta" ? d.delta.text : undefined);
+  } else if (cfg.provider === "openai") {
+    url = "https://api.openai.com/v1/chat/completions";
+    headers = { authorization: `Bearer ${cfg.apiKey}`, "content-type": "application/json" };
+    body = { model, max_tokens: MAX_TOKENS, stream: true, messages: [{ role: "system", content: system }, { role: "user", content: user }] };
+    extract = (d) => d?.choices?.[0]?.delta?.content;
+  } else {
+    url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
+    headers = { "x-goog-api-key": cfg.apiKey, "content-type": "application/json" };
+    body = {
+      system_instruction: { parts: [{ text: system }] },
+      contents: [{ role: "user", parts: [{ text: user }] }],
+      generationConfig: { maxOutputTokens: MAX_TOKENS },
+    };
+    extract = (d) => d?.candidates?.[0]?.content?.parts?.[0]?.text;
+  }
+
+  const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+  if (!res.ok || !res.body) {
+    const t = await res.text().catch(() => "");
+    throw new Error(providerError(t, res.status));
+  }
+
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  let full = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
+      if (!data || data === "[DONE]") continue;
+      let parsed: unknown;
+      try { parsed = JSON.parse(data); } catch { continue; }
+      const tok = extract(parsed);
+      if (tok) { full += tok; onToken(tok); }
+    }
+  }
+  if (!full) throw new Error("The model returned no text.");
+  return full;
+}
+
 // Run a single-shot prompt against the configured provider, browser-direct.
 // Returns the model's plain-text answer. Throws with a readable message.
 export async function runAiPrompt(system: string, user: string): Promise<string> {

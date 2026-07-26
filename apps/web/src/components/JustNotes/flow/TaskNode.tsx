@@ -43,7 +43,7 @@ function TaskNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
         <div className="task-head">
           <span className={"task-chip task-chip-" + status}>
             <span className="task-dot" aria-hidden="true" />
-            {STATUS_LABEL[status]}
+            {status === "running" && !note.text ? "thinking…" : STATUS_LABEL[status]}
           </span>
           {canRun && (
             <button
@@ -59,10 +59,15 @@ function TaskNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
           )}
         </div>
 
-        {status === "done" && note.text ? (
-          <div className="task-result">{renderBody(note.text)}</div>
+        {note.text ? (
+          // Streaming (running) or final (done): show the answer as it builds,
+          // with a caret while it's still coming in.
+          <div className="task-result">
+            {renderBody(note.text)}
+            {status === "running" && <span className="task-caret" aria-hidden="true" />}
+          </div>
         ) : (
-          <div className="task-prompt">{meta.prompt || note.text}</div>
+          <div className="task-prompt">{meta.prompt}</div>
         )}
 
         {status === "error" && meta.error && <div className="task-error">{meta.error}</div>}

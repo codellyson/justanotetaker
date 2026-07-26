@@ -3,6 +3,8 @@ import { Handle, NodeResizer, Position, useConnection, useStore, type NodeProps 
 import {
   RECENCY_ALPHA,
   PAPER_W,
+  NOTE_DEFAULT_W,
+  NOTE_PROMOTE_CHARS,
   firstNonEmpty,
   recencyOf,
   resolveNoteColor,
@@ -101,8 +103,11 @@ function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
     style.width = stackWidth;
     style.minHeight = 0;
   } else if (note.kind === "page") {
-    style.width = note.w ?? PAPER_W;
-    style.minHeight = note.h ?? 200;
+    // Compact column by default; auto-widen to a full page once the note is long
+    // enough to read as a document. A manual resize (note.w) wins over both.
+    const wide = note.text.length > NOTE_PROMOTE_CHARS;
+    style.width = note.w ?? (wide ? PAPER_W : NOTE_DEFAULT_W);
+    if (note.h != null) style.minHeight = note.h;
   } else {
     // card (legacy): resizable, else content-height from CSS.
     if (note.w != null) style.width = note.w;

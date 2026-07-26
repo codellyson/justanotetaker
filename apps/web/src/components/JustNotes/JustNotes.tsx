@@ -22,6 +22,7 @@ import {
   resolveNoteColor,
   NOTE_COLOR_KEYS,
   NOTE_COLOR_MAP,
+  NOTE_DEFAULT_W,
   PAPER_W,
   PAPER_H,
   type FrameMeta,
@@ -55,7 +56,7 @@ import { TweaksUI } from "./tweaks";
 import { remoteStorage, uploadMedia, type NoteLink } from "../../lib/storage";
 import { authClient, clearKeychainToken } from "../../lib/auth-client";
 import { API_BASE_URL, isTauri } from "../../lib/runtime";
-import { hasAiKey, runAiPrompt } from "../../lib/ai";
+import { hasAiKey, runAiStream } from "../../lib/ai";
 import { AuthPanel } from "../AuthPanel";
 import { ApiTokensPanel } from "./api-tokens";
 import { filterCommands, type Command } from "../../lib/commands";
@@ -260,6 +261,8 @@ function JustNotesInner(props: JustNotesProps) {
   const [graveyardOpen, setGraveyardOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [canvasMenu, setCanvasMenu] = useState<{ x: number; y: number; cx: number; cy: number } | null>(null);
+  // A pending typed follow-up: which notes it hangs off, and a label to show.
+  const [followUp, setFollowUp] = useState<{ ids: string[]; label: string } | null>(null);
   // Right-click on app chrome (sidebar bg, toolbar, backdrop) — misc actions.
   const [globalMenu, setGlobalMenu] = useState<{ x: number; y: number } | null>(null);
 
@@ -505,7 +508,7 @@ function JustNotesInner(props: JustNotesProps) {
       setSelectedIds(new Set([id]));
       return;
     }
-    const w = tweakRef.current.noteWidth;
+    const w = kind === "page" ? NOTE_DEFAULT_W : tweakRef.current.noteWidth;
     const spot = findFreeSpot(canvasX - w / 2, canvasY - 22);
     // Spawned inside a frame? Adopt it as a member so it moves with the frame.
     const parentId = hitFrame(canvasX, canvasY)?.id ?? null;
@@ -576,7 +579,7 @@ function JustNotesInner(props: JustNotesProps) {
 
   function spawnCommitted(canvasX: number, canvasY: number, text: string, opts?: { localOnly?: boolean }): string {
     const id = uid();
-    const w = tweakRef.current.noteWidth;
+    const w = NOTE_DEFAULT_W;
     const spot = findFreeSpot(canvasX - w / 2, canvasY - 22);
     const x = spot.x;
     const y = spot.y;
@@ -1116,7 +1119,7 @@ function JustNotesInner(props: JustNotesProps) {
   // beside the cluster, and — on desktop — run it at once so the answer resolves
   // in place. On the web it stays queued for an MCP agent to answer via
   // update_task; either way the poll/merge pulls the result onto the canvas.
-  function askCluster(noteIds: string[]) {
+  function askCluster(noteIds: string[], question?: string) {
     const wanted = new Set<string>();
     let topic = "";
     for (const nid of noteIds) {
@@ -1129,6 +1132,11 @@ function JustNotesInner(props: JustNotesProps) {
         wanted.add(nid);
       }
     }
+    // Fold in linked neighbours so asking along a thread carries its history
+    // (this is what makes a follow-up work: ask on the answer → the question and
+    // its prior answer come with it).
+    const askIds = new Set(noteIds);
+    for (const nid of linkedNeighbors(wanted)) wanted.add(nid);
     const members = notesRef.current.filter(
       (n) => wanted.has(n.id) && n.kind !== "task" && n.kind !== "image",
     );
@@ -1136,12 +1144,15 @@ function JustNotesInner(props: JustNotesProps) {
 
     const ordered = [...members].sort((a, b) => (Math.abs(a.y - b.y) > 40 ? a.y - b.y : a.x - b.x));
     const context = ordered.map((n) => n.text.trim()).filter(Boolean).join("\n\n---\n\n");
+    const q = question?.trim();
     const prompt =
       `These notes come from a spatial thinking canvas` +
       (topic ? `, grouped under "${topic}"` : "") +
       `, listed in reading order:\n\n${context}\n\n---\n\n` +
-      `Using them as context, give a useful response: if they pose a question, answer it; ` +
-      `if they are ideas or fragments, synthesize, extend, or reconcile them. Be concise.`;
+      (q
+        ? `Answer this question using the notes above as context:\n\n${q}`
+        : `Using them as context, give a useful response: if they pose a question, answer it; ` +
+          `if they are ideas or fragments, synthesize, extend, or reconcile them. Be concise.`);
 
     let maxX = -Infinity, minY = Infinity;
     for (const n of members) {
@@ -1159,7 +1170,7 @@ function JustNotesInner(props: JustNotesProps) {
       w: 320,
       h: null,
       t: Date.now(),
-      text: topic ? `Ask: ${topic}` : `Ask: ${members.length} note${members.length === 1 ? "" : "s"}`,
+      text: q ? `Ask: ${q.slice(0, 60)}` : topic ? `Ask: ${topic}` : `Ask: ${members.length} note${members.length === 1 ? "" : "s"}`,
       kind: "task",
       color: null,
       meta,
@@ -1168,6 +1179,9 @@ function JustNotesInner(props: JustNotesProps) {
     pushOp({ type: "create", id });
     setSelectedIds(new Set([id]));
     markInteracted();
+    // Thread the answer back to what you asked — provenance, and the anchor a
+    // follow-up ask reads its context from.
+    for (const nid of askIds) if (notesRef.current.some((n) => n.id === nid)) linkNotes(id, nid);
     // Wait for the create to persist, then run it: desktop drives the local
     // claude CLI; web runs the user's own key browser-direct (BYOK).
     void Promise.resolve(onCreate(note)).then(() => {
@@ -1194,10 +1208,17 @@ function JustNotesInner(props: JustNotesProps) {
     setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, meta: running } : n)));
     onUpdate(id, { meta: running });
     try {
-      const answer = await runAiPrompt(
+      // Stream the answer into the card's text so it types in live. Flush on a
+      // timer (not every token) so the graph re-derives at most ~10×/s.
+      let acc = "";
+      let flush: number | null = null;
+      const paint = () => { flush = null; setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, text: acc } : n))); };
+      const answer = await runAiStream(
         "You are a thoughtful assistant helping someone think on a spatial canvas. Answer in clear, concise markdown.",
         prompt,
+        (tok) => { acc += tok; if (flush == null) flush = window.setTimeout(paint, 90); },
       );
+      if (flush != null) window.clearTimeout(flush);
       // Resolve into a page, mirroring the desktop run_task → page conversion.
       setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, kind: "page", text: answer, meta: null, t: Date.now() } : n)));
       onUpdate(id, { kind: "page", text: answer, meta: null, t: Date.now() });
@@ -1719,12 +1740,11 @@ function JustNotesInner(props: JustNotesProps) {
     setContextMenu({ id: node.id, x: e.clientX, y: e.clientY });
   }
 
-  function handleConnect(conn: Pick<Connection, "source" | "target">) {
-    const s = conn.source, t2 = conn.target;
+  // Create an undirected thread between two notes (deduped, normalized a<b).
+  function linkNotes(s: string, t2: string) {
     if (!s || !t2 || s === t2) return;
     const [a, b] = s < t2 ? [s, t2] : [t2, s];
     if (linksRef.current.some((l) => l.a === a && l.b === b)) return;
-    markInteracted();
     const id = uid();
     setLinks((ls) => [...ls, { id, a, b }]);
     markWrite();
@@ -1734,6 +1754,23 @@ function JustNotesInner(props: JustNotesProps) {
         if (saved.id !== id) setLinks((ls) => ls.map((l) => (l.id === id ? saved : l)));
       })
       .catch((err) => console.error("[links] create failed", err));
+  }
+
+  // Ids linked (1 hop) to any of the given notes — the thread neighbours whose
+  // text an ask folds in as context, so following a thread carries its history.
+  function linkedNeighbors(ids: Set<string>): Set<string> {
+    const out = new Set<string>();
+    for (const l of linksRef.current) {
+      if (ids.has(l.a)) out.add(l.b);
+      if (ids.has(l.b)) out.add(l.a);
+    }
+    return out;
+  }
+
+  function handleConnect(conn: Pick<Connection, "source" | "target">) {
+    if (!conn.source || !conn.target) return;
+    markInteracted();
+    linkNotes(conn.source, conn.target);
   }
 
   // RF only completes a connection when the drop lands on a handle it knows
@@ -2505,6 +2542,11 @@ function JustNotesInner(props: JustNotesProps) {
             frameLayout={n?.kind === "frame" ? frameLayoutOf(n) : undefined}
             askLabel={askLabel}
             onAsk={() => { setContextMenu(null); askCluster(askIds); }}
+            onFollowUp={() => {
+              const label = inMultiSel ? `${selectedIds.size} notes` : firstNonEmpty(n?.text ?? "") || "this note";
+              setContextMenu(null);
+              setFollowUp({ ids: askIds, label });
+            }}
             onSetColor={(c) => setNoteColor(contextMenu.id, c)}
             onClose={() => setContextMenu(null)}
             onToggleLayout={n?.kind === "frame" ? () => {
@@ -2527,6 +2569,18 @@ function JustNotesInner(props: JustNotesProps) {
           />
         );
       })()}
+
+      {followUp && (
+        <FollowUpBar
+          label={followUp.label}
+          onSubmit={(question) => {
+            const ids = followUp.ids;
+            setFollowUp(null);
+            if (question.trim()) askCluster(ids, question.trim());
+          }}
+          onCancel={() => setFollowUp(null)}
+        />
+      )}
 
       {canvasMenu && (
         <CanvasContextMenu
@@ -2759,8 +2813,34 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
   );
 }
 
+// A slim input for a typed follow-up question, anchored to a note (or the
+// selection). Enter asks; Escape cancels. Context comes from the anchor and its
+// linked neighbours, and the answer threads back to the anchor.
+function FollowUpBar({ label, onSubmit, onCancel }: { label: string; onSubmit: (q: string) => void; onCancel: () => void }) {
+  const [q, setQ] = useState("");
+  const ref = useRef<HTMLInputElement | null>(null);
+  useEffect(() => { ref.current?.focus(); }, []);
+  return (
+    <div className="followup-bar" onMouseDown={(e) => e.stopPropagation()}>
+      <span className="followup-label">Follow up on <b>{label.length > 40 ? label.slice(0, 40) + "…" : label}</b></span>
+      <input
+        ref={ref}
+        className="followup-input"
+        placeholder="Ask a question…"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") onSubmit(q);
+          else if (e.key === "Escape") onCancel();
+        }}
+      />
+    </div>
+  );
+}
+
 function NoteContextMenu({
-  x, y, kind, color, frameLayout, askLabel, onAsk, onSetColor, onClose, onDelete, onDeleteContents, onRead, onToggleLayout,
+  x, y, kind, color, frameLayout, askLabel, onAsk, onFollowUp, onSetColor, onClose, onDelete, onDeleteContents, onRead, onToggleLayout,
 }: {
   x: number; y: number;
   kind: NoteKind; color: string | null;
@@ -2769,6 +2849,8 @@ function NoteContextMenu({
   // Hand this note / frame / selection to an agent as context.
   askLabel?: string;
   onAsk?: () => void;
+  // Ask a typed question anchored here (a follow-up along the thread).
+  onFollowUp?: () => void;
   onSetColor: (c: string | null) => void;
   onClose: () => void; onDelete: () => void;
   // Open in the reader (non-frames).
@@ -2839,6 +2921,11 @@ function NoteContextMenu({
         <button className="note-ctx-item" onClick={onAsk}>
           {askLabel}
           <span className="note-ctx-hint">⌘↵</span>
+        </button>
+      )}
+      {onFollowUp && (
+        <button className="note-ctx-item" onClick={onFollowUp}>
+          ask a follow-up…
         </button>
       )}
       {kind === "frame" && onToggleLayout && (
