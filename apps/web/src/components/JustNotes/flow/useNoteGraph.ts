@@ -20,8 +20,6 @@ export type NoteNodeHandlers = {
   onObjectState: (id: string, meta: ObjectMeta) => void;
   // Task cards (Tauri): run/retry the local claude job.
   onRunTask?: (id: string) => void;
-  // Canvas objects: commit a new state blob (e.g. a table edit).
-  onTableState: (id: string, state: TableState) => void;
 };
 
 // What a frame's label bar reports about its members.

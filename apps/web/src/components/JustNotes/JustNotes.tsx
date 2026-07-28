@@ -39,7 +39,7 @@ import {
 } from "./lib";
 import { FileTree } from "./FileTree";
 import { FlowCanvas } from "./flow/FlowCanvas";
-import { FRAME_DEFAULT_W, FRAME_DEFAULT_H, FRAME_MIN_W, FRAME_MIN_H, FRAME_PAD, FRAME_LABEL_H } from "./flow/FrameNode";
+import { FRAME_DEFAULT_W, FRAME_DEFAULT_H, FRAME_MIN_H, FRAME_PAD, FRAME_LABEL_H } from "./flow/FrameNode";
 import {
   applyNoteNodeChanges,
   buildNoteNodes,
@@ -927,7 +927,6 @@ function JustNotesInner(props: JustNotesProps) {
   // build), and the lane's height fits their content. Order is re-derived from
   // drop-Y on every drop/reorder.
   const STACK_GAP = 12;
-  const stackInnerW = (frame: Note) => Math.max(80, (frame.w ?? FRAME_DEFAULT_W) - FRAME_PAD * 2);
   function restackFrame(frameId: string) {
     const frame = notesRef.current.find((n) => n.id === frameId);
     if (!frame || frame.kind !== "frame" || isCollapsed(frame)) return;
