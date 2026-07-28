@@ -16,9 +16,15 @@ export function createClient({ baseUrl, getBearerToken }: CreateClientOpts) {
         const token = await getBearerToken();
         if (token) headers.set("Authorization", `Bearer ${token}`);
       }
+      // keepalive lets a write fired during pagehide outlive the tab (the
+      // unsynced-edit flush). Browsers cap keepalive bodies at 64KB and reject
+      // over it, so only small payloads opt in; big ones keep normal fetch.
+      const body = init?.body;
+      const keepalive = typeof body === "string" && body.length < 60_000 ? true : undefined;
       return fetch(input, {
         ...init,
         headers,
+        keepalive,
         // Cookies in the browser; bearer tokens in Tauri. Don't mix.
         credentials: getBearerToken ? "omit" : "include",
       });

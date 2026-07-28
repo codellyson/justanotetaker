@@ -166,7 +166,18 @@ function JustNotesInner(props: JustNotesProps) {
           changed = true;
           return { ...n, text: srv.text, meta: srv.meta, t: srv.t };
         }
-        if (n.kind !== "task") return n;
+        if (n.kind !== "task") {
+          // Card/page content from another device (or MCP update_note): adopt
+          // the server copy only when it's strictly NEWER than what we hold —
+          // our own unflushed edits carry a fresher t, so they win locally and
+          // reach the server on their own. Content only; position is left to
+          // the drag/containment machinery.
+          const srv = have.has(n.id) ? server.find((s) => s.id === n.id) : undefined;
+          if (!srv || srv.t <= n.t) return n;
+          if (srv.text === n.text && srv.color === n.color && srv.kind === n.kind) return n;
+          changed = true;
+          return { ...n, kind: srv.kind, text: srv.text, color: srv.color, meta: srv.meta, t: srv.t };
+        }
         const srv = have.has(n.id) ? server.find((s) => s.id === n.id) : undefined;
         if (!srv) return n;
         const sm = srv.meta as { status?: string } | null;
@@ -1107,6 +1118,44 @@ function JustNotesInner(props: JustNotesProps) {
       onUpdate(id, { meta });
     }, 500));
   }
+
+  // Unsynced-edit flush: writes waiting on a debounce (object edits) or on an
+  // edit-session commit (note text) would die with the tab. On tab-hide, push
+  // them now; on pagehide (close/navigate), also commit the open editor. The
+  // api-client marks small bodies keepalive so these survive the unload.
+  // commitEditing closes over editingId state, so the mount-time listener goes
+  // through a ref to reach the current render's version.
+  const commitEditingRef = useRef<() => void>(() => {});
+  commitEditingRef.current = commitEditing;
+  useEffect(() => {
+    const flushPending = () => {
+      const timers = objPersistRef.current;
+      for (const [id, timer] of timers) {
+        window.clearTimeout(timer);
+        timers.delete(id);
+        const n = notesRef.current.find((x) => x.id === id);
+        if (n?.meta) onUpdate(id, { meta: n.meta });
+      }
+      // Checkpoint an existing note's in-progress text without ending the edit
+      // session (the user may come back). New notes wait for their first commit.
+      const editing = editingIdRef.current;
+      if (editing && !editSnapshotRef.current?.isNew) {
+        const cur = notesRef.current.find((x) => x.id === editing);
+        if (cur && editSnapshotRef.current && cur.text !== editSnapshotRef.current.prevText) {
+          onUpdate(editing, { text: cur.text, t: Date.now() });
+        }
+      }
+    };
+    const onHide = () => { if (document.hidden) flushPending(); };
+    const onPageHide = () => { flushPending(); commitEditingRef.current(); };
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function spawnObject(cx: number, cy: number, objectType: ObjectType = "table") {
     markInteracted();
