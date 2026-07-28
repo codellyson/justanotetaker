@@ -145,7 +145,7 @@ function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
                 value={note.text}
                 onChange={(v) => handlers.onTextChange(note.id, v)}
                 onCommit={handlers.onCommitEdit}
-                className="note-cm nodrag"
+                className="note-cm nodrag nopan"
                 clickPos={clickPos}
                 measureSignal={measureTick}
               />

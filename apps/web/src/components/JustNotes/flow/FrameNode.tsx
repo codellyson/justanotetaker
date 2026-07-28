@@ -73,7 +73,7 @@ function FrameNodeInner({ data, selected }: NodeProps<NoteFlowNode>) {
           {editing ? (
             <input
               ref={inputRef}
-              className="frame-label-input nodrag"
+              className="frame-label-input nodrag nopan"
               defaultValue={firstNonEmpty(note.text)}
               onFocus={(e) => e.currentTarget.select()}
               onChange={(e) => handlers.onTextChange(note.id, e.target.value)}

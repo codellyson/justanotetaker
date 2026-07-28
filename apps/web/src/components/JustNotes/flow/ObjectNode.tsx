@@ -63,7 +63,7 @@ function TableWidget({ id, state: metaState, handlers }: { id: string; state: Ta
       <div className="obj-grid" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr)) 22px` }}>
         {state.columns.map((col, ci) => (
           <div className="obj-cell obj-th" key={"h" + ci}>
-            <input className="obj-input nodrag" value={col} placeholder={`Col ${ci + 1}`} onChange={(e) => setHeader(ci, e.target.value)} />
+            <input className="obj-input nodrag nopan" value={col} placeholder={`Col ${ci + 1}`} onChange={(e) => setHeader(ci, e.target.value)} />
             {cols > 1 && <button type="button" className="obj-del nodrag" title="Delete column" onClick={(e) => { e.stopPropagation(); delCol(ci); }}>×</button>}
           </div>
         ))}
@@ -74,7 +74,7 @@ function TableWidget({ id, state: metaState, handlers }: { id: string; state: Ta
           <div className="obj-row-contents" key={"r" + ri} style={{ display: "contents" }}>
             {Array.from({ length: cols }).map((_, ci) => (
               <div className="obj-cell obj-td" key={ri + "-" + ci}>
-                <input className="obj-input nodrag" value={row[ci] ?? ""} onChange={(e) => setCell(ri, ci, e.target.value)} />
+                <input className="obj-input nodrag nopan" value={row[ci] ?? ""} onChange={(e) => setCell(ri, ci, e.target.value)} />
               </div>
             ))}
             <div className="obj-cell obj-td obj-rowend">
@@ -118,7 +118,7 @@ function EmbedWidget({ id, state: metaState, selected, handlers }: { id: string;
     body = (
       <div className="obj-embed-empty">
         <input
-          className="obj-embed-input nodrag"
+          className="obj-embed-input nodrag nopan"
           placeholder="Paste a link (YouTube, Figma, Spotify, a page…)"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
