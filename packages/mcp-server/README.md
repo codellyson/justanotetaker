@@ -2,8 +2,8 @@
 
 A local **stdio MCP server** that lets any MCP client (Claude Code, Claude
 Desktop, etc.) work with your Just a Notetaker canvas — drop research, plans,
-or task lists onto a board mid-task, reorganize notes, and drive agent task
-cards.
+or task lists onto a board mid-task, reorganize notes, drive agent task cards,
+and fill live tables and embeds.
 
 It authenticates with a **personal API token** (`jnt_…`) and talks to the
 deployed API over HTTPS, exposing:
@@ -15,11 +15,13 @@ deployed API over HTTPS, exposing:
 | `rename_board` | Rename a board. |
 | `delete_board` | Delete a board and its notes (restorable in-app for 30 days). |
 | `create_note` | Create a markdown note on a board (headings, `- [ ]` tasks, `**bold**`, links, `![](img)`, …). Board by name or id; `x`/`y` optional. |
-| `list_notes` | List a board's notes with ids/positions/text (source of ids for update/delete). |
+| `list_notes` | List a board's notes with ids/positions/text/`parentId` (and, for objects, their live state) — the source of ids for update/delete. |
 | `update_note` | Update a note's text, position, or kind by id. |
 | `delete_note` | Delete a note by id (restorable in-app for 30 days). |
 | `create_task` | Create a task card (agent job) with a queued status. |
-| `update_task` | Update a task card's status (running / done + result / error). |
+| `update_task` | Advance a task card: `running`, `error` + message, or `done` + result — a done task resolves into a plain page note (its result becomes the body). |
+| `create_object` | Create a live canvas object: a `table` (grid the user can also edit by hand) or an `embed` (live iframe — YouTube, Spotify, Figma, any embeddable URL). |
+| `set_object_state` | Replace an object's state — table `{ columns, rows }` or embed `{ url, title? }`. The change shows on the user's canvas within seconds. |
 | `search_notes` | Full-text search across your notes. |
 
 ## 1. Mint a token

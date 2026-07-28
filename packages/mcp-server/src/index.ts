@@ -62,7 +62,7 @@ async function resolveBoard(ref: string): Promise<Board> {
   return found;
 }
 
-const server = new McpServer({ name: "justanotetaker", version: "0.4.0" });
+const server = new McpServer({ name: "justanotetaker", version: "0.5.0" });
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 
@@ -326,10 +326,11 @@ server.registerTool(
   "create_object",
   {
     description:
-      "Create a live canvas object. Today the only type is 'table' — a grid the " +
-      "user can also edit by hand. Use this to hand structured results back onto " +
-      "the canvas (a comparison, a checklist matrix, extracted data). Update it " +
-      "later with set_object_state.",
+      "Create a live canvas object: a 'table' (a grid the user can also edit by " +
+      "hand — use it to hand structured results back onto the canvas: a " +
+      "comparison, a checklist matrix, extracted data) or an 'embed' (a live " +
+      "iframe of a URL — YouTube, Spotify, Figma, docs, any embeddable page). " +
+      "Update it later with set_object_state.",
     inputSchema: {
       board: z.string().describe("Board name or id (see list_boards)"),
       objectType: z.enum(["table", "embed"]).default("table"),

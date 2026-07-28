@@ -8,6 +8,7 @@ Spatial notes on a dark canvas — click anywhere to write, drag to place, type 
 - **apps/api** — Hono on Cloudflare Workers + Drizzle ORM + Better Auth (anonymous + email/password + Google OAuth) + D1 with FTS5 for ambient search
 - **apps/marketing** — Astro 5 (static, deployed to Pages)
 - **packages/api-client** — shared Hono RPC client (end-to-end types)
+- **packages/mcp-server** — published stdio MCP server ([@codellyson/justanotetaker-mcp](https://www.npmjs.com/package/@codellyson/justanotetaker-mcp)) so any MCP client can write to your canvas — see [`docs/mcp.md`](docs/mcp.md)
 - **src-tauri** — Tauri 2 desktop shell (same Vite frontend, bearer-token sessions in OS keychain, localhost-listener OAuth)
 
 Monorepo managed by pnpm workspaces.

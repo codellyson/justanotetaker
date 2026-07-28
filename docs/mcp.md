@@ -22,6 +22,10 @@ Once it's connected, you can ask your agent things like:
 - *"What have I already written about pricing?"* → it searches your notes.
 - *"Save this SQL snippet to **Snippets** so I don't lose it."*
 - *"Which canvases do I have?"* → it lists your boards.
+- *"Compare these three libraries in a table on **Research**."* → a live table
+  lands on the canvas, and you can keep editing it by hand.
+- *"Track this refactor as a task card on **Project X**."* → a status card goes
+  queued → running → done, and the finished result settles in as a normal note.
 
 The agent does the work; the note lands on your canvas as normal markdown you
 can move, edit, and search like anything else you wrote yourself.
@@ -35,6 +39,9 @@ can move, edit, and search like anything else you wrote yourself.
 | Debugging | Save the working fix + context to a *Snippets* board for next time |
 | Reviewing your own notes | Search everything you've written and cite the relevant note |
 | Clearing your head | Capture a brain-dump into a *Inbox* board mid-conversation |
+| Comparing options | Fill a live table (columns × rows) you can then edit by hand |
+| Running a long job | Post a task card and flip it queued → running → done as it works |
+| Collecting references | Drop live embeds — a YouTube video, a Figma file, a doc — onto the board |
 
 Because notes are stored as plain markdown, everything the agent writes —
 headings, checkboxes, code blocks, links, images — renders exactly the same as
@@ -44,8 +51,8 @@ notes you type yourself, and is instantly full-text searchable.
 
 ## The tools
 
-The server exposes the full board/note lifecycle plus search and the agent
-task-card tools. An agent picks whichever it needs.
+The server exposes the full board/note lifecycle, search, agent task cards,
+and live canvas objects (tables and embeds). An agent picks whichever it needs.
 
 ### `list_boards`
 Lists your canvases so the agent knows where notes can go. Returns each board's
@@ -81,13 +88,15 @@ app renders:
 > appears on that board.
 
 ### `list_notes`
-Lists a board's notes with their `id`, position, kind, and full text — the way
-an agent finds the note it wants to edit or delete.
+Lists a board's notes with their `id`, position, kind, full text, and
+`parentId` (which frame the note sits in, if any) — the way an agent finds the
+note it wants to edit or delete. For canvas objects it also includes their live
+state (a table's columns and rows, an embed's URL).
 
 ### `update_note`
-Updates a note by `id`: replace its `text` (markdown), move it (`x`/`y`), or
-switch its `kind` between `card` (compact sticky) and `page` (document
-surface).
+Updates a note by `id`: replace its `text` (markdown) or move it (`x`/`y`).
+(A `kind` field is also accepted for legacy card/page switching, but every
+note now renders as a page.)
 
 > *"Tick off the second item on my release checklist."* → the agent reads the
 > note with `list_notes`, rewrites the line, and `update_note`s it.
@@ -102,6 +111,44 @@ highlighted snippet, so the agent can find and quote what you've already
 written.
 
 > *"What did I note about auth last week?"* → matching notes with snippets.
+
+### `create_task`
+Creates a **task card** — a live agent job with a visible status lifecycle
+(queued → running → done/error) right on the canvas. Use it when the agent is
+about to do a multi-step piece of work and you want a marker of it on a board.
+
+| Input | Required | Notes |
+|---|---|---|
+| `board` | yes | Board **name or id** |
+| `prompt` | yes | The work to be done (shown on the card) |
+| `title` | no | Short title; defaults to the prompt's first line |
+| `x`, `y` | no | Canvas coordinates |
+
+> *"Track this refactor on Project X."* → a queued task card appears; the
+> agent flips it to running as it works.
+
+### `update_task`
+Advances a task card by `id`: `running` when work starts, `error` with a
+message if it failed, or `done` with a `result` (markdown). **A finished task
+resolves into a plain page note** — the status chrome disappears and the
+result becomes the note body, searchable like anything else you wrote.
+
+### `create_object`
+Creates a **live canvas object** on a board:
+
+- **`table`** — a grid (`{ columns, rows }`) the agent fills and you can keep
+  editing by hand on the canvas: comparisons, checklists, extracted data.
+- **`embed`** — a live iframe of a URL (`{ url, title? }`): YouTube, Vimeo,
+  Spotify, SoundCloud, Loom, Figma, CodeSandbox, docs — anything embeddable.
+
+> *"Compare these three libraries in a table on Research."* → a table lands on
+> the board with the comparison filled in.
+
+### `set_object_state`
+Replaces an object's state by `id` (from `list_notes`) — pass the full new
+state (table `{ columns, rows }` or embed `{ url, title? }`). The change shows
+up on your canvas within seconds, so an agent can keep a table current while
+it works.
 
 ---
 
