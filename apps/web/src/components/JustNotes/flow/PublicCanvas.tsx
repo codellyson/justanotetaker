@@ -1,5 +1,11 @@
-import { useMemo } from "react";
-import { Background, BackgroundVariant, PanOnScrollMode, ReactFlow } from "@xyflow/react";
+import { useCallback, useMemo, useReducer, useRef } from "react";
+import {
+  Background,
+  BackgroundVariant,
+  PanOnScrollMode,
+  ReactFlow,
+  type OnNodesChange,
+} from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { GRID, type Note } from "../lib";
 import { edgeTypes, nodeTypes } from "./FlowCanvas";
@@ -21,6 +27,24 @@ type Props = {
 };
 
 export function PublicCanvas(p: Props) {
+  // buildNoteNodes sets `measured` from this map, so React Flow keeps a node
+  // hidden until we've fed its size back in. The authed canvas fills the map
+  // from onNodesChange; without that here every node stays 0×0 and invisible,
+  // and fitView has no bounds to fit.
+  const measuredDims = useRef(new Map<string, { width: number; height: number }>());
+  const [measuredTick, bumpMeasured] = useReducer((n: number) => n + 1, 0);
+
+  const onNodesChange = useCallback<OnNodesChange<NoteFlowNode>>((changes) => {
+    let dims = false;
+    for (const c of changes) {
+      if (c.type === "dimensions" && c.dimensions) {
+        measuredDims.current.set(c.id, c.dimensions);
+        dims = true;
+      }
+    }
+    if (dims) bumpMeasured();
+  }, []);
+
   const nodes = useMemo(
     () =>
       buildNoteNodes({
@@ -35,12 +59,12 @@ export function PublicCanvas(p: Props) {
         clipboardIds: EMPTY,
         expandedIds: p.expandedIds,
         editClickPos: null,
-        measuredDims: new Map(),
+        measuredDims: measuredDims.current,
         dropTargetId: null,
         readOnly: true,
         handlers: p.handlers,
       }),
-    [p.notes, p.expandedIds, p.handlers],
+    [p.notes, p.expandedIds, p.handlers, measuredTick],
   );
   const edges = useMemo(
     () =>
@@ -57,8 +81,14 @@ export function PublicCanvas(p: Props) {
 
   return (
     <ReactFlow<NoteFlowNode, ThreadFlowEdge>
+      // jn-flow is load-bearing, not cosmetic: it flips .note from absolute to
+      // relative so the RF wrapper can measure a real size. Without it every
+      // node measures 0×0, stays hidden as uninitialized, and fitView has no
+      // bounds — a blank canvas.
+      className="jn-flow"
       nodes={nodes}
       edges={edges}
+      onNodesChange={onNodesChange}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
       fitView
