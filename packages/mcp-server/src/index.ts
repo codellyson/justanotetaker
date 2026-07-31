@@ -62,7 +62,7 @@ async function resolveBoard(ref: string): Promise<Board> {
   return found;
 }
 
-const server = new McpServer({ name: "justanotetaker", version: "0.5.0" });
+const server = new McpServer({ name: "justanotetaker", version: "0.6.0" });
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 
@@ -132,10 +132,13 @@ server.registerTool(
   "create_note",
   {
     description:
-      "Create a note on a board. Text supports markdown: # headings, - bullets, " +
-      "1. ordered, `- [ ]` task checkboxes, **bold**, *italic*, `code`, [links](url), " +
-      "and images via ![alt](url). Pass the board by name or id. x/y are optional " +
-      "canvas coordinates; omit to drop it at a random open-ish spot.",
+      "Create ONE note holding ONE idea. A board is a spatial canvas, not a " +
+      "document — if the request covers several points, use create_notes instead " +
+      "of packing them into a single note with headings. Markdown formats the " +
+      "inside of a note (# headings, - bullets, 1. ordered, `- [ ]` checkboxes, " +
+      "**bold**, *italic*, `code`, [links](url), ![alt](url)); it is not a way to " +
+      "structure several ideas into one card. Pass the board by name or id. x/y " +
+      "are optional canvas coordinates; omit to drop it at a random open-ish spot.",
     inputSchema: {
       board: z.string().describe("Board name or id (see list_boards)"),
       text: z.string().describe("Note body (markdown)"),
@@ -154,6 +157,58 @@ server.registerTool(
       body: JSON.stringify({ boardId: b.id, x: pos.x, y: pos.y, t: Date.now(), text }),
     });
     return { content: [{ type: "text", text: `Created note${note?.id ? ` ${note.id}` : ""} on "${b.name}".` }] };
+  },
+);
+
+server.registerTool(
+  "create_notes",
+  {
+    description:
+      "Create several notes at once — the right tool whenever a topic breaks into " +
+      "multiple points, steps, or options. Each entry becomes its own card, laid " +
+      "out on a readable grid so the set reads as a cluster instead of a random " +
+      "scatter. Prefer this over one long note whenever the answer has parts.",
+    inputSchema: {
+      board: z.string().describe("Board name or id (see list_boards)"),
+      notes: z
+        .array(z.string())
+        .min(1)
+        .max(50)
+        .describe("One markdown body per note — each becomes its own card"),
+      x: z.number().optional().describe("Anchor x for the cluster (optional)"),
+      y: z.number().optional().describe("Anchor y for the cluster (optional)"),
+      columns: z.number().int().min(1).max(6).optional().describe("Grid columns (default 3)"),
+    },
+  },
+  async ({ board, notes, x, y, columns }) => {
+    const b = await resolveBoard(board);
+    // Wider than the 220px default note so cards don't touch, and tall enough
+    // that a few lines of markdown won't overlap the row beneath.
+    const COL_W = 280;
+    const ROW_H = 240;
+    const cols = columns ?? 3;
+    const originX = x ?? Math.round(Math.random() * 600 - 200);
+    const originY = y ?? Math.round(Math.random() * 300 - 100);
+
+    const created: string[] = [];
+    const failed: string[] = [];
+    for (const [i, text] of notes.entries()) {
+      const pos = {
+        x: originX + (i % cols) * COL_W,
+        y: originY + Math.floor(i / cols) * ROW_H,
+      };
+      try {
+        const { note } = await api<{ note?: { id?: string } }>("/api/notes", {
+          method: "POST",
+          body: JSON.stringify({ boardId: b.id, x: pos.x, y: pos.y, t: Date.now(), text }),
+        });
+        if (note?.id) created.push(note.id);
+      } catch (err) {
+        failed.push(`#${i + 1}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    const summary = `Created ${created.length}/${notes.length} notes on "${b.name}".`;
+    return { content: [{ type: "text", text: failed.length ? `${summary} Failed — ${failed.join("; ")}` : summary }] };
   },
 );
 
