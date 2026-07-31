@@ -102,6 +102,7 @@ function Canvas({ boards, settings, allNotes }: {
       onRenameBoard={boards.renameBoard}
       onDeleteBoard={boards.deleteBoard}
       onDuplicateBoard={boards.duplicateBoard}
+      onSetBoardVisibility={boards.setBoardVisibility}
     />
   );
 }

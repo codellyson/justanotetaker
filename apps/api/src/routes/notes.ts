@@ -3,7 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import type { Env } from "../env";
 
-const kindSchema = z.enum(["card", "page", "frame", "image", "task", "object"]);
+const kindSchema = z.enum(["card", "page", "frame", "image", "task", "object", "file"]);
 
 // Kind-specific payloads carried in the `meta` JSON column. The shapes are
 // disjoint (key vs status), so a plain union stays unambiguous even on
@@ -40,13 +40,24 @@ const embedObjectSchema = z.object({
   }),
 });
 const objectMetaSchema = z.union([tableObjectSchema, embedObjectSchema]);
+// A dropped file stored in R2. Required `name` keeps it disjoint from
+// imageMeta (which requires w/h that files lack).
+const fileMetaSchema = z.object({
+  key: z.string().max(200),
+  name: z.string().min(1).max(300),
+  size: z.number().int().nonnegative(),
+  mime: z.string().max(150).optional(),
+});
 // Frame view state (collapsed folds the region to its label bar). Last in the
 // union — its fields are all optional, so it must not shadow the others.
 const frameMetaSchema = z.object({
   collapsed: z.boolean().optional(),
   layout: z.enum(["free", "stack"]).optional(),
 });
-const metaSchema = z.union([imageMetaSchema, taskMetaSchema, objectMetaSchema, frameMetaSchema]).nullable().optional();
+const metaSchema = z
+  .union([imageMetaSchema, taskMetaSchema, objectMetaSchema, fileMetaSchema, frameMetaSchema])
+  .nullable()
+  .optional();
 
 const createSchema = z.object({
   id: z.string().optional(),

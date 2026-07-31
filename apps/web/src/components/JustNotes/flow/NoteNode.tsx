@@ -27,7 +27,7 @@ const COLLAPSE_MIN = 460;
 const lodSelector = (s: { transform: [number, number, number] }) => s.transform[2] < 0.5;
 
 function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
-  const { note, editing, dragging, dimmed, highlit, focused, fromClipboard, scrubFade, clickPos, expanded, stackWidth, handlers } = data;
+  const { note, editing, dragging, dimmed, highlit, focused, fromClipboard, scrubFade, clickPos, expanded, stackWidth, readOnly, handlers } = data;
   // Bumped on every canvas pan/zoom while editing → CmEditor re-measures.
   const [measureTick, setMeasureTick] = useState(0);
   // Full (uncapped) content height, read from scrollHeight so it's known even
@@ -125,7 +125,7 @@ function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
   return (
     <>
       <NodeResizer
-        isVisible={!editing}
+        isVisible={!editing && !readOnly}
         minWidth={120}
         minHeight={60}
         onResize={(_, p) => handlers.onResize(note.id, p)}
@@ -134,7 +134,7 @@ function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
       <Handle
         type="target"
         position={Position.Left}
-        className={"note-link-target" + (isConnectTarget ? " active" : "")}
+        className={"note-link-target" + (isConnectTarget ? " active" : "") + (readOnly ? " readonly" : "")}
       />
       <div ref={noteRef} className={cls} data-note-id={note.id} style={style}>
         {editing ? (
@@ -199,8 +199,8 @@ function NoteNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
       <Handle
         type="source"
         position={Position.Right}
-        className="note-link-source nodrag"
-        isConnectable={!editing}
+        className={"note-link-source nodrag" + (readOnly ? " readonly" : "")}
+        isConnectable={!editing && !readOnly}
       />
     </>
   );

@@ -8,6 +8,16 @@ import React, {
 import { useTheme } from "@codellyson/justui/react";
 import type { Tweaks } from "./lib";
 import { isTauri } from "../../lib/runtime";
+import {
+  PROVIDERS,
+  getAiConfig,
+  setAiConfig,
+  clearAiConfig,
+  localAgents,
+  isLocalProvider,
+  type AiProvider,
+  type LocalAgentInfo,
+} from "../../lib/ai";
 
 const TWEAKS_STYLE = `
   .twk-panel{position:fixed;right:16px;bottom:16px;z-index:2147483646;width:280px;
@@ -81,6 +91,23 @@ const TWEAKS_STYLE = `
   .twk-theme-chip:hover{background:rgb(var(--accent) / .14)}
   .twk-theme-chip.active{border-color:rgb(var(--accent));
     background:rgb(var(--accent) / .18);box-shadow:inset 0 0 0 1px rgb(var(--accent) / .4)}
+
+  .twk-ai{display:flex;flex-direction:column;gap:6px}
+  .twk-ai-note{font-size:10px;line-height:1.45;color:rgb(var(--text-secondary))}
+  .twk-ai-note code{font-family:ui-monospace,monospace;font-size:9.5px;
+    background:rgb(var(--bg) / .5);padding:1px 4px;border-radius:3px;color:rgb(var(--text-primary))}
+  .twk-ai-in{appearance:none;width:100%;min-width:0;font:inherit;
+    background:rgb(var(--bg) / .5);color:rgb(var(--text-primary));
+    border:.5px solid rgb(var(--border) / .7);border-radius:7px;padding:6px 9px;outline:none}
+  .twk-ai-in:focus{border-color:rgb(var(--accent))}
+  .twk-ai-btns{display:flex;gap:6px}
+  .twk-ai-btn{appearance:none;font:inherit;font-weight:600;white-space:nowrap;cursor:default;
+    border:0;border-radius:7px;padding:6px 11px;
+    background:rgb(var(--accent));color:rgb(var(--accent-contrast, 255 255 255))}
+  .twk-ai-btn:disabled{opacity:.5}
+  .twk-ai-btn.ghost{background:transparent;color:rgb(var(--danger, 220 60 60));
+    border:.5px solid rgb(var(--danger, 220 60 60) / .5);font-weight:500}
+  .twk-ai-saved{font-size:10px;color:rgb(var(--text-secondary))}
 `;
 
 // ── useTweaks ────────────────────────────────────────────────────────
@@ -330,6 +357,128 @@ export function TweakRadio<T extends string>({
   );
 }
 
+// BYOK lives here, not in the API-tokens panel: that panel is about MCP agent
+// tokens, and the "no key set" error already points people at Settings. The
+// panel unmounts when closed, so mount is the right time to load the config.
+function AiKeySection() {
+  const [provider, setProvider] = useState<AiProvider>("anthropic");
+  const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState("");
+  const [savedFor, setSavedFor] = useState<AiProvider | null>(null);
+  const [agents, setAgents] = useState<LocalAgentInfo[] | null>(null);
+
+  useEffect(() => {
+    const cfg = getAiConfig();
+    if (!cfg) return;
+    setProvider(cfg.provider);
+    setApiKey(cfg.apiKey);
+    setModel(cfg.model ?? "");
+    setSavedFor(cfg.provider);
+  }, []);
+
+  // Desktop only: probe once so the form can say whether the agent is actually
+  // installed, instead of the user finding out through a failed task card.
+  useEffect(() => {
+    if (!isTauri) return;
+    let live = true;
+    void localAgents()
+      .then((a) => { if (live) setAgents(a); })
+      .catch(() => { if (live) setAgents([]); });
+    return () => { live = false; };
+  }, []);
+
+  const meta = PROVIDERS.find((p) => p.id === provider) ?? PROVIDERS[0];
+  const options = PROVIDERS.filter((p) => !p.local || isTauri);
+  const agent = agents?.find((a) => a.id === provider);
+
+  return (
+    <>
+      <TweakSection label="AI" />
+      <div className="twk-ai">
+        <p className="twk-ai-note">
+          {meta.local
+            ? "AI is opt-in. The local agent runs on your machine using your own login — no key is stored."
+            : "AI is opt-in. Your key stays in this browser and calls the provider directly — nothing is sent to our servers."}
+        </p>
+        <select
+          className="twk-ai-in"
+          aria-label="AI provider"
+          value={provider}
+          onChange={(e) => setProvider(e.target.value as AiProvider)}
+        >
+          {options.map((p) => (
+            <option key={p.id} value={p.id}>{p.label}</option>
+          ))}
+        </select>
+        {!meta.local && (
+          <input
+            className="twk-ai-in"
+            type="password"
+            aria-label="API key"
+            placeholder={meta.keyPlaceholder}
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+          />
+        )}
+        <input
+          className="twk-ai-in"
+          list="twk-ai-models"
+          aria-label="Model"
+          placeholder={`model (default ${meta.defaultModel})`}
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+        />
+        <datalist id="twk-ai-models">
+          {meta.models.map((m) => <option key={m} value={m} />)}
+        </datalist>
+        {meta.local && agent && (
+          <div className="twk-ai-saved">
+            {agent.present
+              ? `Found ${agent.name} · ${agent.path}`
+              : `${agent.name} not found — install it, or pick a provider above.`}
+          </div>
+        )}
+        <div className="twk-ai-btns">
+          <button
+            className="twk-ai-btn"
+            disabled={meta.local ? !agent?.present : !apiKey.trim()}
+            onClick={() => {
+              setAiConfig({
+                provider,
+                apiKey: apiKey.trim(),
+                model: model.trim() || undefined,
+              });
+              setSavedFor(provider);
+            }}
+          >
+            Save
+          </button>
+          {savedFor && (
+            <button
+              className="twk-ai-btn ghost"
+              onClick={() => {
+                clearAiConfig();
+                setApiKey("");
+                setModel("");
+                setSavedFor(null);
+              }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        {savedFor && (
+          <div className="twk-ai-saved">
+            {isLocalProvider(savedFor)
+              ? `Connected: ${savedFor} · ${model.trim() || meta.defaultModel}`
+              : `Key saved for ${PROVIDERS.find((p) => p.id === savedFor)?.label}.`}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 // ── TweaksUI — the JustNotes-specific tweak set ─────────────────────
 export function TweaksUI({
   t,
@@ -344,7 +493,7 @@ export function TweaksUI({
 }) {
   const { mode, themes, themeId, setThemeId, toggleMode } = useTheme();
   return (
-    <TweaksPanel open={open} onClose={onClose} title="Tweaks">
+    <TweaksPanel open={open} onClose={onClose} title="Settings">
       <TweakSection label="Theme" />
       <TweakToggle label="Dark mode" value={mode === "dark"} onChange={toggleMode} />
       <TweakRow label="Palette">
@@ -398,6 +547,8 @@ export function TweaksUI({
           )}
         </>
       )}
+
+      <AiKeySection />
 
       <div className="twk-hint">
         <kbd>⌘</kbd><kbd>,</kbd> to toggle

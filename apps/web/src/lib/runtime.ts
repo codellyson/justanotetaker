@@ -13,3 +13,11 @@ export const API_BASE_URL =
   (import.meta.env.PROD
     ? "https://api.justanotetaker.kreativekorna.com"
     : "http://localhost:8787");
+
+// Share links need an explicit web origin — window.location.origin is
+// tauri://localhost on desktop.
+export const WEB_BASE_URL =
+  (import.meta.env.VITE_WEB_BASE_URL as string | undefined) ??
+  (import.meta.env.PROD
+    ? "https://app.justanotetaker.kreativekorna.com"
+    : "http://localhost:5173");

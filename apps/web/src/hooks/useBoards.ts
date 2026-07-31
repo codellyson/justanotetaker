@@ -95,6 +95,20 @@ export function useBoards() {
     }
   }, []);
 
+  const setBoardVisibility = useCallback(
+    async (id: string, visibility: Board["visibility"]) => {
+      const prev = boards.find((b) => b.id === id)?.visibility;
+      setBoards((bs) => bs.map((b) => (b.id === id ? { ...b, visibility } : b)));
+      try {
+        await remoteStorage.updateBoard(id, { visibility });
+      } catch (err) {
+        console.error("[useBoards] visibility change failed", err);
+        if (prev) setBoards((bs) => bs.map((b) => (b.id === id ? { ...b, visibility: prev } : b)));
+      }
+    },
+    [boards],
+  );
+
   const deleteBoard = useCallback(
     async (id: string) => {
       // Never let the user delete their last canvas — there'd be nothing to
@@ -156,5 +170,6 @@ export function useBoards() {
     deleteBoard,
     duplicateBoard,
     setActiveBoard,
+    setBoardVisibility,
   };
 }

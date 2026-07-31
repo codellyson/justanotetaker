@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { TweaksPanel } from "./tweaks";
 import { listTokens, createToken, revokeToken, type ApiToken } from "../../lib/tokens";
-import { PROVIDERS, getAiConfig, setAiConfig, clearAiConfig, type AiProvider } from "../../lib/ai";
-import { isTauri } from "../../lib/runtime";
 
 const TOKENS_STYLE = `
   .tok-intro{color:rgb(var(--text-secondary));line-height:1.5}
@@ -69,37 +67,6 @@ export function ApiTokensPanel({ open, onClose }: { open: boolean; onClose: () =
   const [copied, setCopied] = useState(false);
   const [armedRevoke, setArmedRevoke] = useState<string | null>(null);
   const copyTimer = useRef<number | null>(null);
-
-  // BYOK: the "ask" runner uses the user's own provider key browser-direct on
-  // web (desktop uses the local claude CLI instead). Held in localStorage.
-  const [aiProvider, setAiProvider] = useState<AiProvider>("anthropic");
-  const [aiKey, setAiKey] = useState("");
-  const [aiModel, setAiModel] = useState("");
-  const [aiSavedFor, setAiSavedFor] = useState<AiProvider | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const cfg = getAiConfig();
-    if (cfg) {
-      setAiProvider(cfg.provider);
-      setAiKey(cfg.apiKey);
-      setAiModel(cfg.model ?? "");
-      setAiSavedFor(cfg.provider);
-    } else {
-      setAiSavedFor(null);
-    }
-  }, [open]);
-
-  const aiMeta = PROVIDERS.find((p) => p.id === aiProvider) ?? PROVIDERS[0];
-  function saveAi() {
-    if (!aiKey.trim()) return;
-    setAiConfig({ provider: aiProvider, apiKey: aiKey.trim(), model: aiModel.trim() || undefined });
-    setAiSavedFor(aiProvider);
-  }
-  function clearAi() {
-    clearAiConfig();
-    setAiKey(""); setAiModel(""); setAiSavedFor(null);
-  }
 
   useEffect(() => {
     if (!open) return;
@@ -171,50 +138,6 @@ export function ApiTokensPanel({ open, onClose }: { open: boolean; onClose: () =
         Personal tokens let a Claude agent pipe notes onto your canvas via the{" "}
         <code>justanotetaker</code> MCP server. Treat a token like a password.
       </p>
-
-      {!isTauri && (
-        <>
-          <div className="twk-sect">AI key — bring your own</div>
-          <p className="tok-intro" style={{ fontSize: 11 }}>
-            Powers “ask this cluster” on the web. Your key stays in this browser and
-            calls the provider directly — nothing is sent to our servers. (The
-            desktop app uses your local <code>claude</code> CLI instead.)
-          </p>
-          <div className="tok-new" style={{ marginBottom: 6 }}>
-            <select
-              className="tok-input"
-              value={aiProvider}
-              onChange={(e) => setAiProvider(e.target.value as AiProvider)}
-            >
-              {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-            </select>
-          </div>
-          <div className="tok-new" style={{ marginBottom: 6 }}>
-            <input
-              className="tok-input"
-              type="password"
-              placeholder={aiMeta.keyPlaceholder}
-              value={aiKey}
-              onChange={(e) => setAiKey(e.target.value)}
-            />
-          </div>
-          <div className="tok-new">
-            <input
-              className="tok-input"
-              placeholder={`model (default ${aiMeta.defaultModel})`}
-              value={aiModel}
-              onChange={(e) => setAiModel(e.target.value)}
-            />
-            <button className="tok-btn" disabled={!aiKey.trim()} onClick={saveAi}>Save</button>
-            {aiSavedFor && <button className="tok-btn tok-danger" onClick={clearAi}>Clear</button>}
-          </div>
-          {aiSavedFor && (
-            <div className="tok-row-meta" style={{ marginTop: 4 }}>
-              Key saved for {PROVIDERS.find((p) => p.id === aiSavedFor)?.label}.
-            </div>
-          )}
-        </>
-      )}
 
       {justCreated && (
         <div className="tok-reveal">

@@ -27,9 +27,16 @@ function plainTitle(text: string): string {
   return s.trim() || "Untitled";
 }
 
-function toEntries(notes: { id: string; text: string; t: number }[]): Entry[] {
+function toEntries(notes: { id: string; text: string; t: number; kind?: string; meta?: unknown }[]): Entry[] {
   return notes
-    .map((n) => ({ id: n.id, title: plainTitle(n.text), t: n.t }))
+    .map((n) => ({
+      id: n.id,
+      title:
+        n.kind === "file" && !n.text.trim()
+          ? ((n.meta as { name?: string } | null)?.name ?? "Untitled")
+          : plainTitle(n.text),
+      t: n.t,
+    }))
     // Stable order by id — never reshuffles when a note is edited/selected, and
     // is identical whether the board is active (live) or not (snapshot).
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -50,6 +57,7 @@ export function FileTree({
   onDeleteBoard,
   onDuplicateBoard,
   onRefreshBoard,
+  onShareBoard,
 }: {
   boards: Board[];
   activeBoardId: string;
@@ -65,6 +73,7 @@ export function FileTree({
   onDeleteBoard: (id: string) => void;
   onDuplicateBoard: (id: string) => void;
   onRefreshBoard: (id: string) => void;
+  onShareBoard: (id: string) => void;
 }) {
   // The active board starts open; others collapsed. Toggling is per-session.
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([activeBoardId]));
@@ -330,6 +339,7 @@ export function FileTree({
             {item("new note", () => { setExpanded((prev) => new Set(prev).add(b.id)); onCreateNote(b.id); })}
             {item("refresh", () => onRefreshBoard(b.id))}
             {item("duplicate", () => onDuplicateBoard(b.id))}
+            {item("share…", () => onShareBoard(b.id))}
             {item("rename", () => startRename(b))}
             {boards.length > 1 && item("delete", () => { setRenameId(null); setConfirmDeleteId(b.id); }, true)}
           </div>

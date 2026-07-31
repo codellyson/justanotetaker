@@ -27,6 +27,7 @@ import {
   PAPER_H,
   type FrameMeta,
   type ImageMeta,
+  type FileMeta,
   type TaskMeta,
   type ObjectMeta,
   type ObjectType,
@@ -40,6 +41,7 @@ import {
 import { FileTree } from "./FileTree";
 import { FlowCanvas } from "./flow/FlowCanvas";
 import { FRAME_DEFAULT_W, FRAME_DEFAULT_H, FRAME_MIN_H, FRAME_PAD, FRAME_LABEL_H } from "./flow/FrameNode";
+import { PDF_DEFAULT_W, PDF_DEFAULT_H } from "./flow/FileNode";
 import {
   applyNoteNodeChanges,
   buildNoteNodes,
@@ -56,9 +58,10 @@ import { TweaksUI } from "./tweaks";
 import { remoteStorage, uploadMedia, type NoteLink } from "../../lib/storage";
 import { authClient, clearKeychainToken } from "../../lib/auth-client";
 import { API_BASE_URL, isTauri } from "../../lib/runtime";
-import { hasAiKey, runAiStream } from "../../lib/ai";
+import { hasAiKey, runAiStream, getAiConfig, isLocalProvider } from "../../lib/ai";
 import { AuthPanel } from "../AuthPanel";
 import { ApiTokensPanel } from "./api-tokens";
+import { SharePanel } from "./share";
 import { filterCommands, type Command } from "../../lib/commands";
 import { Graveyard } from "./Graveyard";
 
@@ -98,6 +101,7 @@ export type JustNotesProps = Persist & {
   onRenameBoard: (id: string, name: string) => void;
   onDeleteBoard: (id: string) => void;
   onDuplicateBoard: (id: string) => void;
+  onSetBoardVisibility: (id: string, visibility: Board["visibility"]) => void;
 };
 
 type View = { pan: { x: number; y: number }; zoom: number };
@@ -129,9 +133,10 @@ export default function JustNotes(props: JustNotesProps) {
 }
 
 function JustNotesInner(props: JustNotesProps) {
-  const { initialNotes, tweaks: t, setTweak, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete, refresh, boards, activeBoardId, notesByBoard, onBoardJump, focusNoteId, onFocusConsumed, onBoardCreate, spawnRequested, onSpawnConsumed, onSwitchBoard, onCreateBoard, onRenameBoard, onDeleteBoard, onDuplicateBoard } = props;
+  const { initialNotes, tweaks: t, setTweak, onCreate: rawOnCreate, onUpdate: rawOnUpdate, onDelete: rawOnDelete, refresh, boards, activeBoardId, notesByBoard, onBoardJump, focusNoteId, onFocusConsumed, onBoardCreate, spawnRequested, onSpawnConsumed, onSwitchBoard, onCreateBoard, onRenameBoard, onDeleteBoard, onDuplicateBoard, onSetBoardVisibility } = props;
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [tokensOpen, setTokensOpen] = useState(false);
+  const [shareBoardId, setShareBoardId] = useState<string | null>(null);
 
   const [notes, setNotes] = useState<Note[]>(initialNotes);
   const notesRef = useRef(notes);
@@ -694,6 +699,64 @@ function JustNotesInner(props: JustNotesProps) {
     }
   }
 
+  async function uploadFileAt(cx: number, cy: number, file: File) {
+    if (file.size === 0 || file.size > 8 * 1024 * 1024) {
+      console.warn("[file] skipped (empty or over 8 MB):", file.name);
+      return;
+    }
+    const id = uid();
+    const pdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+    const w = pdf ? PDF_DEFAULT_W : 260;
+    const note: Note = {
+      id,
+      x: cx - w / 2,
+      y: cy - 24,
+      w,
+      h: pdf ? PDF_DEFAULT_H : null,
+      t: Date.now(),
+      text: "",
+      kind: "file",
+      color: null,
+      meta: null,
+    };
+    setNotes((ns) => [...ns, note]);
+    try {
+      const { key, size } = await uploadMedia(file);
+      const meta: FileMeta = {
+        key,
+        name: file.name || "file",
+        size,
+        mime: file.type || "application/octet-stream",
+      };
+      setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, meta } : n)));
+      pushOp({ type: "create", id });
+      void onCreate({ ...note, meta });
+      applyContainment(id);
+    } catch (err) {
+      console.error("[file] upload failed", err);
+      setNotes((ns) => ns.filter((n) => n.id !== id));
+    }
+  }
+
+  // Images → image cards, text-like → text notes, everything else → file cards.
+  function ingestDroppedFile(cx: number, cy: number, file: File) {
+    if (file.type.startsWith("image/")) {
+      void uploadImageAt(cx, cy, file);
+      return;
+    }
+    if (file.type.startsWith("text/") || /\.(md|markdown|txt|text)$/i.test(file.name)) {
+      void file
+        .text()
+        .then((raw) => {
+          const text = raw.replace(/\r\n/g, "\n").trimEnd();
+          if (text) spawnCommitted(cx, cy, text);
+        })
+        .catch((err) => console.error("[drop] failed to read", file.name, err));
+      return;
+    }
+    void uploadFileAt(cx, cy, file);
+  }
+
   async function pasteAtCanvas(cx: number, cy: number) {
     let text = "";
     try {
@@ -714,22 +777,17 @@ function JustNotesInner(props: JustNotesProps) {
 
   // Import text/markdown files as notes at (cx,cy). The hidden input is clicked
   // synchronously inside the triggering user gesture so the picker isn't blocked.
+  // No `accept` filter: the picker takes whatever a drop takes, and routing is
+  // shared so both surfaces agree on what each type becomes.
   function openFilesAt(cx: number, cy: number) {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".md,.markdown,.txt,.text,text/plain,text/markdown";
     input.multiple = true;
-    input.onchange = async () => {
+    input.onchange = () => {
       const files = Array.from(input.files ?? []);
-      if (files.length) markInteracted();
-      for (const file of files) {
-        try {
-          const text = (await file.text()).replace(/\r\n/g, "\n").trimEnd();
-          if (text) spawnCommitted(cx, cy, text);
-        } catch (err) {
-          console.error("[open file] failed to read", file.name, err);
-        }
-      }
+      if (!files.length) return;
+      markInteracted();
+      files.forEach((f, i) => ingestDroppedFile(cx + i * 36, cy + i * 36, f));
     };
     input.click();
   }
@@ -1285,17 +1343,21 @@ function JustNotesInner(props: JustNotesProps) {
     // Thread the answer back to what you asked — provenance, and the anchor a
     // follow-up ask reads its context from.
     for (const nid of askIds) if (notesRef.current.some((n) => n.id === nid)) linkNotes(id, nid);
-    // Wait for the create to persist, then run it: desktop drives the local
-    // claude CLI; web runs the user's own key browser-direct (BYOK).
-    void Promise.resolve(onCreate(note)).then(() => {
-      if (isTauri) runTaskCard(id);
-      else void runWebAsk(id);
-    });
+    void Promise.resolve(onCreate(note)).then(() => runAsk(id));
   }
 
   // Web runner for a task card: answer it with the user's own AI key
   // (browser-direct), then resolve the task into a page (every note is a page).
   // No key set → leave it queued with a hint and open the key settings.
+  // Every AI path is opt-in: the local CLI agent runs only when the user picked
+  // it as their provider in Settings. Otherwise we take the BYOK path, which
+  // errors into Settings when no key is set. Nothing spawns or bills on its own.
+  function runAsk(id: string) {
+    const cfg = getAiConfig();
+    if (isTauri && cfg && isLocalProvider(cfg.provider)) runTaskCard(id);
+    else void runWebAsk(id);
+  }
+
   async function runWebAsk(id: string) {
     const cur = notesRef.current.find((n) => n.id === id);
     if (!cur || cur.kind !== "task") return;
@@ -1304,7 +1366,7 @@ function JustNotesInner(props: JustNotesProps) {
       const meta: TaskMeta = { ...(cur.meta as TaskMeta), status: "error", error: "Add an AI key in Settings to run on the web." };
       setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, meta } : n)));
       onUpdate(id, { meta });
-      setTokensOpen(true);
+      setTweaksOpen(true);
       return;
     }
     const running: TaskMeta = { ...(cur.meta as TaskMeta), status: "running", startedAt: Date.now(), error: undefined };
@@ -1922,8 +1984,8 @@ function JustNotesInner(props: JustNotesProps) {
     });
     list.push({
       id: "tweaks",
-      label: "Open tweaks",
-      hint: "⌘, · theme + canvas + paper",
+      label: "Settings",
+      hint: "⌘, · theme, canvas, AI key",
       run: () => setTweaksOpen(true),
     });
     list.push({
@@ -1943,6 +2005,12 @@ function JustNotesInner(props: JustNotesProps) {
       label: "API tokens",
       hint: "let an agent pipe notes here",
       run: () => setTokensOpen(true),
+    });
+    list.push({
+      id: "share-board",
+      label: "Share board",
+      hint: "public link + embed",
+      run: () => setShareBoardId(activeBoardId),
     });
     list.push({
       id: "relations",
@@ -2087,6 +2155,7 @@ function JustNotesInner(props: JustNotesProps) {
         else if (graveyardOpen) setGraveyardOpen(false);
         else if (authPanelOpen) setAuthPanelOpen(false);
         else if (tokensOpen) setTokensOpen(false);
+        else if (shareBoardId) setShareBoardId(null);
         else if (tweaksOpen) setTweaksOpen(false);
         else if (helpOpen) setHelpOpen(false);
         else if (ambientOpen) closeAmbient();
@@ -2321,16 +2390,16 @@ function JustNotesInner(props: JustNotesProps) {
       // here would just duplicate it. Cede the gesture while capture is on.
       if (isTauri && tweakRef.current.clipboardCapture) return;
 
-      // Image paste (screenshot in the clipboard, copied image file) becomes
-      // an image card, taking priority over any text representation.
-      const imageFiles = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith("image/"));
-      if (imageFiles.length > 0) {
+      // File paste (screenshot in the clipboard, copied file) becomes a card,
+      // taking priority over any text representation.
+      const pastedFiles = Array.from(e.clipboardData?.files ?? []);
+      if (pastedFiles.length > 0) {
         e.preventDefault();
         markInteracted();
         const sx = lastMouseRef.current?.x ?? window.innerWidth / 2;
         const sy = lastMouseRef.current?.y ?? window.innerHeight / 2;
         const c = screenToCanvas(sx, sy);
-        imageFiles.forEach((f, i) => void uploadImageAt(c.x + i * 36, c.y + i * 36, f));
+        pastedFiles.forEach((f, i) => ingestDroppedFile(c.x + i * 36, c.y + i * 36, f));
         return;
       }
 
@@ -2451,7 +2520,7 @@ function JustNotesInner(props: JustNotesProps) {
       const f = notesRef.current.find((n) => n.id === id);
       if (f) { markInteracted(); flyToFrame(f); }
     },
-    onRunTask: (id) => { if (isTauri) runTaskCard(id); else void runWebAsk(id); },
+    onRunTask: (id) => runAsk(id),
     onObjectState: (id, meta) => onObjectState(id, meta),
   };
   const nodeHandlers = useMemo<NoteNodeHandlers>(() => ({
@@ -2538,6 +2607,7 @@ function JustNotesInner(props: JustNotesProps) {
         onDeleteBoard={onDeleteBoard}
         onDuplicateBoard={onDuplicateBoard}
         onRefreshBoard={refreshBoard}
+        onShareBoard={setShareBoardId}
       />
 
       <div
@@ -2547,12 +2617,12 @@ function JustNotesInner(props: JustNotesProps) {
           if (e.dataTransfer.types.includes("Files")) e.preventDefault();
         }}
         onDrop={(e) => {
-          const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+          const files = Array.from(e.dataTransfer.files);
           if (files.length === 0) return;
           e.preventDefault();
           markInteracted();
           const c = screenToCanvas(e.clientX, e.clientY);
-          files.forEach((f, i) => void uploadImageAt(c.x + i * 36, c.y + i * 36, f));
+          files.forEach((f, i) => ingestDroppedFile(c.x + i * 36, c.y + i * 36, f));
         }}
       >
         <FlowCanvas
@@ -2732,6 +2802,7 @@ function JustNotesInner(props: JustNotesProps) {
           onFit={() => { fitToScreen(); setCanvasMenu(null); }}
           onRefreshBoard={() => { refreshBoard(activeBoardId); setCanvasMenu(null); }}
           onDuplicateBoard={() => { onDuplicateBoard(activeBoardId); setCanvasMenu(null); }}
+          onShareBoard={() => { setShareBoardId(activeBoardId); setCanvasMenu(null); }}
         />
       )}
 
@@ -2768,6 +2839,12 @@ function JustNotesInner(props: JustNotesProps) {
       <TweaksUI t={t} setTweak={setTweak} open={tweaksOpen} onClose={() => setTweaksOpen(false)} />
 
       <ApiTokensPanel open={tokensOpen} onClose={() => setTokensOpen(false)} />
+      <SharePanel
+        open={shareBoardId != null}
+        onClose={() => setShareBoardId(null)}
+        board={boards.find((b) => b.id === shareBoardId) ?? null}
+        onSetVisibility={onSetBoardVisibility}
+      />
     </div>
   );
 }
@@ -3097,7 +3174,7 @@ function NoteContextMenu({
 }
 
 function CanvasContextMenu({
-  x, y, hasNotes, onClose, onNew, onKanban, onTable, onEmbed, onPaste, onOpenFile, onSelectAll, onFit, onRefreshBoard, onDuplicateBoard,
+  x, y, hasNotes, onClose, onNew, onKanban, onTable, onEmbed, onPaste, onOpenFile, onSelectAll, onFit, onRefreshBoard, onDuplicateBoard, onShareBoard,
 }: {
   x: number; y: number; hasNotes: boolean;
   onClose: () => void;
@@ -3111,6 +3188,7 @@ function CanvasContextMenu({
   onFit: () => void;
   onRefreshBoard: () => void;
   onDuplicateBoard: () => void;
+  onShareBoard: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -3133,7 +3211,7 @@ function CanvasContextMenu({
     };
   }, [onClose]);
 
-  const W = 184, H = 320;
+  const W = 184, H = 348;
   const left = Math.min(x, window.innerWidth - W - 8);
   const top = Math.min(y, window.innerHeight - H - 8);
 
@@ -3163,6 +3241,7 @@ function CanvasContextMenu({
       <div className="note-ctx-sep" aria-hidden="true" />
       <button className="note-ctx-item" onClick={onRefreshBoard}>refresh board</button>
       <button className="note-ctx-item" onClick={onDuplicateBoard}>duplicate board</button>
+      <button className="note-ctx-item" onClick={onShareBoard}>share board…</button>
     </div>
   );
 }

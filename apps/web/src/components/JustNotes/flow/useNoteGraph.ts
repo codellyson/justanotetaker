@@ -47,6 +47,7 @@ export type NoteNodeData = {
   frameStats?: FrameStats;
   // Frames only: this column is the live drop target of a card drag.
   isDropTarget?: boolean;
+  readOnly?: boolean;
   handlers: NoteNodeHandlers;
 };
 
@@ -78,6 +79,7 @@ export function buildNoteNodes(args: {
   measuredDims: Map<string, { width: number; height: number }>;
   // The kanban column currently highlighted as a card's drop target.
   dropTargetId: string | null;
+  readOnly?: boolean;
   handlers: NoteNodeHandlers;
 }): NoteFlowNode[] {
   // A collapsed frame folds to its label bar and its whole subtree disappears
@@ -134,11 +136,12 @@ export function buildNoteNodes(args: {
       editing ? 60 : dragging ? 50 : highlit ? 40 : selected ? 30 : 0;
     return {
       id: n.id,
-      type: n.kind === "frame" ? "frame" : n.kind === "image" ? "image" : n.kind === "task" ? "task" : n.kind === "object" ? "object" : "note",
+      type: n.kind === "frame" ? "frame" : n.kind === "image" ? "image" : n.kind === "task" ? "task" : n.kind === "object" ? "object" : n.kind === "file" ? "file" : "note",
       position: { x: n.x, y: n.y },
       measured: args.measuredDims.get(n.id),
       selected,
-      draggable: !editing,
+      // Per-node draggable overrides the canvas-level nodesDraggable.
+      draggable: !editing && !args.readOnly,
       className: [
         args.snappingId === n.id ? "snapping" : "",
         n.parentId && stackFrameIds.has(n.parentId) ? "stack-member" : "",
@@ -160,6 +163,7 @@ export function buildNoteNodes(args: {
         frameLayout: n.kind === "frame" ? ((n.meta as FrameMeta | null)?.layout ?? "free") : undefined,
         frameStats: n.kind === "frame" ? statsByFrame.get(n.id) ?? { count: 0, done: 0, total: 0 } : undefined,
         isDropTarget: n.kind === "frame" ? n.id === args.dropTargetId : undefined,
+        readOnly: args.readOnly,
         handlers: args.handlers,
       },
     };

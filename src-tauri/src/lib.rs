@@ -227,6 +227,36 @@ fn resolve_claude() -> String {
     "claude".to_string()
 }
 
+#[derive(serde::Serialize)]
+struct LocalAgentInfo {
+    id: String,
+    name: String,
+    present: bool,
+    path: Option<String>,
+}
+
+// Settings shows this so a user can see whether the local agent is actually
+// installed before selecting it, rather than finding out via a failed task.
+#[tauri::command]
+fn ai_local_agents() -> Vec<LocalAgentInfo> {
+    let bin = resolve_claude();
+    let found = PathBuf::from(&bin).is_file()
+        || Command::new(&bin)
+            .arg("--version")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+    vec![LocalAgentInfo {
+        id: "claude-cli".into(),
+        name: "Claude Code".into(),
+        present: found,
+        path: if found { Some(bin) } else { None },
+    }]
+}
+
 fn run_claude(bin: &str, prompt: &str) -> Result<String, String> {
     let mut cmd = Command::new(bin);
     cmd.args(["-p", "--output-format", "text", "--strict-mcp-config"])
@@ -411,6 +441,7 @@ pub fn run() {
             set_clipboard_capture,
             take_opened_files,
             run_task,
+            ai_local_agents,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

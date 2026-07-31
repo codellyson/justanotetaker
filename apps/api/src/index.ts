@@ -8,6 +8,7 @@ import { notesRoutes } from "./routes/notes";
 import { linksRoutes } from "./routes/links";
 import { mediaRoutes } from "./routes/media";
 import { previewRoutes } from "./routes/preview";
+import { publicRoutes } from "./routes/public";
 import { settingsRoutes } from "./routes/settings";
 import { tokensRoutes, resolveApiToken } from "./routes/tokens";
 import type { Bindings } from "./env";
@@ -163,9 +164,11 @@ const routes = app
   // Deliberately NOT behind the blanket requireUser: GET serves images
   // publicly by unguessable key (an <img> can't send Authorization); POST
   // checks the session/token inline.
-  .route("/api/media", mediaRoutes);
+  .route("/api/media", mediaRoutes)
+  // Also deliberately public: read-only view of public boards.
+  .route("/api/public", publicRoutes);
 
-// Nightly: purge R2 objects for image notes that aged out of the 30-day
+// Nightly: purge R2 objects for image/file notes that aged out of the 30-day
 // graveyard, then release their bytes from the owner's quota. Deleting the
 // object at soft-delete time would break graveyard restore.
 const GRAVEYARD_MS = 30 * 24 * 60 * 60 * 1000;
@@ -173,7 +176,7 @@ async function scheduled(_event: ScheduledController, env: Bindings): Promise<vo
   const cutoff = Date.now() - GRAVEYARD_MS;
   const { results } = await env.DB.prepare(
     `SELECT id, user_id, meta FROM notes
-     WHERE kind = 'image' AND deleted_at IS NOT NULL AND deleted_at < ? AND meta IS NOT NULL`,
+     WHERE kind IN ('image', 'file') AND deleted_at IS NOT NULL AND deleted_at < ? AND meta IS NOT NULL`,
   )
     .bind(cutoff)
     .all<{ id: string; user_id: string; meta: string }>();

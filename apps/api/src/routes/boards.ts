@@ -12,24 +12,26 @@ const createSchema = z.object({
 const patchSchema = z.object({
   name: z.string().min(1).optional(),
   sort: z.number().optional(),
+  visibility: z.enum(["private", "public"]).optional(),
 });
 
 const idParam = z.object({ id: z.string() });
 
-const BOARD_COLS = "id, user_id, name, sort, created_at, updated_at, deleted_at";
+const BOARD_COLS = "id, user_id, name, sort, visibility, created_at, updated_at, deleted_at";
 
 type BoardRow = {
   id: string;
   user_id: string;
   name: string;
   sort: number;
+  visibility: string;
   created_at: number;
   updated_at: number;
   deleted_at: number | null;
 };
 
 function toBoard(r: BoardRow) {
-  return { id: r.id, name: r.name, sort: r.sort };
+  return { id: r.id, name: r.name, sort: r.sort, visibility: r.visibility };
 }
 
 // Create the account's first canvas. Called when the board list is empty so
@@ -45,10 +47,10 @@ async function ensureFirstBoard(db: D1Database, userId: string) {
     updatedAt: Date.now(),
   };
   await db
-    .prepare(`INSERT INTO boards (${BOARD_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .bind(board.id, userId, board.name, board.sort, board.createdAt, board.updatedAt, null)
+    .prepare(`INSERT INTO boards (${BOARD_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(board.id, userId, board.name, board.sort, "private", board.createdAt, board.updatedAt, null)
     .run();
-  return { id: board.id, name: board.name, sort: board.sort };
+  return { id: board.id, name: board.name, sort: board.sort, visibility: "private" as const };
 }
 
 export const boardsRoutes = new Hono<Env>()
@@ -96,11 +98,11 @@ export const boardsRoutes = new Hono<Env>()
       deletedAt: null as number | null,
     };
     await c.env.DB.prepare(
-      `INSERT INTO boards (${BOARD_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO boards (${BOARD_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-      .bind(board.id, board.userId, board.name, board.sort, board.createdAt, board.updatedAt, board.deletedAt)
+      .bind(board.id, board.userId, board.name, board.sort, "private", board.createdAt, board.updatedAt, board.deletedAt)
       .run();
-    return c.json({ board: { id: board.id, name: board.name, sort: board.sort } });
+    return c.json({ board: { id: board.id, name: board.name, sort: board.sort, visibility: "private" as const } });
   })
   .patch("/:id", zValidator("param", idParam), zValidator("json", patchSchema), async (c) => {
     const userId = c.get("userId");
@@ -111,6 +113,7 @@ export const boardsRoutes = new Hono<Env>()
     const binds: (string | number | null)[] = [Date.now()];
     if (typeof body.name === "string") { sets.push("name = ?"); binds.push(body.name); }
     if (typeof body.sort === "number") { sets.push("sort = ?"); binds.push(body.sort); }
+    if (body.visibility) { sets.push("visibility = ?"); binds.push(body.visibility); }
 
     const { results } = await c.env.DB.prepare(
       `UPDATE boards SET ${sets.join(", ")} WHERE id = ? AND user_id = ? RETURNING ${BOARD_COLS}`,

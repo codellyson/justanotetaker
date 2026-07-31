@@ -17,7 +17,7 @@ export const FRAME_PAD = 26;
 export const FRAME_LABEL_H = 34;
 
 function FrameNodeInner({ data, selected }: NodeProps<NoteFlowNode>) {
-  const { note, editing, dragging, collapsed, frameLayout, frameStats, isDropTarget, handlers } = data;
+  const { note, editing, dragging, collapsed, frameLayout, frameStats, isDropTarget, readOnly, handlers } = data;
   const inputRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
     if (editing) inputRef.current?.focus();
@@ -47,7 +47,7 @@ function FrameNodeInner({ data, selected }: NodeProps<NoteFlowNode>) {
   return (
     <>
       <NodeResizer
-        isVisible={!editing && !collapsed}
+        isVisible={!editing && !collapsed && !readOnly}
         minWidth={FRAME_MIN_W}
         minHeight={FRAME_MIN_H}
         onResize={(_, p) => handlers.onResize(note.id, p)}
@@ -100,7 +100,7 @@ function FrameNodeInner({ data, selected }: NodeProps<NoteFlowNode>) {
             {stats.count > 0 && `${stats.count} note${stats.count === 1 ? "" : "s"}`}
             {stats.total > 0 && ` · ${stats.done}/${stats.total} ✓`}
           </span>
-          <button
+          {!readOnly && <button
             type="button"
             className={"frame-layout-toggle nodrag" + (frameLayout === "stack" ? " on" : "")}
             title={frameLayout === "stack" ? "Free layout" : "Stack as a column"}
@@ -116,7 +116,7 @@ function FrameNodeInner({ data, selected }: NodeProps<NoteFlowNode>) {
               <rect x="4" y="11.5" width="16" height="5" rx="1.4" />
               <rect x="4" y="19" width="16" height="1.4" rx="0.7" />
             </svg>
-          </button>
+          </button>}
         </div>
         {pct != null && (
           <div className="frame-burndown" title={`${pct}% done`} aria-hidden="true">

@@ -26,11 +26,13 @@ import FrameNode from "./FrameNode";
 import ImageNode from "./ImageNode";
 import TaskNode from "./TaskNode";
 import ObjectNode from "./ObjectNode";
+import FileNode from "./FileNode";
 import { ThreadEdge } from "./ThreadEdge";
 import type { NoteFlowNode, ThreadFlowEdge } from "./useNoteGraph";
 
-const nodeTypes: NodeTypes = { note: NoteNode, frame: FrameNode, image: ImageNode, task: TaskNode, object: ObjectNode };
-const edgeTypes: EdgeTypes = { thread: ThreadEdge };
+// Exported for PublicCanvas.
+export const nodeTypes: NodeTypes = { note: NoteNode, frame: FrameNode, image: ImageNode, task: TaskNode, object: ObjectNode, file: FileNode };
+export const edgeTypes: EdgeTypes = { thread: ThreadEdge };
 // ⌘ on mac, Ctrl elsewhere — matching the old handlers, which accepted either.
 const MOD_KEYS = ["Meta", "Control"];
 

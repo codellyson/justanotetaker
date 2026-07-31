@@ -16,7 +16,7 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
 // the local claude CLI on desktop, or the user's own AI key browser-direct on
 // web. Tasks are created by agents (MCP create_task), not edited in place.
 function TaskNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
-  const { note, dragging, dimmed, highlit, scrubFade, handlers } = data;
+  const { note, dragging, dimmed, highlit, scrubFade, readOnly, handlers } = data;
   const isConnectTarget = useConnection((c) => c.inProgress && c.fromNode?.id !== id);
   const meta = (note.meta ?? { status: "queued", prompt: "" }) as TaskMeta;
   const status = meta.status ?? "queued";
@@ -34,11 +34,11 @@ function TaskNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
     highlit ? "hit" : "",
   ].filter(Boolean).join(" ");
 
-  const canRun = status === "queued" || status === "error";
+  const canRun = (status === "queued" || status === "error") && !readOnly;
 
   return (
     <>
-      <Handle type="target" position={Position.Left} className={"note-link-target" + (isConnectTarget ? " active" : "")} />
+      <Handle type="target" position={Position.Left} className={"note-link-target" + (isConnectTarget ? " active" : "") + (readOnly ? " readonly" : "")} />
       <div className={cls} data-note-id={note.id} style={style}>
         <div className="task-head">
           <span className={"task-chip task-chip-" + status}>
@@ -72,7 +72,7 @@ function TaskNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
 
         {status === "error" && meta.error && <div className="task-error">{meta.error}</div>}
       </div>
-      <Handle type="source" position={Position.Right} className="note-link-source nodrag" isConnectable />
+      <Handle type="source" position={Position.Right} className={"note-link-source nodrag" + (readOnly ? " readonly" : "")} isConnectable={!readOnly} />
     </>
   );
 }

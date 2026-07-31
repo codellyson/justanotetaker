@@ -8,7 +8,7 @@ import type { NoteFlowNode, NoteNodeHandlers } from "./useNoteGraph";
 // The kind is generic; this dispatches on objectType. State is held locally so
 // typing stays smooth, and re-synced when it changes out-of-band.
 function ObjectNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
-  const { note, dragging, dimmed, highlit, scrubFade, stackWidth, handlers } = data;
+  const { note, dragging, dimmed, highlit, scrubFade, stackWidth, readOnly, handlers } = data;
   const isConnectTarget = useConnection((c) => c.inProgress && c.fromNode?.id !== id);
   const meta = note.meta as ObjectMeta | null;
   const objectType = meta?.objectType ?? "table";
@@ -24,21 +24,21 @@ function ObjectNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
 
   return (
     <>
-      <NodeResizer isVisible={!!selected} minWidth={220} minHeight={80}
+      <NodeResizer isVisible={!!selected && !readOnly} minWidth={220} minHeight={80}
         onResize={(_, p) => handlers.onResize(note.id, p)}
         onResizeEnd={(_, p) => handlers.onResizeEnd(note.id, p)} />
-      <Handle type="target" position={Position.Left} className={"note-link-target" + (isConnectTarget ? " active" : "")} />
+      <Handle type="target" position={Position.Left} className={"note-link-target" + (isConnectTarget ? " active" : "") + (readOnly ? " readonly" : "")} />
       <div className={cls} data-note-id={note.id} style={style}>
         {objectType === "embed"
-          ? <EmbedWidget id={note.id} state={(meta?.state as EmbedState) ?? { url: "" }} selected={!!selected} handlers={handlers} />
-          : <TableWidget id={note.id} state={(meta?.state as TableState) ?? emptyTable()} handlers={handlers} />}
+          ? <EmbedWidget id={note.id} state={(meta?.state as EmbedState) ?? { url: "" }} selected={!!selected} readOnly={readOnly} handlers={handlers} />
+          : <TableWidget id={note.id} state={(meta?.state as TableState) ?? emptyTable()} readOnly={readOnly} handlers={handlers} />}
       </div>
-      <Handle type="source" position={Position.Right} className="note-link-source nodrag" isConnectable />
+      <Handle type="source" position={Position.Right} className={"note-link-source nodrag" + (readOnly ? " readonly" : "")} isConnectable={!readOnly} />
     </>
   );
 }
 
-function TableWidget({ id, state: metaState, handlers }: { id: string; state: TableState; handlers: NoteNodeHandlers }) {
+function TableWidget({ id, state: metaState, readOnly, handlers }: { id: string; state: TableState; readOnly?: boolean; handlers: NoteNodeHandlers }) {
   // Mirror meta.state locally so typing is smooth; adopt external (agent) writes
   // when they differ from what we hold.
   const [state, setState] = useState<TableState>(metaState);
@@ -63,32 +63,32 @@ function TableWidget({ id, state: metaState, handlers }: { id: string; state: Ta
       <div className="obj-grid" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr)) 22px` }}>
         {state.columns.map((col, ci) => (
           <div className="obj-cell obj-th" key={"h" + ci}>
-            <input className="obj-input nodrag nopan" value={col} placeholder={`Col ${ci + 1}`} onChange={(e) => setHeader(ci, e.target.value)} />
-            {cols > 1 && <button type="button" className="obj-del nodrag" title="Delete column" onClick={(e) => { e.stopPropagation(); delCol(ci); }}>×</button>}
+            <input className="obj-input nodrag nopan" value={col} placeholder={`Col ${ci + 1}`} readOnly={readOnly} onChange={(e) => setHeader(ci, e.target.value)} />
+            {cols > 1 && !readOnly && <button type="button" className="obj-del nodrag" title="Delete column" onClick={(e) => { e.stopPropagation(); delCol(ci); }}>×</button>}
           </div>
         ))}
         <div className="obj-cell obj-th obj-corner">
-          <button type="button" className="obj-add nodrag" title="Add column" onClick={(e) => { e.stopPropagation(); addCol(); }}>+</button>
+          {!readOnly && <button type="button" className="obj-add nodrag" title="Add column" onClick={(e) => { e.stopPropagation(); addCol(); }}>+</button>}
         </div>
         {state.rows.map((row, ri) => (
           <div className="obj-row-contents" key={"r" + ri} style={{ display: "contents" }}>
             {Array.from({ length: cols }).map((_, ci) => (
               <div className="obj-cell obj-td" key={ri + "-" + ci}>
-                <input className="obj-input nodrag nopan" value={row[ci] ?? ""} onChange={(e) => setCell(ri, ci, e.target.value)} />
+                <input className="obj-input nodrag nopan" value={row[ci] ?? ""} readOnly={readOnly} onChange={(e) => setCell(ri, ci, e.target.value)} />
               </div>
             ))}
             <div className="obj-cell obj-td obj-rowend">
-              <button type="button" className="obj-del nodrag" title="Delete row" onClick={(e) => { e.stopPropagation(); delRow(ri); }}>×</button>
+              {!readOnly && <button type="button" className="obj-del nodrag" title="Delete row" onClick={(e) => { e.stopPropagation(); delRow(ri); }}>×</button>}
             </div>
           </div>
         ))}
       </div>
-      <button type="button" className="obj-add-row nodrag" onClick={(e) => { e.stopPropagation(); addRow(); }}>+ row</button>
+      {!readOnly && <button type="button" className="obj-add-row nodrag" onClick={(e) => { e.stopPropagation(); addRow(); }}>+ row</button>}
     </>
   );
 }
 
-function EmbedWidget({ id, state: metaState, selected, handlers }: { id: string; state: EmbedState; selected: boolean; handlers: NoteNodeHandlers }) {
+function EmbedWidget({ id, state: metaState, selected, readOnly, handlers }: { id: string; state: EmbedState; selected: boolean; readOnly?: boolean; handlers: NoteNodeHandlers }) {
   const [draft, setDraft] = useState(metaState.url);
   useEffect(() => { setDraft(metaState.url); }, [metaState.url]);
   // Interaction is opt-in: a shield sits over the iframe so drag/resize keep
@@ -115,7 +115,9 @@ function EmbedWidget({ id, state: metaState, selected, handlers }: { id: string;
 
   let body;
   if (!metaState.url) {
-    body = (
+    body = readOnly ? (
+      <div className="obj-embed-empty" />
+    ) : (
       <div className="obj-embed-empty">
         <input
           className="obj-embed-input nodrag nopan"

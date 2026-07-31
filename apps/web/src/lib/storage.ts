@@ -29,7 +29,7 @@ export interface Storage {
   remove(id: string): Promise<void>;
   listBoards(): Promise<Board[]>;
   createBoard(input: { name: string; sort?: number }): Promise<Board>;
-  updateBoard(id: string, patch: Partial<Pick<Board, "name" | "sort">>): Promise<Board | null>;
+  updateBoard(id: string, patch: Partial<Pick<Board, "name" | "sort" | "visibility">>): Promise<Board | null>;
   deleteBoard(id: string): Promise<void>;
   listDeleted(): Promise<DeletedNote[]>;
   restore(id: string): Promise<StoredNote | null>;
@@ -40,6 +40,15 @@ export interface Storage {
   listLinks(boardId: string): Promise<NoteLink[]>;
   createLink(input: { id?: string; boardId: string; aId: string; bId: string }): Promise<NoteLink>;
   removeLink(id: string): Promise<void>;
+}
+
+function toUiBoard(b: { id: string; name: string; sort: number; visibility?: string }): Board {
+  return {
+    id: b.id,
+    name: b.name,
+    sort: b.sort,
+    visibility: b.visibility === "public" ? "public" : "private",
+  };
 }
 
 function toUiNote(row: {
@@ -132,7 +141,7 @@ export const remoteStorage: Storage = {
     const res = await api.api.boards.$get();
     if (!res.ok) throw new Error(`list boards: ${res.status}`);
     const { boards } = await res.json();
-    return boards.map((b) => ({ id: b.id, name: b.name, sort: b.sort }));
+    return boards.map(toUiBoard);
   },
 
   async createBoard(input) {
@@ -144,7 +153,7 @@ export const remoteStorage: Storage = {
     });
     if (!res.ok) throw new Error(`create board: ${res.status}`);
     const { board } = await res.json();
-    return { id: board.id, name: board.name, sort: board.sort };
+    return toUiBoard(board);
   },
 
   async updateBoard(id, patch) {
@@ -154,7 +163,7 @@ export const remoteStorage: Storage = {
       throw new Error(`update board: ${res.status}`);
     }
     const { board } = await res.json();
-    return { id: board.id, name: board.name, sort: board.sort };
+    return toUiBoard(board);
   },
 
   async deleteBoard(id) {

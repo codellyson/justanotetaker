@@ -2,8 +2,9 @@
 // tinted with a color); `page` a document surface a long note auto-promotes to;
 // `frame` a containment region other notes belong to; `image` an uploaded
 // picture; `task` a live agent job with a status lifecycle; `object` a live
-// canvas object (a table for now) whose state you and an agent both operate.
-export type NoteKind = "card" | "page" | "frame" | "image" | "task" | "object";
+// canvas object (a table for now) whose state you and an agent both operate;
+// `file` a dropped file stored in R2, presented as a download card.
+export type NoteKind = "card" | "page" | "frame" | "image" | "task" | "object" | "file";
 
 // Kind-specific payloads carried in `meta`.
 export type ImageMeta = {
@@ -41,7 +42,14 @@ export type ObjectMeta =
   | { objectType: "table"; state: TableState }
   | { objectType: "embed"; state: EmbedState };
 
-export type NoteMeta = ImageMeta | TaskMeta | FrameMeta | ObjectMeta;
+export type FileMeta = {
+  key: string;
+  name: string;
+  size: number;
+  mime?: string;
+};
+
+export type NoteMeta = ImageMeta | TaskMeta | FrameMeta | ObjectMeta | FileMeta;
 
 export const emptyTable = (): TableState => ({
   columns: ["", ""],
@@ -224,6 +232,7 @@ export type Board = {
   id: string;
   name: string;
   sort: number;
+  visibility: "private" | "public";
 };
 
 export type Tweaks = {

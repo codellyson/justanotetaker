@@ -8,7 +8,7 @@ import type { NoteFlowNode } from "./useNoteGraph";
 // dimensions; while it's absent the card is an in-flight upload placeholder.
 // `text` is an optional caption (searchable). Resize keeps aspect.
 function ImageNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
-  const { note, dragging, dimmed, highlit, scrubFade, handlers } = data;
+  const { note, dragging, dimmed, highlit, scrubFade, readOnly, handlers } = data;
   const meta = note.meta as ImageMeta | null;
   const isConnectTarget = useConnection((c) => c.inProgress && c.fromNode?.id !== id);
 
@@ -28,7 +28,7 @@ function ImageNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
   return (
     <>
       <NodeResizer
-        isVisible
+        isVisible={!readOnly}
         keepAspectRatio
         minWidth={80}
         minHeight={60}
@@ -38,7 +38,7 @@ function ImageNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
       <Handle
         type="target"
         position={Position.Left}
-        className={"note-link-target" + (isConnectTarget ? " active" : "")}
+        className={"note-link-target" + (isConnectTarget ? " active" : "") + (readOnly ? " readonly" : "")}
       />
       <div className={cls} data-note-id={note.id} style={style}>
         {meta?.key ? (
@@ -63,8 +63,8 @@ function ImageNodeInner({ id, data, selected }: NodeProps<NoteFlowNode>) {
       <Handle
         type="source"
         position={Position.Right}
-        className="note-link-source nodrag"
-        isConnectable
+        className={"note-link-source nodrag" + (readOnly ? " readonly" : "")}
+        isConnectable={!readOnly}
       />
     </>
   );

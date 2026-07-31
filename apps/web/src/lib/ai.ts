@@ -5,7 +5,7 @@
 // provider dispatch; kept plain-text (no structured-output schema) since "ask"
 // wants prose, not JSON.
 
-export type AiProvider = "anthropic" | "openai" | "google";
+export type AiProvider = "anthropic" | "openai" | "google" | "claude-cli";
 
 export interface ProviderMeta {
   id: AiProvider;
@@ -13,15 +13,29 @@ export interface ProviderMeta {
   defaultModel: string;
   keyPlaceholder: string;
   models: string[];
+  /**
+   * A local, already-authenticated CLI agent (e.g. Claude Code) driven
+   * headless — no API key. The settings form hides the key field and shows
+   * detection status instead.
+   */
+  local?: boolean;
+}
+
+/** A local CLI agent this app can drive, and whether it's installed. */
+export interface LocalAgentInfo {
+  id: string;
+  name: string;
+  present: boolean;
+  path?: string;
 }
 
 export const PROVIDERS: ProviderMeta[] = [
   {
     id: "anthropic",
     label: "Anthropic (Claude)",
-    defaultModel: "claude-opus-4-8",
+    defaultModel: "claude-opus-5",
     keyPlaceholder: "sk-ant-...",
-    models: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
+    models: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
   },
   {
     id: "openai",
@@ -37,7 +51,25 @@ export const PROVIDERS: ProviderMeta[] = [
     keyPlaceholder: "AIza...",
     models: ["gemini-2.5-pro", "gemini-2.5-flash"],
   },
+  {
+    id: "claude-cli",
+    label: "Local CLI agent (Claude Code)",
+    defaultModel: "sonnet",
+    keyPlaceholder: "",
+    models: ["sonnet", "opus", "haiku"],
+    local: true,
+  },
 ];
+
+export function isLocalProvider(id: AiProvider): boolean {
+  return !!PROVIDERS.find((p) => p.id === id)?.local;
+}
+
+/** Detect local CLI agents installed on this machine. Desktop only. */
+export async function localAgents(): Promise<LocalAgentInfo[]> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<LocalAgentInfo[]>("ai_local_agents");
+}
 
 export interface AiConfig {
   provider: AiProvider;
@@ -53,7 +85,9 @@ export function getAiConfig(): AiConfig | null {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const c = JSON.parse(raw) as AiConfig;
-    return c.apiKey && c.provider ? c : null;
+    if (!c.provider) return null;
+    // A local CLI agent authenticates itself — there is no key to store.
+    return isLocalProvider(c.provider) || c.apiKey ? c : null;
   } catch { return null; }
 }
 export function setAiConfig(c: AiConfig): void {

@@ -627,7 +627,8 @@ body {
   cursor: grab;
   background: transparent;
 }
-.canvas-object.obj-embed.selected .obj-embed-shield::after {
+.canvas-object.obj-embed.selected .obj-embed-shield::after,
+.file-card.selected .obj-embed-shield::after {
   content: "double-click to use";
   position: absolute;
   right: 8px;
@@ -855,6 +856,161 @@ body {
   font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
   font-size: 12px;
   color: rgb(var(--text-secondary));
+}
+
+/* Public read-only board view (/b/:id). */
+.public-board {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgb(var(--bg));
+}
+.public-board-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid rgb(var(--border) / 0.7);
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 13px;
+  color: rgb(var(--text-primary));
+}
+.public-board-header a {
+  font-size: 11.5px;
+  color: rgb(var(--text-secondary));
+  text-decoration: none;
+}
+.public-board-header a:hover {
+  color: rgb(var(--accent));
+}
+.public-board-canvas {
+  flex: 1;
+  min-height: 0;
+}
+.public-board-boot {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgb(var(--bg));
+  color: rgb(var(--text-secondary));
+  font-family: var(--font-jn-mono, ui-monospace), monospace;
+  font-size: 12.5px;
+}
+.public-board-boot a {
+  color: rgb(var(--accent));
+  text-decoration: none;
+  font-size: 11.5px;
+}
+
+/* Read-only view: handles stay mounted (edges anchor to them) but invisible. */
+.note-link-target.readonly,
+.note-link-source.readonly {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* File cards — a dropped file presented as a download row. */
+.file-card {
+  position: relative;
+  border-radius: var(--radius, 2px);
+  overflow: hidden;
+  background: rgb(var(--bg-secondary));
+  box-shadow: 0 0 0 1px rgb(var(--border) / 0.7);
+  transition: opacity 220ms ease, box-shadow 180ms ease;
+}
+.file-card.selected {
+  box-shadow: 0 0 0 2px rgb(var(--accent));
+}
+.file-card.dim {
+  opacity: 0.12;
+  filter: saturate(0.4);
+}
+.file-card-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+.file-card-badge {
+  flex: 0 0 auto;
+  min-width: 34px;
+  padding: 6px 6px;
+  border-radius: 5px;
+  text-align: center;
+  font-family: var(--font-jn-mono, ui-monospace), monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgb(var(--accent));
+  background: rgb(var(--accent) / 0.12);
+}
+.file-card-badge.shimmer {
+  height: 24px;
+  background: linear-gradient(
+    100deg,
+    rgb(var(--text-secondary) / 0.08) 40%,
+    rgb(var(--text-secondary) / 0.16) 50%,
+    rgb(var(--text-secondary) / 0.08) 60%
+  );
+  background-size: 200% 100%;
+  animation: img-shimmer 1.2s ease-in-out infinite;
+}
+.file-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.file-card-name {
+  font-family: var(--font-jn-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 12.5px;
+  color: rgb(var(--text-primary));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-card-size {
+  font-family: var(--font-jn-mono, ui-monospace), monospace;
+  font-size: 10px;
+  color: rgb(var(--text-secondary) / 0.7);
+}
+.file-card-pdf {
+  display: flex;
+  flex-direction: column;
+}
+.file-card-preview {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 8px;
+  border-top: 1px solid rgb(var(--border) / 0.5);
+  background: rgb(var(--bg) / 0.45);
+}
+/* Clips the PDF plugin's native scrollbar, which we can't style from out here.
+   Under view=FitH the page is laid out against the width left over after the
+   scrollbar, so widening the frame by exactly that much and clipping it hides
+   the rail without touching the page. */
+.file-card-preview-clip {
+  position: absolute;
+  inset: 8px;
+  overflow: hidden;
+  border-radius: 6px;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.3);
+}
+.file-card-preview iframe {
+  display: block;
+  width: calc(100% + 15px);
+  height: 100%;
+  border: 0;
 }
 
 /* Collapsed: the frame folds to just its label bar. */
